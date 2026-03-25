@@ -6,19 +6,18 @@ then responds via text-to-speech through a virtual audio device.
 import os
 import random
 import subprocess
-import tempfile
 import threading
 import time
 import logging
 import soundfile as sf
 import numpy as np
 from dotenv import load_dotenv
-from faster_whisper import WhisperModel
 import rumps
 from elevenlabs.client import ElevenLabs
 from openai import OpenAI
 from PyObjCTools.AppHelper import callAfter
 from calendar_join import CalendarPoller
+from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 
 load_dotenv()
 
@@ -34,20 +33,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("elevenlabs").setLevel(logging.WARNING)
 
-SAMPLE_RATE = 16000
-BYTES_PER_SAMPLE = 4  # Float32
 VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George
 WAKE_PHRASE = "operator"
 MAX_TRANSCRIPT_LINES = 100  # rolling transcript history limit
-UTTERANCE_CHECK_INTERVAL = 0.5   # seconds between audio checks
-UTTERANCE_SILENCE_THRESHOLD = 2  # consecutive silent checks = utterance done (~1s)
-UTTERANCE_MAX_DURATION = 10      # hard cap: finalize utterance after 10s
-UTTERANCE_SILENCE_RMS = 0.02     # RMS below this = silence (tune if needed)
-# Whisper tiny hallucinates these on silence — backstop filter
-WHISPER_HALLUCINATIONS = {
-    "you", "thank you", "thanks", "thanks a lot", "bye", "goodbye",
-    "the end", "i'm sorry", "sorry",
-}
 SYSTEM_PROMPT = (
     "You are Operator, an AI thought partner participating in a meeting. "
     "Your responses will be spoken aloud via text-to-speech, so:\n"
@@ -86,18 +74,15 @@ class OperatorApp(rumps.App):
 
         self.conversation_history = []
 
+        # Audio processor (initialised in _load_and_start after API key check)
+        self.audio = None
+
         # Continuous audio capture state
         self._capture_proc = None
-        self._audio_buffer = b""
-        self._audio_lock = threading.Lock()
-        self._capturing = False
 
         # Rolling transcript
         self._transcript_lines = []
         self._transcript_lock = threading.Lock()
-
-        # Echo prevention — pause audio ingestion while speaking
-        self._speaking = False
 
         # Calendar auto-join
         self._calendar_poller = None
@@ -138,7 +123,7 @@ class OperatorApp(rumps.App):
             return
 
         self._set_state("⚪", "Loading Whisper model...")
-        self.whisper = WhisperModel("base", device="cpu", compute_type="int8")
+        self.audio = AudioProcessor()
 
         self._set_state("⚪", "Connecting to APIs...")
         self.openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
@@ -157,15 +142,15 @@ class OperatorApp(rumps.App):
         clip = random.choice(ACK_CLIPS)
         clip_name = os.path.basename(clip).replace("ack_", "").replace(".mp3", "")
         log.info(f"Operator says: \"{clip_name}\" (acknowledgment)")
-        self._speaking = True
-        self._drain_audio_buffer()
+        self.audio.is_speaking = True
+        self.audio.drain_audio_buffer()
         subprocess.run(
             ["mpv", "--no-terminal", f"--audio-device={BLACKHOLE_DEVICE}", "--", clip],
             check=False,
         )
         time.sleep(0.2)
-        self._drain_audio_buffer()
-        self._speaking = False
+        self.audio.drain_audio_buffer()
+        self.audio.is_speaking = False
         log.info("TIMING ack_done")
 
     # ------------------------------------------------------------------
@@ -186,7 +171,7 @@ class OperatorApp(rumps.App):
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
             )
-            self._capturing = True
+            self.audio.capturing = True
             log.info("Continuous capture: helper launched")
         except OSError as e:
             log.error(f"Continuous capture: failed to launch helper: {e}")
@@ -204,25 +189,22 @@ class OperatorApp(rumps.App):
             log.debug(f"[swift] {line.decode().rstrip()}")
 
     def _audio_read_loop(self):
-        """Continuously read PCM data from the Swift helper into _audio_buffer."""
+        """Continuously read PCM data from the Swift helper into the audio buffer."""
         CHUNK_SIZE = 4096
-        while self._capturing:
+        while self.audio.capturing:
             chunk = self._capture_proc.stdout.read(CHUNK_SIZE)
             if not chunk:
                 log.warning("Continuous capture: helper stopped (stdout closed)")
-                self._capturing = False
+                self.audio.capturing = False
                 break
-            # Echo prevention: discard audio while Operator is speaking
-            if self._speaking:
-                continue
-            with self._audio_lock:
-                self._audio_buffer += chunk
+            self.audio.feed_audio(chunk)
 
-        log.info(f"Continuous capture: read loop ended, total bytes: {len(self._audio_buffer)}")
+        log.info("Continuous capture: read loop ended")
 
     def _stop_continuous_capture(self):
         """Stop the Swift helper."""
-        self._capturing = False
+        if self.audio:
+            self.audio.capturing = False
         if self._capture_proc:
             log.info("Continuous capture: stopping helper")
             try:
@@ -239,82 +221,14 @@ class OperatorApp(rumps.App):
     # Transcription loop
     # ------------------------------------------------------------------
 
-    def _drain_audio_buffer(self):
-        """Drain and return all accumulated audio bytes, resetting the buffer."""
-        with self._audio_lock:
-            data = self._audio_buffer
-            self._audio_buffer = b""
-        return data
-
-    def _capture_next_utterance(self, is_prompt=False, no_speech_timeout=None):
-        """Block until a complete utterance is detected. Returns transcribed text or ''.
-
-        no_speech_timeout: if set, give up and return '' if no speech starts within
-        this many seconds. Used for conversation follow-up mode.
-        """
-        speech_detected = False
-        silence_count = 0
-        utterance_audio = b""
-        speech_start_time = None
-        capture_start = time.time()
-        label = "prompt" if is_prompt else "ambient"
-        log.info(f"TIMING {label}_capture_start")
-
-        while self._capturing:
-            time.sleep(UTTERANCE_CHECK_INTERVAL)
-
-            # If no speech has started yet and we've exceeded no_speech_timeout, bail out
-            if no_speech_timeout and not speech_detected:
-                if time.time() - capture_start > no_speech_timeout:
-                    log.info(f"TIMING {label}_timeout (no speech in {no_speech_timeout:.0f}s)")
-                    return ""
-
-            raw = self._drain_audio_buffer()
-            if raw:
-                rms = float(np.sqrt(np.mean(np.frombuffer(raw, dtype=np.float32) ** 2)))
-                if rms >= UTTERANCE_SILENCE_RMS:
-                    speech_detected = True
-                    if speech_start_time is None:
-                        speech_start_time = time.time()
-                        log.info(f"TIMING {label}_speech_first rms={rms:.4f}")
-                    silence_count = 0
-                    utterance_audio += raw
-                    log.debug(f"Utterance speech (rms={rms:.4f})")
-                elif speech_detected:
-                    utterance_audio += raw
-                    silence_count += 1
-                    log.debug(f"Utterance silence {silence_count}/{UTTERANCE_SILENCE_THRESHOLD} (rms={rms:.4f})")
-            elif speech_detected:
-                silence_count += 1
-                log.debug(f"Utterance no-audio silence {silence_count}/{UTTERANCE_SILENCE_THRESHOLD}")
-
-            if speech_detected:
-                if silence_count >= UTTERANCE_SILENCE_THRESHOLD:
-                    speech_duration = time.time() - speech_start_time
-                    log.info(f"TIMING {label}_utterance_done silence {speech_duration:.1f}s")
-
-                    break
-                if time.time() - speech_start_time > UTTERANCE_MAX_DURATION:
-                    log.info(f"TIMING {label}_utterance_done max_duration")
-                    break
-
-        if not utterance_audio:
-            return ""
-
-        audio = np.frombuffer(utterance_audio, dtype=np.float32)
-        log.info(f"TIMING {label}_whisper_start")
-        text = self._transcribe(audio)
-        log.info(f"TIMING {label}_whisper_done \"{text}\"")
-        return text
-
     def _transcription_loop(self):
         """Utterance-based loop: detects 'operator' wake phrase via Whisper,
         routes to LLM for prompt utterances, accumulates ambient speech into
         the rolling transcript."""
         log.info("Transcription loop: started")
 
-        while self._capturing:
-            text = self._capture_next_utterance(is_prompt=False)
+        while self.audio.capturing:
+            text = self.audio.capture_next_utterance(is_prompt=False)
             if not text:
                 continue
 
@@ -339,7 +253,7 @@ class OperatorApp(rumps.App):
                     log.info("TIMING wake_only waiting_for_prompt")
                     self._set_state("🔴", "Listening for prompt...")
                     self._play_acknowledgment()
-                    prompt = self._capture_next_utterance(is_prompt=True)
+                    prompt = self.audio.capture_next_utterance(is_prompt=True)
                     if prompt:
                         self._finalize_prompt(prompt)
                     else:
@@ -351,9 +265,9 @@ class OperatorApp(rumps.App):
                 # follow-up replies without requiring the wake phrase again.
                 # Exit when 20s pass with no speech.
                 log.info("Entering conversation mode")
-                while self._capturing:
+                while self.audio.capturing:
                     self._set_state("🔴", "Listening...")
-                    followup = self._capture_next_utterance(is_prompt=True, no_speech_timeout=20.0)
+                    followup = self.audio.capture_next_utterance(is_prompt=True, no_speech_timeout=20.0)
                     if not followup:
                         log.info("Conversation mode: no follow-up, returning to idle")
                         break
@@ -382,8 +296,8 @@ class OperatorApp(rumps.App):
         self._set_state("🟡", "Thinking...")
 
         # Echo prevention: pause audio ingestion for the entire think+speak cycle
-        self._speaking = True
-        self._drain_audio_buffer()
+        self.audio.is_speaking = True
+        self.audio.drain_audio_buffer()
         log.info("Echo prevention: paused audio ingestion")
 
         # Build context from rolling transcript
@@ -415,8 +329,8 @@ class OperatorApp(rumps.App):
             log.error(f"Pipeline error: {e}")
         finally:
             # Echo prevention: drain anything that leaked in, then resume ingestion
-            self._drain_audio_buffer()
-            self._speaking = False
+            self.audio.drain_audio_buffer()
+            self.audio.is_speaking = False
             log.info("Echo prevention: resumed audio ingestion")
 
         self._set_state("⚪", "Listening for 'operator'...")
@@ -424,22 +338,6 @@ class OperatorApp(rumps.App):
     # ------------------------------------------------------------------
     # Pipeline
     # ------------------------------------------------------------------
-
-    def _transcribe(self, audio):
-        # Whisper reliably drops the first word without a short silence pad at the start.
-        # Prepend 0.5s of silence so the model has context before speech begins.
-        silence_pad = np.zeros(int(SAMPLE_RATE * 0.5), dtype=np.float32)
-        audio = np.concatenate([silence_pad, audio])
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-            sf.write(f.name, audio, SAMPLE_RATE)
-            tmp_path = f.name
-        segments, _ = self.whisper.transcribe(
-            tmp_path, language="en",
-            vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 300},
-        )
-        os.unlink(tmp_path)
-        return " ".join(seg.text.strip() for seg in segments).strip()
 
     def _ask_llm(self, utterance):
         self.conversation_history.append({"role": "user", "content": utterance})
