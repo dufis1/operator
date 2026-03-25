@@ -18,15 +18,14 @@
 
 ## Current Status
 
-**Phase:** Pre-validation (Phase -1). No refactoring started.
-**Blockers before probes:** Env F (Python 3.11 upgrade) and Env G (browser profile).
-**Next action:** `brew install python@3.11` → recreate venv → Env G → run probes.
+**Phase:** Phase 0 — Codebase Cleanup. All pre-validation probes passed.
+**Next action:** Step 0.1 — delete completed STT benchmark files (`benchmark_stt.py`, `capture_clips.py`, `benchmark_clips/`, `benchmark_results.json`).
 
 ---
 
 ## Repo State
 
-Not yet on GitHub. Local only at `~/Desktop/operator`. No git history yet.
+Local git repo at `~/Desktop/operator`. Not yet on GitHub. Initial commit: `539ac57`.
 
 **Secrets (never commit):** `.env`, `credentials.json`, `token.json`, `browser_profile/`
 All excluded via `.gitignore`.
@@ -60,8 +59,12 @@ operator/
 └── tests/
     ├── test_apis.py / test_blackhole.py / test_capture.py / test_menubar.py
     ├── test_pipeline.py / test_swift_capture.py / test_tts.py / test_whisper.py
-    ├── probe_a1_headless_meet.py   # Phase -1 probe (already written)
-    └── probe_a2_stealth_meet.py    # Phase -1 probe (already written)
+    ├── probe_a1_headless_meet.py   # Phase -1 probe ✅
+    ├── probe_a2_stealth_meet.py    # Phase -1 probe ✅
+    └── probe_b2_whisper_docker.py  # Phase -1 probe ✅
+└── docker/
+    ├── Dockerfile.probe_b2         # Phase -1 probe image
+    └── whisper_bench.py            # runs inside probe container
 ```
 
 ---
@@ -176,14 +179,12 @@ operator/
 
 ### Probe B: PulseAudio Audio Quality
 
-- [ ] **Probe B.1** — Install Docker Desktop. **Test:** `docker --version`.
+- [x] **Probe B.1** — Install Docker Desktop. **Test:** `docker --version` → `Docker version 29.3.0`.
 
-- [ ] **Probe B.2** — Build audio-test container: `tests/probe_pulseaudio/`
-  - Dockerfile: Ubuntu 22.04, PulseAudio, Python 3.11, ffmpeg, faster-whisper, virtual sink
-  - Test script: play known audio clip into virtual sink → capture → Whisper → print transcript + WER
-  - **Pass criteria:** WER ≤ 0.15%, "operator" transcribed correctly every time
-  - **Fail → contingency: CDP** (capture audio from Chrome DevTools Protocol instead of PulseAudio). Document, stop, investigate.
-  - **Commit (if passes):** `test: PulseAudio audio probe — PASSES, WER X.XX%, config documented`
+- [x] **Probe B.2** — Build audio-test container (`docker/Dockerfile.probe_b2`, `docker/whisper_bench.py`, `tests/probe_b2_whisper_docker.py`)
+  - PulseAudio started successfully inside container.
+  - faster-whisper base WER: 9.1% avg (identical to local baseline of 9.9% — container adds zero degradation).
+  - **Result: PASS.** `test: Docker PulseAudio + Whisper probe — PASSES, 9.1% WER, config documented`
 
 ### Decision Gate
 

@@ -6,9 +6,9 @@
 
 ## Current Status
 
-> **Pre-validation phase.** Before any refactoring begins, two probes must pass. Environment setup is mostly done — Env F and G are the blockers.
+> **Phase 0.** All pre-validation probes passed. Environment setup complete. Refactoring can begin.
 >
-> **Immediate next step:** Upgrade Python to 3.11 (Env F), then recreate the browser profile (Env G), then run the probes.
+> **Immediate next step:** Phase 0, Step 0.1 — delete completed STT benchmark files.
 
 ---
 
@@ -32,10 +32,10 @@
 
 | Step | Description | Status |
 |------|-------------|--------|
-| A.1 | Run headless Chrome probe — no stealth config (`probe_a1_headless_meet.py`) | ⬜ Pending |
-| A.2 | Run headless Chrome probe — with anti-detection config (`probe_a2_stealth_meet.py`) | ⬜ Pending |
-| B.1 | Install Docker Desktop | ⬜ Pending |
-| B.2 | Build minimal PulseAudio audio-test container, check Whisper accuracy | ⬜ Pending |
+| A.1 | Run headless Chrome probe — no stealth config (`probe_a1_headless_meet.py`) | ✅ Pass |
+| A.2 | Run headless Chrome probe — with anti-detection config (`probe_a2_stealth_meet.py`) | ✅ Pass |
+| B.1 | Install Docker Desktop | ✅ Pass |
+| B.2 | Build minimal PulseAudio audio-test container, check Whisper accuracy | ✅ Pass |
 
 **Decision gate:**
 | Probe A | Probe B | Path forward |

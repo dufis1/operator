@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+# Install system dependencies:
+#   pulseaudio        — virtual audio server (the production audio path)
+#   pulseaudio-utils  — pactl, paplay, parec CLI tools
+#   ffmpeg            — audio decoding required by faster-whisper
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pulseaudio \
+    pulseaudio-utils \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+RUN pip install --no-cache-dir \
+    faster-whisper \
+    numpy \
+    soundfile
+
+WORKDIR /app
+
+# Copy benchmark clips and ground truth
+COPY benchmark_clips/ /app/benchmark_clips/
+
+# Copy the inner benchmark script
+COPY docker/whisper_bench.py /app/whisper_bench.py
+
+ENTRYPOINT ["python", "/app/whisper_bench.py"]
