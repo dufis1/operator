@@ -1,8 +1,8 @@
 # Operator — Refactor Plan
 
-*Last updated: March 24, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
+*Last updated: March 25, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
-> **Current status: Phase 3 in progress.** Steps 3.1–3.5 complete. Next: Step 3.6 — implement `DockerAdapter` in `connectors/docker_adapter.py`.
+> **Current status: Phase 3 complete. Phase 4 starting.** Next: Step 4.1 — chat mode (`@operator` mentions in meeting chat).
 
 ---
 
@@ -114,9 +114,9 @@
 | 3.3 | *(requirements.txt already done — see Env C)* | ✅ |
 | 3.4 | Set up PulseAudio virtual audio in the container | ✅ |
 | 3.5 | Validate Whisper accuracy on container audio | ✅ |
-| 3.6 | Implement `DockerAdapter` → `connectors/docker_adapter.py` | ⬜ |
-| 3.7 | Create `docker/entrypoint.py`, wire adapter to pipeline | ⬜ |
-| 3.8 | Build daily smoke test (`tests/test_smoke_docker.py`) | ⬜ |
+| 3.6 | Implement `DockerAdapter` → `connectors/docker_adapter.py` | ✅ |
+| 3.7 | Create `docker/entrypoint.py`, wire adapter to pipeline | ✅ |
+| 3.8 | Build daily smoke test (`tests/test_smoke_docker.py`) | ✅ |
 
 ---
 

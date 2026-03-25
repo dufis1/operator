@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 3 — Docker Adapter in progress.
-**Next action:** Step 3.8 — Create `tests/test_smoke_docker.py`.
+**Phase:** Phase 4 — Product Features.
+**Next action:** Step 4.1 — Chat mode (`send_chat()` in DockerAdapter, `MODE` env var).
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 **Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
@@ -383,8 +383,8 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   **Test:** `docker run -e OPENAI_API_KEY=... -e ELEVENLABS_API_KEY=... operator` → joins test meeting, responds to wake phrase.
   **Commit:** `feat: add Docker container entry point, wire DockerAdapter to pipeline`
 
-- [ ] **Step 3.8** — Create `tests/test_smoke_docker.py`: start container, join test Meet room, play pre-recorded clip "operator, say the word hello", listen for audio response within 10s, assert received, teardown. Add to GitHub Actions as daily CI job.
-  **Test:** `python tests/test_smoke_docker.py` → passes.
+- [x] **Step 3.8** — Create `tests/test_smoke_docker.py`: start container, join test Meet room, play pre-recorded clip "operator, say the word hello", listen for audio response within 10s, assert received, teardown. Add to GitHub Actions as daily CI job.
+  **Result: PASS.** 1,916,928 bytes captured from MeetingOutput.monitor (full TTS response). Two fixes discovered during test: (1) Dockerfile CMD updated to run `pulse_setup.sh` before Python (PulseAudio wasn't starting); (2) DockerAdapter `_browser_session` now fills "Your name" field before clicking join (unauthenticated guest join requires name input).
   **Commit:** `feat: add daily smoke test for Docker adapter (test_smoke_docker.py)`
 
 **End-of-phase commit:** `feat: Phase 3 complete — Docker container adapter implemented and smoke-tested`
