@@ -3,7 +3,7 @@ from setuptools import setup
 APP = ["app.py"]
 OPTIONS = {
     "argv_emulation": False,
-    "packages": ["rumps", "anthropic", "elevenlabs", "faster_whisper", "sounddevice", "soundfile", "numpy", "dotenv"],
+    "packages": ["rumps", "openai", "elevenlabs", "faster_whisper", "sounddevice", "soundfile", "numpy", "dotenv", "pipeline"],
     "resources": ["audio_capture", "assets"],
     "plist": {
         "LSUIElement": True,  # hide Dock icon — menu bar only

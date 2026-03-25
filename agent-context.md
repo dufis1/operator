@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 1 — Extract the Agent Pipeline. Phase 0 complete.
-**Next action:** Step 1.2 — create `pipeline/audio.py`, move audio constants + Whisper model init + utterance-capture loop from `app.py`.
+**Next action:** Step 1.3 — create `pipeline/wake.py`, move wake phrase detection out of `app.py`.
 
 ---
 
@@ -36,35 +36,32 @@ All excluded via `.gitignore`.
 
 ```
 operator/
-├── app.py                     # entire product: UI + audio + LLM + TTS
+├── app.py                     # macOS UI shell — imports from pipeline.*
 ├── audio_capture.swift        # macOS-only: ScreenCaptureKit system audio capture
+├── audio_capture              # compiled Swift binary (gitignored)
 ├── calendar_join.py           # Google Calendar polling + Playwright auto-join
 ├── setup.py                   # macOS app bundle config (py2app)
-├── backchannel_mmhmm.mp3
-├── backchannel_goon.mp3
-├── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
-├── generate_backchannel.py    # one-time script for audio clip generation
-├── benchmark_stt.py           # completed STT benchmark (delete in Phase 0)
-├── capture_clips.py           # benchmark clip capture (delete in Phase 0)
-├── benchmark_clips/           # benchmark audio files (delete in Phase 0)
-├── benchmark_results.json     # benchmark results (delete in Phase 0)
-├── test_api_keys.py / test_calendar.py / test_playwright.py / test_playwright_basic.py
-├── spec.md                    # original spec, superseded (delete in Phase 0)
 ├── product-strategy.md        # authoritative product strategy
 ├── refactor-plan.md           # human-readable plan
 ├── agent-context.md           # this file
 ├── requirements.txt           # cross-platform + macOS-only packages (macOS-only noted)
 ├── .env / credentials.json / token.json  # secrets, all gitignored
 ├── .gitignore / .vscode/settings.json
+├── pipeline/
+│   ├── __init__.py
+│   └── audio.py               # AudioProcessor: buffer, silence detection, Whisper STT
+├── assets/
+│   └── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
+├── scripts/
+│   └── generate_backchannel.py
 └── tests/
+    ├── test_audio_processor.py  # AudioProcessor unit tests (no BlackHole needed)
     ├── test_apis.py / test_blackhole.py / test_capture.py / test_menubar.py
     ├── test_pipeline.py / test_swift_capture.py / test_tts.py / test_whisper.py
+    ├── test_calendar.py
     ├── probe_a1_headless_meet.py   # Phase -1 probe ✅
     ├── probe_a2_stealth_meet.py    # Phase -1 probe ✅
     └── probe_b2_whisper_docker.py  # Phase -1 probe ✅
-└── docker/
-    ├── Dockerfile.probe_b2         # Phase -1 probe image
-    └── whisper_bench.py            # runs inside probe container
 ```
 
 ---
@@ -120,6 +117,7 @@ operator/
 - **ScreenCaptureKit requires `.app` bundle** on macOS — silently fails from plain Python script.
 - **PyObjC packages are fragile** — never install new `pyobjc-framework-*` without checking prior issues.
 - **`WHISPER_HALLUCINATIONS` filter** — catches common false positives on silence. Add patterns as found.
+- **Audio output device is BlackHole only (`coreaudio/BlackHole2ch_UID`)** — do NOT change to Multi-Output Device. mpv plays TTS → BlackHole → Chrome mic → call participants hear Operator. Using Multi-Output Device causes Operator's voice to play through the MacBook speakers, which is undesirable. Chrome must have BlackHole 2ch set as its default microphone (chrome://settings/content/microphone).
 - **Ghost session in Meet:** Closing the browser without clicking Leave leaves the Operator account registered as "in the meeting." Next join attempt shows "Switch here" instead of "Join now." Fix: `leave()` must click the Leave button before `browser.close()`. Also handle "Switch here" as a fallback join path. Workaround during probes: use a new meeting link each time.
 - **Backchannel + completeness check removed from scope** — utterances finalize on silence, no mid-prompt continuation logic.
 - **LLM round-trip is 0.9–3s** — not fixable in code; mask it with backchannels, don't try to eliminate it.
@@ -148,6 +146,15 @@ operator/
   ```
   **Test:** `python3 --version` → `Python 3.11.x`. Then: `python3 -c "import openai, faster_whisper, playwright; print('ok')"`.
   No commit (venv is gitignored).
+
+- [x] **Env H** — New machine setup (March 2026)
+  - Install BlackHole 2ch: `brew install blackhole-2ch` (requires password; `.pkg` is at `/opt/homebrew/Caskroom/blackhole-2ch/0.6.1/` if brew fails silently)
+  - Install mpv: `brew install mpv`
+  - Compile Swift helper: `swiftc audio_capture.swift -o audio_capture -framework AVFoundation -framework ScreenCaptureKit -framework CoreMedia`
+  - Set Chrome microphone to BlackHole 2ch: `chrome://settings/content/microphone`
+  - System audio output stays on built-in speakers — no Multi-Output Device needed
+  - Rebuild app bundle: `python setup.py py2app -A && open dist/Operator.app`
+  - **Test pipeline without hardware:** `python tests/test_audio_processor.py --no-mic`
 
 - [x] **Env G** — Recreate `browser_profile/`
   ```bash
@@ -224,7 +231,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
 
 - [x] **Step 1.1** — Create `pipeline/__init__.py` (empty)
 
-- [ ] **Step 1.2** — Create `pipeline/audio.py`. Move from `app.py`:
+- [x] **Step 1.2** — Create `pipeline/audio.py`. Move from `app.py`:
   - Constants: `SAMPLE_RATE`, `BYTES_PER_SAMPLE`, `UTTERANCE_CHECK_INTERVAL`, `UTTERANCE_SILENCE_THRESHOLD`, `UTTERANCE_MAX_DURATION`, `UTTERANCE_SILENCE_RMS`, `WHISPER_HALLUCINATIONS`
   - Whisper model init
   - Utterance-capture loop (PCM read, silence detection, utterance finalization)
