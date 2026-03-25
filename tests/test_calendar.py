@@ -11,8 +11,8 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
-CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), "credentials.json")
-TOKEN_FILE = os.path.join(os.path.dirname(__file__), "token.json")
+CREDENTIALS_FILE = os.path.join(os.path.dirname(__file__), "..", "credentials.json")
+TOKEN_FILE = os.path.join(os.path.dirname(__file__), "..", "token.json")
 
 
 def get_calendar_service():
