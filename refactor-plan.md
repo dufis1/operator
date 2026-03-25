@@ -2,15 +2,15 @@
 
 *Last updated: March 24, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
-> **Current status: Phase 1 in progress.** Steps 1.1 and 1.2 complete. Next step: 1.3 — extract wake phrase detection into `pipeline/wake.py`.
+> **Current status: Phase 1 in progress.** Steps 1.1–1.5 complete. Next step: 1.6 — extract TTS into `pipeline/tts.py`.
 
 ---
 
 ## Current Status
 
-> **Phase 1 in progress.** Steps 1.1 and 1.2 complete. New machine fully set up (BlackHole, mpv, Swift helper compiled, Chrome mic configured).
+> **Phase 1 in progress.** Steps 1.1–1.5 complete. New machine fully set up (BlackHole, mpv, Swift helper compiled, Chrome mic configured).
 >
-> **Immediate next step:** Step 1.3 — extract wake phrase detection into `pipeline/wake.py`.
+> **Immediate next step:** Step 1.6 — extract TTS into `pipeline/tts.py`.
 
 ---
 
@@ -73,7 +73,7 @@
 | 1.2 | Extract audio processing → `pipeline/audio.py` | ✅ |
 | 1.3 | Extract wake phrase detection → `pipeline/wake.py` | ⬜ |
 | 1.4 | Extract conversation state machine → `pipeline/conversation.py` | ⬜ |
-| 1.5 | Extract LLM calls → `pipeline/llm.py` | ⬜ |
+| 1.5 | Extract LLM calls → `pipeline/llm.py` | ✅ |
 | 1.6 | Extract TTS → `pipeline/tts.py` (make output device a parameter, not hardcoded) | ⬜ |
 
 ---

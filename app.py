@@ -20,6 +20,7 @@ from calendar_join import CalendarPoller
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.wake import detect_wake_phrase
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
+from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
 
 load_dotenv()
 
@@ -36,18 +37,6 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("elevenlabs").setLevel(logging.WARNING)
 
 VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George
-MAX_TRANSCRIPT_LINES = 100  # rolling transcript history limit
-SYSTEM_PROMPT = (
-    "You are Operator, an AI thought partner participating in a meeting. "
-    "Your responses will be spoken aloud via text-to-speech, so:\n"
-    "- Keep responses to 1-2 SHORT sentences, under 30 words total\n"
-    "- Never use markdown, bullet points, or formatting\n"
-    "- Speak in plain, natural sentences only\n"
-    "- Be direct — no preamble, no filler, no caveats\n"
-    "- User input comes from speech-to-text and may contain transcription "
-    "errors (e.g. \"shop advice\" instead of \"Shopify's\"). Use surrounding "
-    "context to infer the intended words."
-)
 BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
 
 # Maps conversation state names → menu bar icons
@@ -80,8 +69,6 @@ class OperatorApp(rumps.App):
             None,
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
-
-        self.conversation_history = []
 
         # Conversation state machine
         self.conv = ConversationState(on_state_change=self._on_conv_state_change)
@@ -143,6 +130,7 @@ class OperatorApp(rumps.App):
 
         self._set_state("⚪", "Connecting to APIs...")
         self.openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        self.llm = LLMClient(self.openai_client)
         self.eleven = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
 
         self._start_continuous_capture()
@@ -322,7 +310,7 @@ class OperatorApp(rumps.App):
         try:
             log.info("TIMING llm_request_sent")
             t_llm_start = time.time()
-            reply = self._ask_llm(full_prompt)
+            reply = self.llm.ask(full_prompt)
             t_llm_end = time.time()
             log.info(f"TIMING llm_response_received ({t_llm_end - t_llm_start:.1f}s) \"{reply}\"")
 
@@ -350,20 +338,6 @@ class OperatorApp(rumps.App):
     # ------------------------------------------------------------------
     # Pipeline
     # ------------------------------------------------------------------
-
-    def _ask_llm(self, utterance):
-        self.conversation_history.append({"role": "user", "content": utterance})
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4.1-mini",
-            max_tokens=60,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                *self.conversation_history,
-            ],
-        )
-        reply = response.choices[0].message.content
-        self.conversation_history.append({"role": "assistant", "content": reply})
-        return reply
 
     def _speak(self, text):
         t0 = time.time()

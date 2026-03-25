@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 1 — Extract the Agent Pipeline. Phase 0 complete.
-**Next action:** Step 1.3 — create `pipeline/wake.py`, move wake phrase detection out of `app.py`.
+**Next action:** Step 1.6 — create `pipeline/tts.py`, move TTS + audio playback out of `app.py`.
 
 ---
 
@@ -49,7 +49,10 @@ operator/
 ├── .gitignore / .vscode/settings.json
 ├── pipeline/
 │   ├── __init__.py
-│   └── audio.py               # AudioProcessor: buffer, silence detection, Whisper STT
+│   ├── audio.py               # AudioProcessor: buffer, silence detection, Whisper STT
+│   ├── wake.py                # detect_wake_phrase: inline vs wake-only detection
+│   ├── conversation.py        # ConversationState: idle/listening/thinking/speaking
+│   └── llm.py                 # LLMClient: GPT-4.1-mini calls + conversation history
 ├── assets/
 │   └── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
 ├── scripts/
@@ -239,7 +242,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   **Test:** Run app. Trigger wake phrase. Whisper transcribes correctly. Check logs for import errors.
   **Commit:** `refactor: extract audio processing into pipeline/audio.py`
 
-- [ ] **Step 1.3** — Create `pipeline/wake.py`. Move: wake phrase detection (scan transcript for "operator", distinguish inline vs wake-only).
+- [x] **Step 1.3** — Create `pipeline/wake.py`. Move: wake phrase detection (scan transcript for "operator", distinguish inline vs wake-only).
   **Test:** Add to `tests/test_pipeline.py`:
   - `"operator what's the plan"` → `("inline", "what's the plan")`
   - `"operator"` → `("wake-only", "")`
@@ -247,11 +250,11 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   Run test + full end-to-end.
   **Commit:** `refactor: extract wake phrase detection into pipeline/wake.py`
 
-- [ ] **Step 1.4** — Create `pipeline/conversation.py`. Move: state machine (`_state`, `_set_state()`), four states (idle/listening/thinking/speaking), 20s timeout, backchannel continuation timeout. State machine emits events; `app.py` translates to menu bar icon — state machine must NOT know about rumps or icons.
+- [x] **Step 1.4** — Create `pipeline/conversation.py`. Move: state machine (`_state`, `_set_state()`), four states (idle/listening/thinking/speaking), 20s timeout, backchannel continuation timeout. State machine emits events; `app.py` translates to menu bar icon — state machine must NOT know about rumps or icons.
   **Test:** Full wake→response cycle. Confirm icon changes: ⚪→🔴→🟡→🟢→⚪.
   **Commit:** `refactor: extract conversation state machine into pipeline/conversation.py`
 
-- [ ] **Step 1.5** — Create `pipeline/llm.py`. Move: `_ask_llm()`, `_check_completeness()`, `SYSTEM_PROMPT`, rolling transcript management (`MAX_TRANSCRIPT_LINES`).
+- [x] **Step 1.5** — Create `pipeline/llm.py`. Move: `_ask_llm()`, `_check_completeness()`, `SYSTEM_PROMPT`, rolling transcript management (`MAX_TRANSCRIPT_LINES`).
   **Test:** Full interaction — wake phrase → LLM response. Check logs.
   **Commit:** `refactor: extract LLM calls into pipeline/llm.py`
 
