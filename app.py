@@ -17,6 +17,7 @@ from elevenlabs.client import ElevenLabs
 from openai import OpenAI
 from PyObjCTools.AppHelper import callAfter
 from calendar_join import CalendarPoller
+from connectors.macos_adapter import MacOSAdapter
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.wake import detect_wake_phrase
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
@@ -76,6 +77,9 @@ class OperatorApp(rumps.App):
         # Audio processor (initialised in _load_and_start after API key check)
         self.audio = None
 
+        # macOS connector (audio capture + meeting join)
+        self.connector = None
+
         # Continuous audio capture state
         self._capture_proc = None
 
@@ -129,6 +133,7 @@ class OperatorApp(rumps.App):
         self.audio = AudioProcessor()
 
         self._set_state("⚪", "Connecting to APIs...")
+        self.connector = MacOSAdapter()
         self.openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.llm = LLMClient(self.openai_client)
         self.eleven = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
@@ -137,7 +142,7 @@ class OperatorApp(rumps.App):
         self._start_continuous_capture()
         threading.Thread(target=self._transcription_loop, daemon=True).start()
 
-        self._calendar_poller = CalendarPoller()
+        self._calendar_poller = CalendarPoller(connector=self.connector)
         self._calendar_poller.start()
 
         self.conv.set_idle()
@@ -160,21 +165,15 @@ class OperatorApp(rumps.App):
     # ------------------------------------------------------------------
 
     def _start_continuous_capture(self):
-        """Launch the Swift helper and read audio continuously."""
-        if not os.path.exists(AUDIO_CAPTURE_HELPER):
-            log.error(f"Audio capture helper not found: {AUDIO_CAPTURE_HELPER}")
+        """Launch the Swift helper via MacOSAdapter and read audio continuously."""
+        try:
+            self._capture_proc = self.connector.get_audio_stream()
+            self.audio.capturing = True
+            log.info("Continuous capture: helper launched via MacOSAdapter")
+        except FileNotFoundError as e:
+            log.error(str(e))
             self._set_state("❌", "Helper not found")
             return
-
-        try:
-            self._capture_proc = subprocess.Popen(
-                [AUDIO_CAPTURE_HELPER],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-            )
-            self.audio.capturing = True
-            log.info("Continuous capture: helper launched")
         except OSError as e:
             log.error(f"Continuous capture: failed to launch helper: {e}")
             self._set_state("❌", f"Helper launch failed: {e}")
@@ -419,6 +418,8 @@ class OperatorApp(rumps.App):
         self._stop_continuous_capture()
         if self._calendar_poller:
             self._calendar_poller.stop()
+        elif self.connector:
+            self.connector.leave()
         rumps.quit_application()
 
 

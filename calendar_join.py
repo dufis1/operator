@@ -148,7 +148,8 @@ def _join_meeting(meet_url, stop_event):
 # ---------------------------------------------------------------------------
 
 class CalendarPoller:
-    def __init__(self):
+    def __init__(self, connector=None):
+        self._connector = connector
         self._joined_event_ids = set()
         self._running = False
         self._stop_event = threading.Event()
@@ -169,6 +170,8 @@ class CalendarPoller:
     def stop(self):
         self._running = False
         self._stop_event.set()
+        if self._connector:
+            self._connector.leave()
         log.info("Calendar poller: stopped")
 
     def _poll_loop(self):
@@ -230,9 +233,17 @@ class CalendarPoller:
             if minutes_until <= JOIN_WINDOW_MINUTES:
                 log.info(f"Calendar poller: auto-joining '{summary}' ({minutes_until:.1f}m until start)")
                 self._joined_event_ids.add(event_id)
-                threading.Thread(
-                    target=_join_meeting,
-                    args=(meet_url, self._stop_event),
-                    daemon=True,
-                    name=f"AutoJoin-{event_id[:8]}",
-                ).start()
+                if self._connector:
+                    threading.Thread(
+                        target=self._connector.join,
+                        args=(meet_url,),
+                        daemon=True,
+                        name=f"AutoJoin-{event_id[:8]}",
+                    ).start()
+                else:
+                    threading.Thread(
+                        target=_join_meeting,
+                        args=(meet_url, self._stop_event),
+                        daemon=True,
+                        name=f"AutoJoin-{event_id[:8]}",
+                    ).start()
