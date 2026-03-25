@@ -8,7 +8,7 @@
 
 ## Current Status
 
-> **Phase 1 complete.** All pipeline modules extracted. New machine fully set up (BlackHole, mpv, Swift helper compiled, Chrome mic configured).
+> **Phase 1 complete and verified.** All pipeline modules extracted. End-to-end tested live in Google Meet (March 24, 2026) — wake phrase, ack, LLM, TTS, conversation mode all confirmed working.
 >
 > **Immediate next step:** Step 2.1 — create `connectors/` package scaffold.
 

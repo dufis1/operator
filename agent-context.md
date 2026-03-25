@@ -18,8 +18,9 @@
 
 ## Current Status
 
-**Phase:** Phase 1 — Extract the Agent Pipeline. Phase 0 complete.
-**Next action:** End-of-phase commit, then Step 2.1 — create `connectors/` package scaffold.
+**Phase:** Phase 1 complete. Phase 2 — Connector Interface is next.
+**Next action:** Step 2.1 — create `connectors/` package scaffold.
+**Phase 1 verified:** End-to-end tested live in Google Meet (March 24, 2026). Wake phrase → ack → LLM → TTS → conversation mode all working. All state transitions confirmed in logs.
 
 ---
 
