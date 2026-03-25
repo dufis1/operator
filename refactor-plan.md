@@ -8,9 +8,9 @@
 
 ## Current Status
 
-> **Phase 2 complete and verified.** Connector interface defined, `MacOSAdapter` wrapping ScreenCaptureKit audio capture and Playwright/Chrome join. End-to-end tested live in Google Meet (March 24, 2026) — `MacOSAdapter` instantiated, Swift helper launched, meeting joined, full wake → LLM → TTS cycle confirmed.
+> **Phase 3 complete (March 25, 2026).** `DockerAdapter` implemented (`connectors/docker_adapter.py`), `docker/entrypoint.py` wired to the full pipeline, daily smoke test passing (`tests/test_smoke_docker.py` + GitHub Actions). Container joins Google Meet as a guest, Whisper transcribes wake phrase, LLM responds, TTS plays — full cycle confirmed end-to-end inside Docker.
 >
-> **Phase 3 in progress.** Steps 3.1–3.5 complete: pipeline imports validated on Linux, production Dockerfile built (`python:3.11-slim` + PulseAudio + Playwright/Chromium), PulseAudio virtual audio routing confirmed, STT benchmark passes (avg WER 3.3%, QEMU-adjusted latency < 1.5s on native x86_64). Next: Step 3.6 — `DockerAdapter`.
+> **Phase 4 starting.** Next: Step 4.1 — chat mode (`@operator` mentions in meeting chat).
 
 ---
 
