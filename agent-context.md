@@ -18,9 +18,9 @@
 
 ## Current Status
 
-**Phase:** Phase 1 complete. Phase 2 — Connector Interface is next.
-**Next action:** Step 2.1 — create `connectors/` package scaffold.
-**Phase 1 verified:** End-to-end tested live in Google Meet (March 24, 2026). Wake phrase → ack → LLM → TTS → conversation mode all working. All state transitions confirmed in logs.
+**Phase:** Phase 2 complete. Phase 3 — Docker Adapter is next.
+**Next action:** Step 3.0a — create DigitalOcean account (manual step).
+**Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 
 ---
 
@@ -55,6 +55,10 @@ operator/
 │   ├── conversation.py        # ConversationState: idle/listening/thinking/speaking
 │   ├── llm.py                 # LLMClient: GPT-4.1-mini calls + conversation history
 │   └── tts.py                 # TTSClient: ElevenLabs TTS + clip playback (output device = param)
+├── connectors/
+│   ├── __init__.py
+│   ├── base.py                # MeetingConnector: abstract interface (join/get_audio_stream/send_audio/send_chat/leave)
+│   └── macos_adapter.py       # MacOSAdapter: ScreenCaptureKit + Playwright/Chrome
 ├── assets/
 │   └── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
 ├── scripts/
@@ -271,11 +275,11 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
 
 ## Phase 2: Connector Interface
 
-- [ ] **Step 2.1** — Create `connectors/__init__.py` (empty)
+- [x] **Step 2.1** — Create `connectors/__init__.py` (empty)
   **Test:** `python -c "import connectors; print('ok')"`
   **Commit:** `feat: create connectors/ package scaffold`
 
-- [ ] **Step 2.2** — Create `connectors/base.py`. Define `MeetingConnector` (abstract base class):
+- [x] **Step 2.2** — Create `connectors/base.py`. Define `MeetingConnector` (abstract base class):
   ```python
   def join(meeting_url): ...      # navigate + join as participant
   def get_audio_stream(): ...     # return raw audio from meeting
@@ -287,7 +291,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   **Test:** Instantiate a dummy subclass implementing all 5 methods with `pass` — no errors.
   **Commit:** `feat: define MeetingConnector abstract interface in connectors/base.py`
 
-- [ ] **Step 2.3** — Create `connectors/macos_adapter.py`. `MacOSAdapter(MeetingConnector)`:
+- [x] **Step 2.3** — Create `connectors/macos_adapter.py`. `MacOSAdapter(MeetingConnector)`:
   - `join()` → wrap Playwright + Chrome logic from `calendar_join.py`
   - `get_audio_stream()` → wrap Swift helper subprocess launch (ScreenCaptureKit)
   - `send_audio()` → wrap mpv → BlackHole playback
@@ -296,6 +300,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   Update `app.py` to use `MacOSAdapter` instead of calling Playwright/Swift directly.
   **Test:** Full end-to-end meet test. Check logs confirm `MacOSAdapter` instantiated.
   **Commit:** `refactor: wrap macOS meeting logic as MacOSAdapter in connectors/macos_adapter.py`
+  **Phase 2 verified:** March 24, 2026 — MacOSAdapter instantiated, Swift helper launched via adapter, meeting auto-joined, full pipeline confirmed.
 
 **End-of-phase commit:** `refactor: Phase 2 complete — connector interface defined, macOS adapter implemented`
 

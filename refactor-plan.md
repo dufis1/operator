@@ -2,15 +2,15 @@
 
 *Last updated: March 24, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
-> **Current status: Phase 1 complete.** All steps 1.1–1.6 done. Next: Phase 2 — connector interface.
+> **Current status: Phase 2 complete.** All steps 2.1–2.3 done. Next: Phase 3 — Docker adapter (starts with DigitalOcean setup steps 3.0a–3.0f, which are manual).
 
 ---
 
 ## Current Status
 
-> **Phase 1 complete and verified.** All pipeline modules extracted. End-to-end tested live in Google Meet (March 24, 2026) — wake phrase, ack, LLM, TTS, conversation mode all confirmed working.
+> **Phase 2 complete and verified.** Connector interface defined, `MacOSAdapter` wrapping ScreenCaptureKit audio capture and Playwright/Chrome join. End-to-end tested live in Google Meet (March 24, 2026) — `MacOSAdapter` instantiated, Swift helper launched, meeting joined, full wake → LLM → TTS cycle confirmed.
 >
-> **Immediate next step:** Step 2.1 — create `connectors/` package scaffold.
+> **Immediate next step:** Phase 3 — Docker adapter. Starts with manual DigitalOcean setup (steps 3.0a–3.0f).
 
 ---
 
@@ -71,8 +71,8 @@
 |------|-------------|--------|
 | 1.1 | Create `pipeline/` package scaffold | ✅ |
 | 1.2 | Extract audio processing → `pipeline/audio.py` | ✅ |
-| 1.3 | Extract wake phrase detection → `pipeline/wake.py` | ⬜ |
-| 1.4 | Extract conversation state machine → `pipeline/conversation.py` | ⬜ |
+| 1.3 | Extract wake phrase detection → `pipeline/wake.py` | ✅ |
+| 1.4 | Extract conversation state machine → `pipeline/conversation.py` | ✅ |
 | 1.5 | Extract LLM calls → `pipeline/llm.py` | ✅ |
 | 1.6 | Extract TTS → `pipeline/tts.py` (make output device a parameter, not hardcoded) | ✅ |
 
@@ -84,9 +84,9 @@
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 2.1 | Create `connectors/` package scaffold | ⬜ |
-| 2.2 | Define `MeetingConnector` abstract interface → `connectors/base.py` | ⬜ |
-| 2.3 | Wrap macOS logic as `MacOSAdapter` → `connectors/macos_adapter.py` | ⬜ |
+| 2.1 | Create `connectors/` package scaffold | ✅ |
+| 2.2 | Define `MeetingConnector` abstract interface → `connectors/base.py` | ✅ |
+| 2.3 | Wrap macOS logic as `MacOSAdapter` → `connectors/macos_adapter.py` | ✅ |
 
 ---
 
