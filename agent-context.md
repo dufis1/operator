@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 3 — Docker Adapter in progress.
-**Next action:** Step 3.7 — Create `docker/entrypoint.py`.
+**Next action:** Step 3.8 — Create `tests/test_smoke_docker.py`.
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 **Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
@@ -379,7 +379,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   **Test:** Full end-to-end inside container: join test Meet, speak "operator", confirm response. Log timing vs macOS baseline.
   **Commit:** `feat: implement DockerAdapter in connectors/docker_adapter.py`
 
-- [ ] **Step 3.7** — Create `docker/entrypoint.py`: read config from env vars, instantiate `DockerAdapter` + pipeline, wire together, start main loop.
+- [x] **Step 3.7** — Create `docker/entrypoint.py`: read config from env vars, instantiate `DockerAdapter` + pipeline, wire together, start main loop.
   **Test:** `docker run -e OPENAI_API_KEY=... -e ELEVENLABS_API_KEY=... operator` → joins test meeting, responds to wake phrase.
   **Commit:** `feat: add Docker container entry point, wire DockerAdapter to pipeline`
 
