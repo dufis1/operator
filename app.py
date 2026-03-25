@@ -21,6 +21,7 @@ from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.wake import detect_wake_phrase
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
+from pipeline.tts import TTSClient
 
 load_dotenv()
 
@@ -36,7 +37,6 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("elevenlabs").setLevel(logging.WARNING)
 
-VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George
 BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
 
 # Maps conversation state names → menu bar icons
@@ -132,6 +132,7 @@ class OperatorApp(rumps.App):
         self.openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.llm = LLMClient(self.openai_client)
         self.eleven = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
+        self.tts = TTSClient(self.eleven, BLACKHOLE_DEVICE)
 
         self._start_continuous_capture()
         threading.Thread(target=self._transcription_loop, daemon=True).start()
@@ -148,10 +149,7 @@ class OperatorApp(rumps.App):
         log.info(f"Operator says: \"{clip_name}\" (acknowledgment)")
         self.audio.is_speaking = True
         self.audio.drain_audio_buffer()
-        subprocess.run(
-            ["mpv", "--no-terminal", f"--audio-device={BLACKHOLE_DEVICE}", "--", clip],
-            check=False,
-        )
+        self.tts.play_clip(clip)
         time.sleep(0.2)
         self.audio.drain_audio_buffer()
         self.audio.is_speaking = False
@@ -317,7 +315,7 @@ class OperatorApp(rumps.App):
             self.conv.set_speaking()
             log.info("TIMING tts_request_sent")
             t_speak_start = time.time()
-            self._speak(reply)
+            self.tts.speak(reply)
             t_speak_end = time.time()
             log.info(f"TIMING tts_playback_done")
             log.info(
@@ -334,34 +332,6 @@ class OperatorApp(rumps.App):
             log.info("Echo prevention: resumed audio ingestion")
 
         self.conv.set_idle()
-
-    # ------------------------------------------------------------------
-    # Pipeline
-    # ------------------------------------------------------------------
-
-    def _speak(self, text):
-        t0 = time.time()
-        audio_stream = self.eleven.text_to_speech.stream(
-            text=text,
-            voice_id=VOICE_ID,
-            model_id="eleven_flash_v2_5",
-        )
-        proc = subprocess.Popen(
-            ["mpv", "--no-terminal", f"--audio-device={BLACKHOLE_DEVICE}", "--", "-"],
-            stdin=subprocess.PIPE,
-        )
-        first_chunk = True
-        for chunk in audio_stream:
-            if chunk:
-                if first_chunk:
-                    log.info(f"TIMING tts_first_chunk ({time.time() - t0:.2f}s)")
-                    first_chunk = False
-                proc.stdin.write(chunk)
-        t_stream_done = time.time()
-        log.info(f"TTS stream complete: {t_stream_done - t0:.2f}s")
-        proc.stdin.close()
-        proc.wait()
-        log.info(f"TTS playback done: {time.time() - t0:.2f}s (mpv drain: {time.time() - t_stream_done:.2f}s)")
 
     # ------------------------------------------------------------------
     # Menu

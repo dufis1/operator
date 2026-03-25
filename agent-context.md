@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 1 — Extract the Agent Pipeline. Phase 0 complete.
-**Next action:** Step 1.6 — create `pipeline/tts.py`, move TTS + audio playback out of `app.py`.
+**Next action:** End-of-phase commit, then Step 2.1 — create `connectors/` package scaffold.
 
 ---
 
@@ -52,7 +52,8 @@ operator/
 │   ├── audio.py               # AudioProcessor: buffer, silence detection, Whisper STT
 │   ├── wake.py                # detect_wake_phrase: inline vs wake-only detection
 │   ├── conversation.py        # ConversationState: idle/listening/thinking/speaking
-│   └── llm.py                 # LLMClient: GPT-4.1-mini calls + conversation history
+│   ├── llm.py                 # LLMClient: GPT-4.1-mini calls + conversation history
+│   └── tts.py                 # TTSClient: ElevenLabs TTS + clip playback (output device = param)
 ├── assets/
 │   └── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
 ├── scripts/
@@ -258,7 +259,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   **Test:** Full interaction — wake phrase → LLM response. Check logs.
   **Commit:** `refactor: extract LLM calls into pipeline/llm.py`
 
-- [ ] **Step 1.6** — Create `pipeline/tts.py`. Move: `_speak()`, `_play_backchannel()`, `_play_acknowledgment()`, `VOICE_ID`, `ACK_CLIPS`, `BACKCHANNEL_CLIPS`. **Make output device a parameter** (not hardcoded `BLACKHOLE_DEVICE`). macOS adapter passes BlackHole; Docker adapter passes PulseAudio sink.
+- [x] **Step 1.6** — Create `pipeline/tts.py`. Move: `_speak()`, `_play_backchannel()`, `_play_acknowledgment()`, `VOICE_ID`, `ACK_CLIPS`, `BACKCHANNEL_CLIPS`. **Make output device a parameter** (not hardcoded `BLACKHOLE_DEVICE`). macOS adapter passes BlackHole; Docker adapter passes PulseAudio sink.
   **Test:** Wake phrase → ack clip plays → LLM response plays. Echo prevention works (Operator doesn't transcribe its own voice).
   **Commit:** `refactor: extract TTS into pipeline/tts.py, make output device configurable`
 
