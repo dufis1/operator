@@ -2,13 +2,15 @@
 
 *Last updated: March 24, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
+> **Current status: Phase 1 in progress.** Phase 0 complete. Next step: 1.2 — extract audio processing into `pipeline/audio.py`.
+
 ---
 
 ## Current Status
 
-> **Phase 0.** All pre-validation probes passed. Environment setup complete. Refactoring can begin.
+> **Phase 1 in progress.** Phase 0 complete. Environment fully set up on new machine (incl. Chrome installed, browser_profile recreated).
 >
-> **Immediate next step:** Phase 0, Step 0.1 — delete completed STT benchmark files.
+> **Immediate next step:** Step 1.2 — extract audio processing into `pipeline/audio.py`.
 
 ---
 
@@ -21,8 +23,8 @@
 | C | Create `requirements.txt` | ✅ Done |
 | D | Create Python venv and install dependencies | ✅ Done |
 | E | Fix VS Code `.env` warning | ✅ Done |
-| F | Upgrade Python 3.9 → 3.11 via Homebrew, recreate venv | ⬜ Pending |
-| G | Recreate `browser_profile/` by signing into Operator Google account | ⬜ Pending |
+| F | Upgrade Python 3.9 → 3.11 via Homebrew, recreate venv | ✅ Done |
+| G | Recreate `browser_profile/` by signing into Operator Google account | ✅ Done |
 
 ---
 
@@ -53,11 +55,11 @@
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 0.1 | Delete completed STT benchmark files | ⬜ |
-| 0.2 | Delete `spec.md` (superseded by `product-strategy.md`) | ⬜ |
-| 0.3 | Move root-level test files into `tests/` | ⬜ |
-| 0.4 | Move `generate_backchannel.py` into new `scripts/` folder | ⬜ |
-| 0.5 | Move audio clips into new `assets/` folder, update paths in `app.py` | ⬜ |
+| 0.1 | Delete completed STT benchmark files | ✅ |
+| 0.2 | Delete `spec.md` (superseded by `product-strategy.md`) | ✅ |
+| 0.3 | Move root-level test files into `tests/` | ✅ |
+| 0.4 | Move `generate_backchannel.py` into new `scripts/` folder | ✅ |
+| 0.5 | Move audio clips into new `assets/` folder, update paths in `app.py` | ✅ (backchannel clips + logic removed from scope) |
 
 ---
 
@@ -67,7 +69,7 @@
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 1.1 | Create `pipeline/` package scaffold | ⬜ |
+| 1.1 | Create `pipeline/` package scaffold | ✅ |
 | 1.2 | Extract audio processing → `pipeline/audio.py` | ⬜ |
 | 1.3 | Extract wake phrase detection → `pipeline/wake.py` | ⬜ |
 | 1.4 | Extract conversation state machine → `pipeline/conversation.py` | ⬜ |
