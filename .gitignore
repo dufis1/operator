@@ -24,3 +24,8 @@ venv/
 
 # Screenshots from test probes
 /tmp/probe_*.png
+
+# Internal planning docs
+agent-context.md
+refactor-plan.md
+product-strategy.md
