@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 3 — Docker Adapter in progress.
-**Next action:** Step 3.1 — validate `pipeline/` imports on Linux (run on droplet).
+**Next action:** Step 3.4 — extend Dockerfile with PulseAudio virtual audio routing.
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 **Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
@@ -343,14 +343,15 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
 
 ### Docker Adapter Build
 
-- [ ] **Step 3.1** — On Linux (or inside container), validate pipeline imports:
+- [x] **Step 3.1** — On Linux (or inside container), validate pipeline imports:
   ```bash
   python -c "from pipeline import audio, wake, conversation, llm, tts; print('all ok')"
   ```
   Fix any macOS-specific import leaks (`rumps`, `PyObjCTools`, macOS `sounddevice`, etc.)
   **Commit:** `fix: remove any remaining macOS-specific imports from pipeline/ modules`
 
-- [ ] **Step 3.2** — Create `docker/Dockerfile`: Ubuntu 22.04, Python 3.11, PulseAudio, pip deps from `requirements.txt` (macOS-only packages excluded), Chromium + Playwright.
+- [x] **Step 3.2** — Create `docker/Dockerfile`: Ubuntu 22.04, Python 3.11, PulseAudio, pip deps from `requirements.txt` (macOS-only packages excluded), Chromium + Playwright.
+  *Note: base is `python:3.11-slim` (Debian Bookworm) not ubuntu:22.04 — deadsnakes PPA GPG fails in Docker on ARM64 Mac. Functionally equivalent. `--platform linux/amd64` added to target the x86_64 droplet.*
   **Test:** `docker build -t operator-test .` from `docker/` — no errors.
   **Commit:** `feat: add base Dockerfile in docker/ folder`
 
