@@ -10,6 +10,7 @@ browser_profile/
 __pycache__/
 *.py[cod]
 *.egg-info/
+.eggs/
 dist/
 build/
 .venv/
