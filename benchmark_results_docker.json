@@ -1,0 +1,51 @@
+17
+18
+19
+PulseAudio virtual audio routing ready.
+  Sinks:
+1	MeetingOutput	module-null-sink.c	s16le 2ch 44100Hz	IDLE
+2	MeetingInput	module-null-sink.c	s16le 2ch 44100Hz	RUNNING
+  Sources:
+1	MeetingOutput.monitor	module-null-sink.c	s16le 2ch 44100Hz	RUNNING
+2	MeetingInput.monitor	module-null-sink.c	s16le 2ch 44100Hz	IDLE
+{
+  "pulseaudio_ok": true,
+  "clips": {
+    "clip_01.wav": {
+      "ground_truth": "operator what is the plan for today",
+      "transcript": "Operator what is the plan for today?",
+      "wer": 0.0,
+      "latency_s": 3.715
+    },
+    "clip_02.wav": {
+      "ground_truth": "let's discuss the quarterly roadmap",
+      "transcript": "Let's discuss the quarterly roadmap.",
+      "wer": 0.0,
+      "latency_s": 3.351
+    },
+    "clip_03.wav": {
+      "ground_truth": "can you summarize the key decisions",
+      "transcript": "Can you summarize the key decision?",
+      "wer": 0.1667,
+      "latency_s": 3.23
+    },
+    "clip_04.wav": {
+      "ground_truth": "operator how long will this take",
+      "transcript": "Operator, how long will this take?",
+      "wer": 0.0,
+      "latency_s": 3.278
+    },
+    "clip_05.wav": {
+      "ground_truth": "what time does the meeting end",
+      "transcript": "What time does the meeting end?",
+      "wer": 0.0,
+      "latency_s": 3.256
+    }
+  },
+  "avg_wer": 0.0333,
+  "avg_latency_s": 3.366,
+  "pass": true,
+  "notes": [
+    "Latency (3.366s) exceeds 1.5s threshold but QEMU emulation is active \u2014 expect ~3x inflation vs native x86_64. Latency gate skipped for this run."
+  ]
+}

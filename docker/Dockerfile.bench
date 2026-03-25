@@ -1,0 +1,15 @@
+# Benchmark image — extends the production image with espeak for clip synthesis.
+# espeak is only needed for the STT accuracy benchmark; it is NOT in the production image.
+#
+# Usage (from repo root):
+#   docker build -t operator-test -f docker/Dockerfile .
+#   docker build -t operator-bench -f docker/Dockerfile.bench .
+#   docker run --rm operator-bench > benchmark_results_docker.json
+FROM operator-test
+
+RUN apt-get update && apt-get install -y --no-install-recommends espeak \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/bench_stt.py ./bench_stt.py
+
+CMD ["bash", "-c", "bash /app/pulse_setup.sh && python3 /app/bench_stt.py"]
