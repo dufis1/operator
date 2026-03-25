@@ -18,15 +18,16 @@
 
 ## Current Status
 
-**Phase:** Phase 2 complete. Phase 3 — Docker Adapter is next.
-**Next action:** Step 3.0a — create DigitalOcean account (manual step).
+**Phase:** Phase 3 — Docker Adapter in progress.
+**Next action:** Step 3.1 — validate `pipeline/` imports on Linux (run on droplet).
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
+**Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
 ---
 
 ## Repo State
 
-Local git repo at `~/Desktop/operator`. Not yet on GitHub. Initial commit: `539ac57`.
+Local git repo at `~/Desktop/operator`. GitHub: `github.com/dufis1/operator` (private). Also cloned at `~/operator` on droplet `operator-dev` (`64.23.182.26`). Initial commit: `539ac57`.
 
 **Secrets (never commit):** `.env`, `credentials.json`, `token.json`, `browser_profile/`
 All excluded via `.gitignore`.
@@ -310,43 +311,35 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
 
 ### DigitalOcean Setup (one-time)
 
-- [ ] **3.0a** — Create account at digitalocean.com. $200 credit for 60 days on new accounts. No commit.
+- [x] **3.0a** — Create account at digitalocean.com. $200 credit for 60 days on new accounts. No commit.
 
-- [ ] **3.0b** — Generate SSH key + add to DigitalOcean:
+- [x] **3.0b** — Generate SSH key + add to DigitalOcean:
   ```bash
   ssh-keygen -t ed25519 -C "operator-droplet"
   cat ~/.ssh/id_ed25519.pub   # copy this → DigitalOcean Settings → Security → SSH Keys
   ```
   No commit.
 
-- [ ] **3.0c** — Create Droplet: Ubuntu 22.04 LTS, $12/mo (2 vCPU, 2GB RAM, 50GB SSD), closest region, SSH key "operator-droplet", hostname `operator-dev`. No commit.
+- [x] **3.0c** — Create Droplet: Ubuntu 22.04 LTS, $12/mo (2 vCPU, 2GB RAM, 50GB SSD), closest region, SSH key "operator-droplet", hostname `operator-dev`. IP: `64.23.182.26`. No commit.
 
-- [ ] **3.0d** — SSH in, install Docker:
+- [x] **3.0d** — SSH in, install Docker:
   ```bash
-  ssh root@YOUR_IP
+  ssh root@64.23.182.26
   apt-get update && curl -fsSL https://get.docker.com | sh
   ```
   **Test:** `docker run hello-world` → "Hello from Docker!" No commit.
 
-- [ ] **3.0e** — Push code via GitHub (private repo):
+- [x] **3.0e** — Push code via GitHub (private repo `github.com/dufis1/operator`):
   ```bash
-  # Local
-  git init && git add . && git commit -m "chore: initialize git repository"
-  git remote add origin git@github.com:YOUR_USERNAME/operator.git
-  git push -u origin main
-  # Droplet
-  git clone git@github.com:YOUR_USERNAME/operator.git && cd operator
+  # Local — already done
+  git remote add origin git@github.com:dufis1/operator.git
+  git push -u origin main --force
+  # Droplet — already done
+  git clone git@github.com:dufis1/operator.git && cd operator
   ```
-  Confirm `.env` is NOT in the push (gitignore).
-  **Commit:** `chore: initialize git repository`
+  `.env` confirmed NOT in push. No commit needed (repo already had commits).
 
-- [ ] **3.0f** — Set API keys on Droplet:
-  ```bash
-  echo 'OPENAI_API_KEY=...' >> /etc/environment
-  echo 'ELEVENLABS_API_KEY=...' >> /etc/environment
-  source /etc/environment
-  ```
-  No commit.
+- [x] **3.0f** — Set API keys on Droplet. Keys set in `/etc/environment`, verified via `python3 -c "import os; print(bool(os.environ.get('OPENAI_API_KEY')))"` after fresh SSH login. No commit.
 
 ### Docker Adapter Build
 

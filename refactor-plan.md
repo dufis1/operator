@@ -2,7 +2,7 @@
 
 *Last updated: March 24, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
-> **Current status: Phase 2 complete.** All steps 2.1–2.3 done. Next: Phase 3 — Docker adapter (starts with DigitalOcean setup steps 3.0a–3.0f, which are manual).
+> **Current status: Phase 3 in progress.** DigitalOcean setup (steps 3.0a–3.0f) complete. Next: Step 3.1 — validate `pipeline/` imports on Linux.
 
 ---
 
@@ -10,7 +10,7 @@
 
 > **Phase 2 complete and verified.** Connector interface defined, `MacOSAdapter` wrapping ScreenCaptureKit audio capture and Playwright/Chrome join. End-to-end tested live in Google Meet (March 24, 2026) — `MacOSAdapter` instantiated, Swift helper launched, meeting joined, full wake → LLM → TTS cycle confirmed.
 >
-> **Immediate next step:** Phase 3 — Docker adapter. Starts with manual DigitalOcean setup (steps 3.0a–3.0f).
+> **Phase 3 in progress.** DigitalOcean droplet (`operator-dev`, `64.23.182.26`) provisioned, Docker installed, code cloned from GitHub (`dufis1/operator`), API keys set in `/etc/environment`. Next: Step 3.1 — validate `pipeline/` imports on Linux.
 
 ---
 
@@ -98,12 +98,12 @@
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 3.0a | Create DigitalOcean account | ⬜ |
-| 3.0b | Generate SSH key, add to DigitalOcean | ⬜ |
-| 3.0c | Create Droplet (Ubuntu 22.04, $12/mo, region closest to you) | ⬜ |
-| 3.0d | SSH into Droplet, install Docker | ⬜ |
-| 3.0e | Push code to Droplet via GitHub | ⬜ |
-| 3.0f | Set API keys as environment variables on Droplet | ⬜ |
+| 3.0a | Create DigitalOcean account | ✅ |
+| 3.0b | Generate SSH key, add to DigitalOcean | ✅ |
+| 3.0c | Create Droplet (Ubuntu 22.04, $12/mo, region closest to you) | ✅ |
+| 3.0d | SSH into Droplet, install Docker | ✅ |
+| 3.0e | Push code to Droplet via GitHub | ✅ |
+| 3.0f | Set API keys as environment variables on Droplet | ✅ |
 
 **Docker adapter build:**
 
