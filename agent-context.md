@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 3 — Docker Adapter in progress.
-**Next action:** Step 3.4 — extend Dockerfile with PulseAudio virtual audio routing.
+**Next action:** Step 3.5 — STT accuracy benchmark on container audio.
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 **Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
@@ -357,7 +357,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
 
 - [ ] **Step 3.3** — *(Already done — `requirements.txt` exists. Skip.)*
 
-- [ ] **Step 3.4** — Extend Dockerfile + startup script: create PulseAudio virtual sink `MeetingOutput` (TTS out) and virtual source `MeetingInput` (meeting audio in). Configure headless Chrome to use them.
+- [x] **Step 3.4** — Extend Dockerfile + startup script: create PulseAudio virtual sink `MeetingOutput` (TTS out) and virtual source `MeetingInput` (meeting audio in). Configure headless Chrome to use them.
   **Test:** Start container. Play audio file into `MeetingOutput` → confirm it appears on `MeetingInput`.
   **Commit:** `feat: configure PulseAudio virtual audio routing in Docker container`
 

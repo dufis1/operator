@@ -18,6 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libportaudio2 \
     && rm -rf /var/lib/apt/lists/*
 
+# PulseAudio writes its socket and PID file here.
+# Must be set before any pactl/paplay calls.
+ENV PULSE_RUNTIME_PATH=/tmp/pulse
+
 WORKDIR /app
 
 # ── Python dependencies ───────────────────────────────────────────────────────
@@ -38,10 +42,12 @@ RUN pip3 install --no-cache-dir \
 # Install Playwright's Chromium browser + all required system libraries
 RUN python3 -m playwright install chromium --with-deps
 
-# ── Application code ──────────────────────────────────────────────────────────
-COPY pipeline/   ./pipeline/
-COPY connectors/ ./connectors/
-COPY assets/     ./assets/
+# ── Application code + startup scripts ───────────────────────────────────────
+COPY pipeline/         ./pipeline/
+COPY connectors/       ./connectors/
+COPY assets/           ./assets/
+COPY docker/pulse_setup.sh ./pulse_setup.sh
+RUN chmod +x pulse_setup.sh
 
 # Smoke-test: verify all pipeline imports succeed at build time
 RUN python3 -c "from pipeline import audio, wake, conversation, llm, tts; print('pipeline imports ok')"
