@@ -52,4 +52,6 @@ RUN chmod +x pulse_setup.sh
 # Smoke-test: verify all pipeline imports succeed at build time
 RUN python3 -c "from pipeline import audio, wake, conversation, llm, tts; print('pipeline imports ok')"
 
-CMD ["python3", "-c", "print('Operator container ready — no entrypoint configured yet')"]
+COPY docker/entrypoint.py ./docker/entrypoint.py
+
+CMD ["python3", "docker/entrypoint.py"]
