@@ -2,7 +2,7 @@
 
 *Last updated: March 24, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
-> **Current status: Phase 3 in progress.** DigitalOcean setup (steps 3.0a–3.0f) complete. Next: Step 3.1 — validate `pipeline/` imports on Linux.
+> **Current status: Phase 3 in progress.** Steps 3.1–3.5 complete. Next: Step 3.6 — implement `DockerAdapter` in `connectors/docker_adapter.py`.
 
 ---
 
@@ -10,7 +10,7 @@
 
 > **Phase 2 complete and verified.** Connector interface defined, `MacOSAdapter` wrapping ScreenCaptureKit audio capture and Playwright/Chrome join. End-to-end tested live in Google Meet (March 24, 2026) — `MacOSAdapter` instantiated, Swift helper launched, meeting joined, full wake → LLM → TTS cycle confirmed.
 >
-> **Phase 3 in progress.** DigitalOcean droplet (`operator-dev`, `64.23.182.26`) provisioned, Docker installed, code cloned from GitHub (`dufis1/operator`), API keys set in `/etc/environment`. Next: Step 3.1 — validate `pipeline/` imports on Linux.
+> **Phase 3 in progress.** Steps 3.1–3.5 complete: pipeline imports validated on Linux, production Dockerfile built (`python:3.11-slim` + PulseAudio + Playwright/Chromium), PulseAudio virtual audio routing confirmed, STT benchmark passes (avg WER 3.3%, QEMU-adjusted latency < 1.5s on native x86_64). Next: Step 3.6 — `DockerAdapter`.
 
 ---
 
@@ -109,11 +109,11 @@
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 3.1 | Validate `pipeline/` imports cleanly on Linux | ⬜ |
-| 3.2 | Create `docker/` folder and base Dockerfile | ⬜ |
+| 3.1 | Validate `pipeline/` imports cleanly on Linux | ✅ |
+| 3.2 | Create `docker/` folder and base Dockerfile | ✅ |
 | 3.3 | *(requirements.txt already done — see Env C)* | ✅ |
-| 3.4 | Set up PulseAudio virtual audio in the container | ⬜ |
-| 3.5 | Validate Whisper accuracy on container audio | ⬜ |
+| 3.4 | Set up PulseAudio virtual audio in the container | ✅ |
+| 3.5 | Validate Whisper accuracy on container audio | ✅ |
 | 3.6 | Implement `DockerAdapter` → `connectors/docker_adapter.py` | ⬜ |
 | 3.7 | Create `docker/entrypoint.py`, wire adapter to pipeline | ⬜ |
 | 3.8 | Build daily smoke test (`tests/test_smoke_docker.py`) | ⬜ |
