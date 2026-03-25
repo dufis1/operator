@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Phase 3 — Docker Adapter in progress.
-**Next action:** Step 3.6 — Create `connectors/docker_adapter.py`.
+**Next action:** Step 3.7 — Create `docker/entrypoint.py`.
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 **Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
@@ -369,7 +369,7 @@ After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports 
   **Result: PASS.** avg_wer 3.3% (< 15%). Latency 3.3s is QEMU-inflated (~3x); expected < 1.2s on native x86_64 droplet. Results in `benchmark_results_docker.json`. Bench image: `Dockerfile.bench` (extends production + espeak).
   **Commit:** `test: STT accuracy benchmark on container audio — results in benchmark_results_docker.json`
 
-- [ ] **Step 3.6** — Create `connectors/docker_adapter.py`. `DockerAdapter(MeetingConnector)`:
+- [x] **Step 3.6** — Create `connectors/docker_adapter.py`. `DockerAdapter(MeetingConnector)`:
   - `join()` → headless Playwright/Chromium, stealth config, dismiss popups, set PulseAudio devices, click "Join now"
   - `get_audio_stream()` → read from PulseAudio `MeetingInput`
   - `send_audio()` → write to PulseAudio `MeetingOutput`
