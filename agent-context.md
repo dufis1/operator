@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 0 — Codebase Cleanup. All pre-validation probes passed.
-**Next action:** Step 0.1 — delete completed STT benchmark files (`benchmark_stt.py`, `capture_clips.py`, `benchmark_clips/`, `benchmark_results.json`).
+**Phase:** Phase 1 — Extract the Agent Pipeline. Phase 0 complete.
+**Next action:** Step 1.2 — create `pipeline/audio.py`, move audio constants + Whisper model init + utterance-capture loop from `app.py`.
 
 ---
 
@@ -121,7 +121,7 @@ operator/
 - **PyObjC packages are fragile** — never install new `pyobjc-framework-*` without checking prior issues.
 - **`WHISPER_HALLUCINATIONS` filter** — catches common false positives on silence. Add patterns as found.
 - **Ghost session in Meet:** Closing the browser without clicking Leave leaves the Operator account registered as "in the meeting." Next join attempt shows "Switch here" instead of "Join now." Fix: `leave()` must click the Leave button before `browser.close()`. Also handle "Switch here" as a fallback join path. Workaround during probes: use a new meeting link each time.
-- **Completeness check** sends last 5 transcript lines to GPT-4.1-mini — context required for follow-up questions.
+- **Backchannel + completeness check removed from scope** — utterances finalize on silence, no mid-prompt continuation logic.
 - **LLM round-trip is 0.9–3s** — not fixable in code; mask it with backchannels, don't try to eliminate it.
 - **Porcupine removed** — app uses Whisper-based inline wake detection. `PORCUPINE_ACCESS_KEY` in `.env` is unused leftover.
 - **token.json expiry** — expires 2026-03-25 but has `refresh_token`; Google Calendar library auto-renews. If Calendar breaks, check here first.
@@ -201,25 +201,11 @@ operator/
 
 Baseline test before Phase 0: `python setup.py py2app -A && open dist/Operator.app` → menu bar icon appears → confirm idle state ⚪ → join test Meet → confirm "operator" wake phrase works.
 
-- [ ] **Step 0.1** — Delete: `benchmark_stt.py`, `capture_clips.py`, `benchmark_clips/`, `benchmark_results.json`
-  **Test:** Build + run app, confirm idle state. These were never imported by `app.py`.
-  **Commit:** `chore: remove completed STT benchmark files`
-
-- [ ] **Step 0.2** — Delete: `spec.md`
-  **Test:** Build + run.
-  **Commit:** `chore: remove original spec (superseded by product-strategy.md)`
-
-- [ ] **Step 0.3** — Move to `tests/`: `test_api_keys.py`, `test_calendar.py`, `test_playwright.py`, `test_playwright_basic.py`
-  **Test:** `cd tests && python test_api_keys.py && python test_calendar.py`
-  **Commit:** `chore: consolidate test files into tests/ folder`
-
-- [ ] **Step 0.4** — Create `scripts/`, move `generate_backchannel.py` → `scripts/generate_backchannel.py`
-  **Test:** Build + run app.
-  **Commit:** `chore: move generate_backchannel.py to scripts/`
-
-- [ ] **Step 0.5** — Create `assets/`, move all `.mp3` files into it. Update paths in `app.py` (currently `os.path.join(os.path.dirname(__file__), "filename.mp3")` → `os.path.join(os.path.dirname(__file__), "assets", "filename.mp3")`). Update `setup.py` `DATA_FILES`/`RESOURCES` to include `assets/`.
-  **Test:** Build + run app. Trigger wake phrase → ack audio plays. Long prompt → backchannel audio plays.
-  **Commit:** `chore: move audio assets into assets/ folder, update paths in app.py`
+- [x] **Step 0.1** — Delete: `benchmark_stt.py`, `capture_clips.py`, `benchmark_clips/`, `benchmark_results.json`
+- [x] **Step 0.2** — Delete: `spec.md`
+- [x] **Step 0.3** — Move to `tests/`: `test_calendar.py`, `test_playwright.py`, `test_playwright_basic.py` (deleted `test_api_keys.py` — benchmark leftover)
+- [x] **Step 0.4** — Create `scripts/`, move `generate_backchannel.py` → `scripts/generate_backchannel.py`
+- [x] **Step 0.5** — Create `assets/`, move ack `.mp3` files into it. Update paths in `app.py`. Backchannel clips + logic removed from scope.
 
 **Post-Phase 0 root:**
 ```
@@ -236,12 +222,10 @@ operator/
 
 After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports from `pipeline.*`.
 
-- [ ] **Step 1.1** — Create `pipeline/__init__.py` (empty)
-  **Test:** `python -c "import pipeline; print('ok')"`
-  **Commit:** `feat: create pipeline/ package scaffold`
+- [x] **Step 1.1** — Create `pipeline/__init__.py` (empty)
 
 - [ ] **Step 1.2** — Create `pipeline/audio.py`. Move from `app.py`:
-  - Constants: `SAMPLE_RATE`, `BYTES_PER_SAMPLE`, `UTTERANCE_CHECK_INTERVAL`, `UTTERANCE_SILENCE_THRESHOLD`, `UTTERANCE_MAX_DURATION`, `UTTERANCE_SILENCE_RMS`, `SHORT_UTTERANCE_THRESHOLD`, `BACKCHANNEL_CONTINUATION_TIMEOUT`, `WHISPER_HALLUCINATIONS`
+  - Constants: `SAMPLE_RATE`, `BYTES_PER_SAMPLE`, `UTTERANCE_CHECK_INTERVAL`, `UTTERANCE_SILENCE_THRESHOLD`, `UTTERANCE_MAX_DURATION`, `UTTERANCE_SILENCE_RMS`, `WHISPER_HALLUCINATIONS`
   - Whisper model init
   - Utterance-capture loop (PCM read, silence detection, utterance finalization)
   - **Preserve:** 0.5s silence pad before Whisper (Gotcha #1), `WHISPER_HALLUCINATIONS` filter, RMS silence thresholds
