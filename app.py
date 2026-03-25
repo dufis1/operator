@@ -19,6 +19,7 @@ from PyObjCTools.AppHelper import callAfter
 from calendar_join import CalendarPoller
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.wake import detect_wake_phrase
+from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 
 load_dotenv()
 
@@ -49,6 +50,14 @@ SYSTEM_PROMPT = (
 )
 BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
 
+# Maps conversation state names → menu bar icons
+STATE_ICONS = {
+    "idle":      "⚪",
+    "listening": "🔴",
+    "thinking":  "🟡",
+    "speaking":  "🟢",
+}
+
 
 AUDIO_CAPTURE_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_capture")
 ACK_CLIPS = [
@@ -73,6 +82,9 @@ class OperatorApp(rumps.App):
         ]
 
         self.conversation_history = []
+
+        # Conversation state machine
+        self.conv = ConversationState(on_state_change=self._on_conv_state_change)
 
         # Audio processor (initialised in _load_and_start after API key check)
         self.audio = None
@@ -101,6 +113,10 @@ class OperatorApp(rumps.App):
                 self.status_item.title = status_text
         callAfter(update)
         log.debug(f"State → {icon} {status_text or ''}")
+
+    def _on_conv_state_change(self, state, label):
+        """Translate a pipeline conversation state into a menu bar icon update."""
+        self._set_state(STATE_ICONS[state], label)
 
     # ------------------------------------------------------------------
     # Startup
@@ -135,7 +151,7 @@ class OperatorApp(rumps.App):
         self._calendar_poller = CalendarPoller()
         self._calendar_poller.start()
 
-        self._set_state("⚪", "Listening for 'operator'...")
+        self.conv.set_idle()
 
     def _play_acknowledgment(self):
         """Play a random acknowledgment clip through BlackHole, with echo prevention."""
@@ -243,34 +259,34 @@ class OperatorApp(rumps.App):
             if wake_type is not None:
                 if wake_type == "inline":
                     log.info(f"TIMING wake_inline prompt=\"{trailing}\"")
-                    self._set_state("🔴", "Listening for prompt...")
+                    self.conv.set_listening("Listening for prompt...")
                     self._finalize_prompt(trailing)
                 else:  # wake-only
                     log.info("TIMING wake_only waiting_for_prompt")
-                    self._set_state("🔴", "Listening for prompt...")
+                    self.conv.set_listening("Listening for prompt...")
                     self._play_acknowledgment()
                     prompt = self.audio.capture_next_utterance(is_prompt=True)
                     if prompt:
                         self._finalize_prompt(prompt)
                     else:
                         log.info("Prompt was empty after wake phrase, returning to idle")
-                        self._set_state("⚪", "Listening for 'operator'...")
+                        self.conv.set_idle()
                         continue
 
                 # After Operator responds, stay in conversation mode: keep accepting
                 # follow-up replies without requiring the wake phrase again.
-                # Exit when 20s pass with no speech.
+                # Exit when CONVERSATION_TIMEOUT passes with no speech.
                 log.info("Entering conversation mode")
                 while self.audio.capturing:
-                    self._set_state("🔴", "Listening...")
-                    followup = self.audio.capture_next_utterance(is_prompt=True, no_speech_timeout=20.0)
+                    self.conv.set_listening("Listening...")
+                    followup = self.audio.capture_next_utterance(is_prompt=True, no_speech_timeout=CONVERSATION_TIMEOUT)
                     if not followup:
                         log.info("Conversation mode: no follow-up, returning to idle")
                         break
                     if followup.lower().strip().strip(".,!?") in WHISPER_HALLUCINATIONS:
                         continue
                     self._finalize_prompt(followup)
-                self._set_state("⚪", "Listening for 'operator'...")
+                self.conv.set_idle()
             else:
                 # Ambient (no wake phrase) — add to rolling transcript
                 log.info(f"Utterance: {text}")
@@ -285,11 +301,11 @@ class OperatorApp(rumps.App):
         """Send finalized prompt to the LLM."""
         if not prompt:
             log.info("Prompt was empty after wake phrase, returning to idle")
-            self._set_state("⚪", "Listening for 'operator'...")
+            self.conv.set_idle()
             return
 
         log.info(f"TIMING prompt_finalized \"{prompt}\"")
-        self._set_state("🟡", "Thinking...")
+        self.conv.set_thinking()
 
         # Echo prevention: pause audio ingestion for the entire think+speak cycle
         self.audio.is_speaking = True
@@ -310,7 +326,7 @@ class OperatorApp(rumps.App):
             t_llm_end = time.time()
             log.info(f"TIMING llm_response_received ({t_llm_end - t_llm_start:.1f}s) \"{reply}\"")
 
-            self._set_state("🟢", "Speaking...")
+            self.conv.set_speaking()
             log.info("TIMING tts_request_sent")
             t_speak_start = time.time()
             self._speak(reply)
@@ -329,7 +345,7 @@ class OperatorApp(rumps.App):
             self.audio.is_speaking = False
             log.info("Echo prevention: resumed audio ingestion")
 
-        self._set_state("⚪", "Listening for 'operator'...")
+        self.conv.set_idle()
 
     # ------------------------------------------------------------------
     # Pipeline
