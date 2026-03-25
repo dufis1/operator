@@ -43,9 +43,6 @@ UTTERANCE_CHECK_INTERVAL = 0.5   # seconds between audio checks
 UTTERANCE_SILENCE_THRESHOLD = 2  # consecutive silent checks = utterance done (~1s)
 UTTERANCE_MAX_DURATION = 10      # hard cap: finalize utterance after 10s
 UTTERANCE_SILENCE_RMS = 0.02     # RMS below this = silence (tune if needed)
-SHORT_UTTERANCE_THRESHOLD = 3.5  # seconds — skip backchannel for quick questions
-# How long to wait for continuation after a backchannel NO before giving up
-BACKCHANNEL_CONTINUATION_TIMEOUT = 10.0
 # Whisper tiny hallucinates these on silence — backstop filter
 WHISPER_HALLUCINATIONS = {
     "you", "thank you", "thanks", "thanks a lot", "bye", "goodbye",
@@ -66,14 +63,10 @@ BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
 
 
 AUDIO_CAPTURE_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_capture")
-BACKCHANNEL_CLIPS = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "backchannel_mmhmm.mp3"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "backchannel_goon.mp3"),
-]
 ACK_CLIPS = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ack_yeah.mp3"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ack_yes.mp3"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "ack_mmhm.mp3"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ack_yeah.mp3"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ack_yes.mp3"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ack_mmhm.mp3"),
 ]
 
 
@@ -159,17 +152,6 @@ class OperatorApp(rumps.App):
 
         self._set_state("⚪", "Listening for 'operator'...")
 
-    def _play_backchannel(self):
-        """Play a random backchannel clip through BlackHole (blocking)."""
-        clip = random.choice(BACKCHANNEL_CLIPS)
-        clip_name = os.path.basename(clip).replace("backchannel_", "").replace(".mp3", "")
-        log.info(f"Operator says: \"{clip_name}\" (backchannel)")
-        subprocess.run(
-            ["mpv", "--no-terminal", f"--audio-device={BLACKHOLE_DEVICE}", "--", clip],
-            check=False,
-        )
-        log.info("TIMING backchannel_done")
-
     def _play_acknowledgment(self):
         """Play a random acknowledgment clip through BlackHole, with echo prevention."""
         clip = random.choice(ACK_CLIPS)
@@ -185,34 +167,6 @@ class OperatorApp(rumps.App):
         self._drain_audio_buffer()
         self._speaking = False
         log.info("TIMING ack_done")
-
-    def _check_completeness(self, text):
-        """Ask GPT-4.1-mini whether the transcribed text is a complete thought. Returns True/False."""
-        log.info(f"TIMING completeness_check_start \"{text}\"")
-        try:
-            # Include recent conversation context so follow-up questions
-            # (e.g. "What temperature is it typically?") are recognized as complete
-            with self._transcript_lock:
-                recent = self._transcript_lines[-5:]
-            context_block = ""
-            if recent:
-                context_block = "Recent conversation:\n" + "\n".join(recent) + "\n\n"
-
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4.1-mini",
-                max_tokens=3,
-                messages=[
-                    {"role": "system", "content": "You determine if a spoken utterance sounds like a complete thought, question, or statement that someone would expect a response to. Follow-up questions that reference a prior topic count as complete. Reply only YES or NO."},
-                    {"role": "user", "content": f"{context_block}New utterance: {text}"},
-                ],
-            )
-            answer = response.choices[0].message.content.strip().upper()
-            is_complete = "YES" in answer
-            log.info(f"TIMING completeness_check_done complete={is_complete} answer=\"{answer}\"")
-            return is_complete
-        except Exception as e:
-            log.error(f"Completeness check failed: {e}")
-            return True  # fail-open: treat as complete if check fails
 
     # ------------------------------------------------------------------
     # Continuous audio capture
@@ -303,8 +257,6 @@ class OperatorApp(rumps.App):
         utterance_audio = b""
         speech_start_time = None
         capture_start = time.time()
-        # After a backchannel NO, track deadline for continuation so we don't hang forever
-        continuation_deadline = None
         label = "prompt" if is_prompt else "ambient"
         log.info(f"TIMING {label}_capture_start")
 
@@ -316,13 +268,6 @@ class OperatorApp(rumps.App):
                 if time.time() - capture_start > no_speech_timeout:
                     log.info(f"TIMING {label}_timeout (no speech in {no_speech_timeout:.0f}s)")
                     return ""
-
-            # If we're waiting for the user to continue after a backchannel NO,
-            # give up after BACKCHANNEL_CONTINUATION_TIMEOUT seconds of silence
-            if continuation_deadline and not speech_detected:
-                if time.time() > continuation_deadline:
-                    log.info("TIMING prompt_utterance_timeout (no continuation after backchannel)")
-                    break
 
             raw = self._drain_audio_buffer()
             if raw:
@@ -348,32 +293,7 @@ class OperatorApp(rumps.App):
                     speech_duration = time.time() - speech_start_time
                     log.info(f"TIMING {label}_utterance_done silence {speech_duration:.1f}s")
 
-                    # Backchannel path: for prompt utterances ≥3.5s, check completeness
-                    if is_prompt and speech_duration >= SHORT_UTTERANCE_THRESHOLD:
-                        # Transcribe first to check if thought is complete
-                        audio = np.frombuffer(utterance_audio, dtype=np.float32)
-                        log.info(f"TIMING {label}_whisper_start (completeness check)")
-                        partial_text = self._transcribe(audio)
-                        log.info(f"TIMING {label}_whisper_done \"{partial_text}\"")
-
-                        if partial_text and self._check_completeness(partial_text):
-                            # Complete thought — finalize without backchannel
-                            return partial_text
-                        else:
-                            # Incomplete — NOW play backchannel, then keep listening
-                            bc_thread = threading.Thread(target=self._play_backchannel, daemon=True)
-                            bc_thread.start()
-                            log.info("TIMING backchannel_continue_listening")
-                            bc_thread.join()
-                            time.sleep(0.2)  # let any remaining echo clear the audio pipeline
-                            self._drain_audio_buffer()
-                            silence_count = 0
-                            speech_detected = False
-                            speech_start_time = None
-                            continuation_deadline = time.time() + BACKCHANNEL_CONTINUATION_TIMEOUT
-                            continue
-                    else:
-                        break
+                    break
                 if time.time() - speech_start_time > UTTERANCE_MAX_DURATION:
                     log.info(f"TIMING {label}_utterance_done max_duration")
                     break

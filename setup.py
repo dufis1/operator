@@ -4,7 +4,7 @@ APP = ["app.py"]
 OPTIONS = {
     "argv_emulation": False,
     "packages": ["rumps", "anthropic", "elevenlabs", "faster_whisper", "sounddevice", "soundfile", "numpy", "dotenv"],
-    "resources": ["audio_capture"],
+    "resources": ["audio_capture", "assets"],
     "plist": {
         "LSUIElement": True,  # hide Dock icon — menu bar only
         "CFBundleName": "Operator",
