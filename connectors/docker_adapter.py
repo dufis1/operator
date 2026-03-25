@@ -188,6 +188,16 @@ class DockerAdapter(MeetingConnector):
                 except Exception:
                     log.info("DockerAdapter: camera button not found or already off")
 
+                # Fill in guest name if present (unauthenticated join shows a name field)
+                try:
+                    name_input = page.get_by_placeholder("Your name")
+                    name_input.wait_for(timeout=3000)
+                    name_input.fill("Operator")
+                    page.wait_for_timeout(500)
+                    log.info("DockerAdapter: filled guest name")
+                except Exception:
+                    pass  # signed-in users don't see this field
+
                 # Click the join button — try each label in order
                 joined = False
                 for label in ["Join now", "Ask to join", "Switch here"]:

@@ -54,4 +54,4 @@ RUN python3 -c "from pipeline import audio, wake, conversation, llm, tts; print(
 
 COPY docker/entrypoint.py ./docker/entrypoint.py
 
-CMD ["python3", "docker/entrypoint.py"]
+CMD ["bash", "-c", "/app/pulse_setup.sh && python3 /app/docker/entrypoint.py"]
