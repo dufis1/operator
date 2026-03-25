@@ -62,12 +62,18 @@ pactl load-module module-loopback \
     sink=MeetingInput \
     latency_msec=50
 
-# Chrome uses the default PulseAudio sink for audio output (meeting participants'
-# voices) and the default source for mic input (Operator's voice).
-# MeetingInput  = default sink  → Chrome plays received audio here → parec reads MeetingInput.monitor
-# MeetingOutput.monitor = default source → Chrome captures mic from here → mpv plays TTS to MeetingOutput
+# Chrome only enumerates proper (non-monitor) sources as microphone devices.
+# MeetingOutput.monitor is a monitor source — Chrome ignores it and shows
+# "Microphone not found". module-virtual-source wraps the monitor as a real
+# source (VirtualMic) that Chrome will enumerate and use as its mic.
+# Audio flow: mpv → MeetingOutput → MeetingOutput.monitor → VirtualMic → Chrome mic → participants
+pactl load-module module-virtual-source \
+    source_name=VirtualMic \
+    master=MeetingOutput.monitor \
+    source_properties=device.description='"VirtualMic"'
+
 pactl set-default-sink MeetingInput
-pactl set-default-source MeetingOutput.monitor
+pactl set-default-source VirtualMic
 
 echo "PulseAudio virtual audio routing ready."
 echo "  Sinks:"

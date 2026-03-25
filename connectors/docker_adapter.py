@@ -208,6 +208,19 @@ class DockerAdapter(MeetingConnector):
                 except Exception:
                     log.info("DockerAdapter: camera button not found or already off")
 
+                # Ensure microphone is on before joining.
+                # On the pre-join screen, a muted mic means Chrome won't call
+                # getUserMedia and will never appear as a PulseAudio source-output —
+                # meeting participants won't hear Operator at all.
+                try:
+                    mic_btn = page.get_by_role("button", name="Turn on microphone")
+                    mic_btn.wait_for(timeout=3000)
+                    mic_btn.click()
+                    page.wait_for_timeout(300)
+                    log.info("DockerAdapter: microphone enabled on pre-join screen")
+                except Exception:
+                    log.info("DockerAdapter: mic already on (pre-join) or button not found")
+
                 # Fill in guest name if present (unauthenticated join shows a name field)
                 try:
                     name_input = page.get_by_placeholder("Your name")
@@ -238,15 +251,23 @@ class DockerAdapter(MeetingConnector):
                         browser._raw_browser.close()
                     return
 
-                # Unmute mic if needed after joining
-                page.wait_for_timeout(3000)
+                # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
+                page.wait_for_timeout(5000)
                 try:
                     mic_btn = page.get_by_role("button", name="Turn on microphone")
-                    mic_btn.wait_for(timeout=3000)
+                    mic_btn.wait_for(timeout=5000)
                     mic_btn.click()
-                    log.info("DockerAdapter: microphone unmuted")
+                    log.info("DockerAdapter: microphone unmuted (post-join)")
                 except Exception:
-                    log.info("DockerAdapter: mic already on or button not found")
+                    log.info("DockerAdapter: mic already on or button not found (post-join)")
+
+                # Diagnostic screenshot — shows Meet UI state at join time.
+                # docker cp <container-id>:/tmp/meet_after_join.png . to inspect.
+                try:
+                    page.screenshot(path="/tmp/meet_after_join.png")
+                    log.info("DockerAdapter: screenshot saved to /tmp/meet_after_join.png")
+                except Exception as e:
+                    log.warning(f"DockerAdapter: screenshot failed: {e}")
 
                 log.info("DockerAdapter: in meeting — holding browser open")
 
