@@ -18,6 +18,7 @@ from openai import OpenAI
 from PyObjCTools.AppHelper import callAfter
 from calendar_join import CalendarPoller
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
+from pipeline.wake import detect_wake_phrase
 
 load_dotenv()
 
@@ -34,7 +35,6 @@ logging.getLogger("openai").setLevel(logging.WARNING)
 logging.getLogger("elevenlabs").setLevel(logging.WARNING)
 
 VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George
-WAKE_PHRASE = "operator"
 MAX_TRANSCRIPT_LINES = 100  # rolling transcript history limit
 SYSTEM_PROMPT = (
     "You are Operator, an AI thought partner participating in a meeting. "
@@ -238,18 +238,14 @@ class OperatorApp(rumps.App):
                 log.info(f"Ignoring hallucination: {text}")
                 continue
 
-            if WAKE_PHRASE in text_lower:
-                # Find where "operator" appears and extract any trailing text
-                idx = text_lower.find(WAKE_PHRASE)
-                trailing = text[idx + len(WAKE_PHRASE):].strip().strip(",.:?!")
+            wake_type, trailing = detect_wake_phrase(text)
 
-                if trailing:
-                    # Inline: "operator, what's 2 plus 2?" — use trailing text directly
+            if wake_type is not None:
+                if wake_type == "inline":
                     log.info(f"TIMING wake_inline prompt=\"{trailing}\"")
                     self._set_state("🔴", "Listening for prompt...")
                     self._finalize_prompt(trailing)
-                else:
-                    # Wake-only: "operator" — acknowledge, then capture the next utterance as the prompt
+                else:  # wake-only
                     log.info("TIMING wake_only waiting_for_prompt")
                     self._set_state("🔴", "Listening for prompt...")
                     self._play_acknowledgment()
@@ -276,7 +272,7 @@ class OperatorApp(rumps.App):
                     self._finalize_prompt(followup)
                 self._set_state("⚪", "Listening for 'operator'...")
             else:
-                # Ambient — add to rolling transcript
+                # Ambient (no wake phrase) — add to rolling transcript
                 log.info(f"Utterance: {text}")
                 with self._transcript_lock:
                     self._transcript_lines.append(text)

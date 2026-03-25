@@ -46,5 +46,24 @@ def test_pipeline():
     play_stream(audio_stream)
     print("✅ Full pipeline works")
 
+def test_wake_phrase_detection():
+    """Unit tests for pipeline.wake.detect_wake_phrase — no API calls needed."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from pipeline.wake import detect_wake_phrase
+
+    assert detect_wake_phrase("operator what's the plan") == ("inline", "what's the plan"), \
+        "inline: trailing prompt should be extracted"
+
+    assert detect_wake_phrase("operator") == ("wake-only", ""), \
+        "wake-only: bare wake phrase with no trailing text"
+
+    assert detect_wake_phrase("let's operate on that") == (None, ""), \
+        "no match: 'operate' is not the wake phrase"
+
+    print("✅ detect_wake_phrase: all 3 cases pass")
+
+
 if __name__ == "__main__":
+    test_wake_phrase_detection()
     test_pipeline()
