@@ -18,6 +18,14 @@
 
 set -e
 
+# ── Virtual display (Xvfb) ───────────────────────────────────────────────────
+# Chrome requires a display to render audio. Without one, headless mode
+# disables audio rendering entirely — meeting audio never reaches PulseAudio.
+# Xvfb provides a virtual framebuffer so Chrome runs in "headed" mode on
+# a display nobody sees, with full audio rendering enabled.
+Xvfb :99 -screen 0 1920x1080x24 &
+export DISPLAY=:99
+
 # ── PulseAudio daemon config ──────────────────────────────────────────────────
 # allow-module-loading: required so pactl can load modules at runtime.
 # exit-idle-time -1:    prevent auto-exit when the container is idle.
@@ -53,6 +61,13 @@ pactl load-module module-loopback \
     source=MeetingOutput.monitor \
     sink=MeetingInput \
     latency_msec=50
+
+# Chrome uses the default PulseAudio sink for audio output (meeting participants'
+# voices) and the default source for mic input (Operator's voice).
+# MeetingInput  = default sink  → Chrome plays received audio here → parec reads MeetingInput.monitor
+# MeetingOutput.monitor = default source → Chrome captures mic from here → mpv plays TTS to MeetingOutput
+pactl set-default-sink MeetingInput
+pactl set-default-source MeetingOutput.monitor
 
 echo "PulseAudio virtual audio routing ready."
 echo "  Sinks:"

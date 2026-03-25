@@ -96,7 +96,8 @@ class DockerOperator:
         eleven_client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
         self.tts = TTSClient(eleven_client, PULSE_OUTPUT_DEVICE)
 
-        self.connector = DockerAdapter(user_data_dir=browser_profile)
+        auth_state_file = os.environ.get("AUTH_STATE_FILE")
+        self.connector = DockerAdapter(user_data_dir=browser_profile, auth_state_file=auth_state_file)
 
         log.info(f"DockerOperator: joining meeting {meeting_url}")
         self.connector.join(meeting_url)

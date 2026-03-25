@@ -18,8 +18,9 @@
 
 ## Current Status
 
-**Phase:** Phase 4 — Product Features.
-**Next action:** Step 4.1 — Chat mode (`send_chat()` in DockerAdapter, `MODE` env var).
+**Phase:** Phase 3 — Docker adapter debugging (live meeting test, March 25, 2026).
+**Next action:** Fix TTS audio output path — Operator's voice is not audible to meeting participants.
+**Phase 3 pipeline verified (March 25, 2026):** Full wake → ack → STT → LLM → TTS cycle confirmed in logs during live Google Meet. Audio IN path (meeting participants → Whisper) working. Audio OUT path (TTS → meeting participants) not yet working — mpv plays to MeetingOutput but Chrome is not transmitting it as mic audio.
 **Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
 **Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
 
@@ -129,6 +130,10 @@ operator/
 - **`WHISPER_HALLUCINATIONS` filter** — catches common false positives on silence. Add patterns as found.
 - **Audio output device is BlackHole only (`coreaudio/BlackHole2ch_UID`)** — do NOT change to Multi-Output Device. mpv plays TTS → BlackHole → Chrome mic → call participants hear Operator. Using Multi-Output Device causes Operator's voice to play through the MacBook speakers, which is undesirable. Chrome must have BlackHole 2ch set as its default microphone (chrome://settings/content/microphone).
 - **Ghost session in Meet:** Closing the browser without clicking Leave leaves the Operator account registered as "in the meeting." Next join attempt shows "Switch here" instead of "Join now." Fix: `leave()` must click the Leave button before `browser.close()`. Also handle "Switch here" as a fallback join path. Workaround during probes: use a new meeting link each time.
+- **Headless Chrome suppresses audio rendering:** In true headless mode (`headless=True`), Chrome disables audio output entirely — meeting audio never reaches PulseAudio even though Chrome has an active sink-input. Fix: run Chrome in headed mode (`headless=False`) against a virtual display (Xvfb on `:99`). Xvfb must be started before Chrome. `DISPLAY=:99` and `PULSE_RUNTIME_PATH=/tmp/pulse` must be passed as env vars to the browser launch call.
+- **Google Meet auth in Docker:** Unauthenticated guest joins are blocked by Google ("you can't join this call"). Fix: export a real Google account session from macOS via `scripts/auth_export.py` → `auth_state.json`. Mount into container with `-v $(pwd)/auth_state.json:/app/auth_state.json -e AUTH_STATE_FILE=/app/auth_state.json`. DockerAdapter loads it via `new_context(storage_state=...)` on an authenticated `launch()` call.
+- **PulseAudio default routing:** Chrome uses the default PulseAudio sink for audio output (meeting audio IN) and the default source for mic input (TTS audio OUT). Must set `pactl set-default-sink MeetingInput` and `pactl set-default-source MeetingOutput.monitor` in `pulse_setup.sh` after creating the virtual devices. Without this, Chrome outputs to the wrong sink and audio IN is silent.
+- **TTS output path (open issue):** mpv plays TTS to `MeetingOutput`, `MeetingOutput.monitor` is set as the default PulseAudio source, but Chrome is not transmitting this audio as its mic to meeting participants. Suspected cause: Chrome may not be using the default PulseAudio source for its mic capture, or Meet may be muting Operator's mic in the UI. Next debugging step: run `pactl list short source-outputs` while in meeting to confirm which source Chrome is capturing from, then force-move it to `MeetingOutput.monitor` with `pactl move-source-output <id> MeetingOutput.monitor`.
 - **Backchannel + completeness check removed from scope** — utterances finalize on silence, no mid-prompt continuation logic.
 - **LLM round-trip is 0.9–3s** — not fixable in code; mask it with backchannels, don't try to eliminate it.
 - **Porcupine removed** — app uses Whisper-based inline wake detection. `PORCUPINE_ACCESS_KEY` in `.env` is unused leftover.

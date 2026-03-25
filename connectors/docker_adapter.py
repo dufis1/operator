@@ -43,8 +43,9 @@ Object.defineProperty(navigator, 'webdriver', {
 class DockerAdapter(MeetingConnector):
     """MeetingConnector for headless Linux/Docker using PulseAudio + Playwright Chromium."""
 
-    def __init__(self, user_data_dir="/tmp/operator_browser_profile"):
+    def __init__(self, user_data_dir="/tmp/operator_browser_profile", auth_state_file=None):
         self._user_data_dir = user_data_dir
+        self._auth_state_file = auth_state_file  # path to storage_state JSON from auth_export.py
         self._leave_event = threading.Event()
         self._capture_proc = None
         self._page = None  # kept for send_chat; set/cleared by browser thread
@@ -149,19 +150,38 @@ class DockerAdapter(MeetingConnector):
         os.makedirs(self._user_data_dir, exist_ok=True)
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch_persistent_context(
-                    user_data_dir=self._user_data_dir,
-                    headless=True,
-                    user_agent=STEALTH_USER_AGENT,
-                    viewport={"width": 1920, "height": 1080},
-                    args=[
-                        "--use-fake-ui-for-media-stream",
-                        "--no-sandbox",
-                        "--disable-blink-features=AutomationControlled",
-                        "--disable-infobars",
-                    ],
-                )
-                page = browser.pages[0] if browser.pages else browser.new_page()
+                launch_args = [
+                    "--use-fake-ui-for-media-stream",
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-infobars",
+                ]
+                if self._auth_state_file:
+                    # Authenticated path: launch + new_context with saved session.
+                    # headless=False + DISPLAY=:99 (Xvfb) enables audio rendering —
+                    # headless Chrome suppresses audio output entirely.
+                    log.info(f"DockerAdapter: loading auth state from {self._auth_state_file}")
+                    raw_browser = p.chromium.launch(headless=False, args=launch_args,
+                                                    env={"DISPLAY": ":99",
+                                                         "PULSE_RUNTIME_PATH": "/tmp/pulse"})
+                    browser = raw_browser.new_context(
+                        storage_state=self._auth_state_file,
+                        user_agent=STEALTH_USER_AGENT,
+                        viewport={"width": 1920, "height": 1080},
+                    )
+                    page = browser.new_page()
+                    # Wrap close so leave() works the same way for both paths
+                    browser._raw_browser = raw_browser
+                else:
+                    # Unauthenticated guest path: persistent context
+                    browser = p.chromium.launch_persistent_context(
+                        user_data_dir=self._user_data_dir,
+                        headless=True,
+                        user_agent=STEALTH_USER_AGENT,
+                        viewport={"width": 1920, "height": 1080},
+                        args=launch_args,
+                    )
+                    page = browser.pages[0] if browser.pages else browser.new_page()
                 page.add_init_script(STEALTH_JS)
                 self._page = page
 
@@ -214,6 +234,8 @@ class DockerAdapter(MeetingConnector):
                 if not joined:
                     log.warning("DockerAdapter: could not find join button")
                     browser.close()
+                    if hasattr(browser, "_raw_browser"):
+                        browser._raw_browser.close()
                     return
 
                 # Unmute mic if needed after joining
@@ -245,6 +267,8 @@ class DockerAdapter(MeetingConnector):
 
                 self._page = None
                 browser.close()
+                if hasattr(browser, "_raw_browser"):
+                    browser._raw_browser.close()
                 log.info("DockerAdapter: browser closed")
 
         except Exception as e:

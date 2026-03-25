@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
         mpv \
         libportaudio2 \
+        xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # PulseAudio writes its socket and PID file here.

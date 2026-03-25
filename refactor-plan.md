@@ -2,15 +2,15 @@
 
 *Last updated: March 25, 2026 — For full technical detail, give `agent-context.md` to any coding agent.*
 
-> **Current status: Phase 3 complete. Phase 4 starting.** Next: Step 4.1 — chat mode (`@operator` mentions in meeting chat).
+> **Current status: Phase 3 — live meeting debugging.** Next: fix TTS audio output path (Operator's voice not audible to meeting participants).
 
 ---
 
 ## Current Status
 
-> **Phase 3 complete (March 25, 2026).** `DockerAdapter` implemented (`connectors/docker_adapter.py`), `docker/entrypoint.py` wired to the full pipeline, daily smoke test passing (`tests/test_smoke_docker.py` + GitHub Actions). Container joins Google Meet as a guest, Whisper transcribes wake phrase, LLM responds, TTS plays — full cycle confirmed end-to-end inside Docker.
+> **Phase 3 live test (March 25, 2026).** DockerAdapter successfully joining live Google Meet as authenticated participant (`heyoperator2026@gmail.com`). Audio IN path fully working — wake phrase detected, STT transcribes, LLM responds, TTS fires. Audio OUT path not yet working — Operator's voice not audible to meeting participants. Next: debug why Chrome is not transmitting `MeetingOutput.monitor` as mic audio.
 >
-> **Phase 4 starting.** Next: Step 4.1 — chat mode (`@operator` mentions in meeting chat).
+> **Key fixes landed March 25:** Google auth via `auth_state.json` + `scripts/auth_export.py`. Xvfb virtual display required for Chrome audio rendering (`headless=False` + Xvfb). PulseAudio default sink/source routing corrected.
 
 ---
 
@@ -159,3 +159,4 @@
 2. **Multi-meeting concurrency** — each meeting runs in its own container. What orchestrates spinning them up/down?
 3. **Wake phrase customization** — works as long as Whisper transcribes reliably. Test before committing to the feature.
 4. **Licensing** — MIT vs. Apache 2.0 for open-source release.
+    

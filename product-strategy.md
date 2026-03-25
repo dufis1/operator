@@ -140,6 +140,27 @@ Rationale: The current approach (Playwright controlling Chrome on a dedicated Ma
 
 **On SIP/dial-in as a fallback path:** LiveKit supports SIP integration that could let the agent dial into meetings via phone. Dramatically more reliable (no browser, no bot detection) but comes with real tradeoffs: audio-only (no video tile, no chat, no visual feedback), narrowband audio quality (worse STT accuracy), and additional latency from telephony codecs (~100–300ms each way). Best suited as a reliability fallback, not the primary path, because it forecloses too many interaction modes we want to support.
 
+### Agent identity (the auth problem)
+
+Every agent that joins a meeting needs to show up as a real, authenticated Google account. Unauthenticated headless browsers are blocked at the door — Google Meet shows a "you can't join this call" screen. This is not a bot-detection problem; it is an identity problem. The fix is not stealth config, it is a real Google account.
+
+**How this works in the hosted product:**
+
+1. We own a domain (e.g., `operator.dev`) and run Google Workspace on it.
+2. When a team signs up, we programmatically provision an agent account — `operator-{team-hash}@operator.dev` — via the Google Admin SDK.
+3. A Google Cloud service account with **domain-wide delegation** can impersonate any user on our domain, generating valid browser sessions without a human login flow. No manual auth step per account.
+4. The user receives their agent's email address. They invite it to meetings. The agent joins as a legitimate, invited participant.
+
+**For the v1 beta (small pool, manual):** Create a small pool of accounts by hand on our Workspace domain. Authenticate each one via `scripts/auth_export.py` (a one-time local browser login that exports the session to `auth_state.json`). Mount that file into the container at runtime. Automate provisioning once demand justifies it.
+
+**For the self-hosted open-source version:** Users are expected to bring their own Google account for the agent, the same way they bring API keys. The setup wizard walks them through it once.
+
+**What Recall.ai does:** The same thing — they maintain a pool of real Google accounts on their own domain, managed with the same service account delegation pattern. Their accounts are invited participants, not uninvited guests.
+
+**Decision:** The hosted product manages agent identity centrally. Users never create a Google account. They receive an email address on signup and invite it to meetings.
+
+---
+
 ### The scalability roadmap
 
 **Phase 1 (current internal use):** Dedicated macOS machine, one meeting at a time. Continues working for our team while we build Phase 2.
@@ -244,6 +265,7 @@ The "zip up and share an agent" problem is an active area with several emerging 
 
 - **Voice or chat?** Both, out of the box. Wizard lets teams choose defaults.
 - **Meeting connector strategy?** Migrate to headless browser in cloud container (Docker on Linux) for the v1 open-source release. Connector designed as swappable interface. Recall.ai and LiveKit SIP dial-in are fallback paths if browser automation becomes untenable. Daily automated smoke tests to catch UI changes / bot detection.
+- **Agent identity / auth (hosted product)?** We provision real Google accounts on our own domain (e.g., `operator.dev`) via Google Workspace + Admin SDK. A service account with domain-wide delegation generates authenticated sessions without any manual login per account. Users receive an agent email address and invite it to meetings — no Google account setup on their end. Self-hosted users bring their own Google account, configured once via the setup wizard.
 - **MCP integration?** Yes — first-class support. Tools configured as toggle switches in the wizard, with the ability to add custom MCP servers.
 - **Marketplace?** Yes, essential for the network effect flywheel. But comes after the core product is stable. Start with a curated directory of community-contributed loadouts.
 
