@@ -1,0 +1,7 @@
+{
+  "clip_001.wav": "Operator, what do you think about this approach?",
+  "clip_002.wav": "Hey so operator I was thinking we could maybe try a different strategy",
+  "clip_003.wav": "Um so basically what I'm trying to say is that we should probably like revisit the whole onboarding flow because it's just not working",
+  "clip_004.wav": "Operator, yes or no?",
+  "clip_005.wav": "We need to update the Kubernetes deployment config for the staging environment before the next sprint"
+}

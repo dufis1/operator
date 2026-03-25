@@ -1,0 +1,21 @@
+# ── Cross-platform dependencies ───────────────────────────────────────────────
+# These work on both macOS and Linux (needed by the pipeline layer).
+
+python-dotenv          # loads API keys from the .env file into the app
+openai                 # GPT-4.1-mini for LLM responses and completeness checks
+elevenlabs             # ElevenLabs TTS for voice responses
+faster-whisper         # local Whisper model for speech-to-text and wake phrase detection
+numpy                  # audio buffer math (used by faster-whisper and audio processing)
+soundfile              # reading/writing audio files (WAV, MP3, etc.)
+sounddevice            # audio playback and recording via PortAudio
+playwright             # controls headless/headed Chrome for joining Google Meet
+google-auth-oauthlib   # Google OAuth2 flow (used to authenticate with Google Calendar)
+google-api-python-client  # Google Calendar API client
+
+# ── macOS-only dependencies ───────────────────────────────────────────────────
+# These only install and run on macOS. They will not be included in the Docker
+# container. Remove or comment these out if installing on Linux.
+
+rumps                  # macOS menu bar UI (the icon and dropdown in the top-right corner)
+pyobjc-core            # Python bridge to macOS system frameworks
+pyobjc-framework-Cocoa # macOS Cocoa UI framework (used by rumps and app lifecycle)

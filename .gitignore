@@ -1,0 +1,25 @@
+# Secrets — never commit these
+.env
+credentials.json
+token.json
+
+# Browser profile — contains Google session cookies
+browser_profile/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Claude Code memory
+.claude/
+
+# macOS
+.DS_Store
+
+# Screenshots from test probes
+/tmp/probe_*.png
