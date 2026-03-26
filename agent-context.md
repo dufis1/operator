@@ -1,6 +1,6 @@
 # Operator — Agent Context
 
-*Token-optimized for coding agents. Human overview: `refactor-plan.md`.*
+*Token-optimized for coding agents. Human overview: `next-steps.md`. Human checklist: `refactor-plan.md`.*
 *Living document — check off steps as completed. Pick up from the first unchecked item.*
 
 ---
@@ -18,11 +18,10 @@
 
 ## Current Status
 
-**Phase:** Phase 3 complete. Next: Phase 4 (Product Features) — starting with droplet deployment and audio quality fix.
-**Next action:** (1) Pull latest code on DigitalOcean droplet (`64.23.182.26`), build and run container natively on AMD64 — expected to resolve fuzzy audio caused by QEMU emulation. (2) If audio still fuzzy on droplet, investigate sample rate mismatches in the TTS → PulseAudio → VirtualMic → Chrome → WebRTC chain. (3) Then proceed to Phase 4.1 (chat mode).
+**Phase:** Phase 4 in progress. Steps 4.1–4.4 complete.
+**Next action:** Step 4.5 — verify `LinuxAdapter` end-to-end on native DigitalOcean droplet (no Docker).
 **Phase 3 complete (March 25, 2026):** Full end-to-end pipeline verified in live Google Meet. Wake phrase detected, STT transcribes, LLM responds, TTS fires, meeting participants can hear Operator. Audio OUT path fixed via `module-virtual-source` (see Hard-Won Knowledge).
-**Phase 2 verified:** End-to-end tested live in Google Meet (March 24, 2026). `MacOSAdapter` instantiated, Swift helper launched via adapter, meeting auto-joined via adapter, full wake → ack → LLM → TTS cycle confirmed in logs.
-**Phase 3.0 complete (March 24, 2026):** DigitalOcean droplet `operator-dev` (`64.23.182.26`) provisioned, Docker installed and verified, code pushed to `github.com/dufis1/operator` (private) and cloned onto droplet, API keys set in `/etc/environment` and verified.
+**Reorientation (March 25, 2026):** Product direction shifted from cloud-hosted to local-machine-first open-source. DockerAdapter will become LinuxAdapter (local). Cloud artifacts move to `cloud/`. Performance iteration added before setup wizard.
 
 ---
 
@@ -30,7 +29,7 @@
 
 Local git repo at `~/Desktop/operator`. GitHub: `github.com/dufis1/operator` (private). Also cloned at `~/operator` on droplet `operator-dev` (`64.23.182.26`). Initial commit: `539ac57`.
 
-**Secrets (never commit):** `.env`, `credentials.json`, `token.json`, `browser_profile/`
+**Secrets (never commit):** `.env`, `credentials.json`, `token.json`, `browser_profile/`, `auth_state.json`
 All excluded via `.gitignore`.
 
 ---
@@ -45,10 +44,11 @@ operator/
 ├── calendar_join.py           # Google Calendar polling + Playwright auto-join
 ├── setup.py                   # macOS app bundle config (py2app)
 ├── product-strategy.md        # authoritative product strategy
-├── refactor-plan.md           # human-readable plan
+├── next-steps.md              # strategic overview of phases 4-11
+├── refactor-plan.md           # human-readable checklist
 ├── agent-context.md           # this file
-├── requirements.txt           # cross-platform + macOS-only packages (macOS-only noted)
-├── .env / credentials.json / token.json  # secrets, all gitignored
+├── requirements.txt
+├── .env / credentials.json / token.json / auth_state.json  # secrets, all gitignored
 ├── .gitignore / .vscode/settings.json
 ├── pipeline/
 │   ├── __init__.py
@@ -59,59 +59,81 @@ operator/
 │   └── tts.py                 # TTSClient: ElevenLabs TTS + clip playback (output device = param)
 ├── connectors/
 │   ├── __init__.py
-│   ├── base.py                # MeetingConnector: abstract interface (join/get_audio_stream/send_audio/send_chat/leave)
-│   └── macos_adapter.py       # MacOSAdapter: ScreenCaptureKit + Playwright/Chrome
+│   ├── base.py                # MeetingConnector: abstract interface
+│   ├── macos_adapter.py       # MacOSAdapter: ScreenCaptureKit + Playwright/Chrome
+│   └── docker_adapter.py      # DockerAdapter: PulseAudio + headless Chromium (cloud/Docker)
+├── docker/
+│   ├── Dockerfile
+│   ├── Dockerfile.bench
+│   ├── Dockerfile.probe_b2
+│   ├── entrypoint.py          # cloud/Docker entry point
+│   ├── pulse_setup.sh         # PulseAudio virtual sink setup for container
+│   ├── bench_stt.py
+│   └── whisper_bench.py
 ├── assets/
 │   └── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
 ├── scripts/
-│   └── generate_backchannel.py
+│   ├── generate_backchannel.py
+│   ├── auth_export.py         # exports Chrome session to auth_state.json
+│   └── probe_screenshot.py
 └── tests/
-    ├── test_audio_processor.py  # AudioProcessor unit tests (no BlackHole needed)
-    ├── test_apis.py / test_blackhole.py / test_capture.py / test_menubar.py
-    ├── test_pipeline.py / test_swift_capture.py / test_tts.py / test_whisper.py
-    ├── test_calendar.py
-    ├── probe_a1_headless_meet.py   # Phase -1 probe ✅
-    ├── probe_a2_stealth_meet.py    # Phase -1 probe ✅
-    └── probe_b2_whisper_docker.py  # Phase -1 probe ✅
+    ├── test_audio_processor.py
+    ├── test_smoke_docker.py
+    ├── test_pipeline.py
+    ├── probe_a1_headless_meet.py / probe_a2_stealth_meet.py
+    ├── probe_b2_whisper_docker.py
+    └── test_*.py
 ```
 
 ---
 
-## Target File Layout (post-refactor)
+## Target File Layout (post-refactor, Phases 4–6)
 
 ```
 operator/
+├── app.py                     # macOS entry point (menu bar shell — thin wrapper)
+├── config.yaml                # loadout config — all configurable values
+├── pyproject.toml             # packaging (pip install -e .)
+├── LICENSE                    # MIT
+├── README.md                  # rewritten for open-source audience
+├── requirements.txt
+├── .env / credentials.json / token.json / auth_state.json
+├── .gitignore
 ├── pipeline/
 │   ├── __init__.py
-│   ├── audio.py           # utterance detection, silence detection, Whisper STT
-│   ├── wake.py            # wake phrase detection
-│   ├── conversation.py    # state machine (idle/listening/thinking/speaking)
-│   ├── llm.py             # GPT-4.1-mini calls, completeness checks
-│   └── tts.py             # ElevenLabs TTS, audio playback (output device = parameter)
+│   ├── audio.py
+│   ├── wake.py
+│   ├── conversation.py
+│   ├── llm.py
+│   ├── tts.py
+│   └── runner.py              # shared transcription loop (Phase 6)
 ├── connectors/
 │   ├── __init__.py
-│   ├── base.py            # MeetingConnector abstract interface
-│   ├── macos_adapter.py   # ScreenCaptureKit + BlackHole + real Chrome
-│   └── docker_adapter.py  # PulseAudio + headless Chrome
+│   ├── base.py
+│   ├── macos_adapter.py
+│   └── linux_adapter.py       # local Linux headless adapter (replaces docker_adapter.py)
 ├── assets/
-│   └── *.mp3              # all audio clips
+│   └── *.mp3
 ├── scripts/
 │   ├── generate_backchannel.py
-│   └── setup_wizard.py    # Phase 5
+│   ├── auth_export.py
+│   ├── linux_setup.sh         # creates PulseAudio virtual sinks on local Linux
+│   └── setup_wizard.py        # Phase 9
 ├── tests/
 │   ├── probe_a1_headless_meet.py / probe_a2_stealth_meet.py
-│   ├── test_pipeline.py / test_macos_adapter.py / test_docker_adapter.py
-│   ├── test_calendar.py / test_tts.py
-│   └── test_smoke_docker.py
-├── docker/
-│   ├── Dockerfile
-│   └── entrypoint.py
-├── app.py                 # macOS entry point (thin shell)
-├── config.yaml            # loadout config (Phase 4)
-├── setup.py
-├── requirements.txt
-├── .env / credentials.json / token.json
-└── .gitignore
+│   ├── probe_b2_whisper_docker.py
+│   ├── test_pipeline.py
+│   ├── test_smoke_docker.py
+│   └── test_*.py
+└── cloud/                     # cloud deployment artifacts — separated, not primary
+    └── docker/
+        ├── Dockerfile
+        ├── Dockerfile.bench
+        ├── Dockerfile.probe_b2
+        ├── entrypoint.py
+        ├── pulse_setup.sh
+        ├── bench_stt.py
+        └── whisper_bench.py
 ```
 
 ---
@@ -128,18 +150,18 @@ operator/
 - **ScreenCaptureKit requires `.app` bundle** on macOS — silently fails from plain Python script.
 - **PyObjC packages are fragile** — never install new `pyobjc-framework-*` without checking prior issues.
 - **`WHISPER_HALLUCINATIONS` filter** — catches common false positives on silence. Add patterns as found.
-- **Audio output device is BlackHole only (`coreaudio/BlackHole2ch_UID`)** — do NOT change to Multi-Output Device. mpv plays TTS → BlackHole → Chrome mic → call participants hear Operator. Using Multi-Output Device causes Operator's voice to play through the MacBook speakers, which is undesirable. Chrome must have BlackHole 2ch set as its default microphone (chrome://settings/content/microphone).
-- **Ghost session in Meet:** Closing the browser without clicking Leave leaves the Operator account registered as "in the meeting." Next join attempt shows "Switch here" instead of "Join now." Fix: `leave()` must click the Leave button before `browser.close()`. Also handle "Switch here" as a fallback join path. Workaround during probes: use a new meeting link each time.
-- **Headless Chrome suppresses audio rendering:** In true headless mode (`headless=True`), Chrome disables audio output entirely — meeting audio never reaches PulseAudio even though Chrome has an active sink-input. Fix: run Chrome in headed mode (`headless=False`) against a virtual display (Xvfb on `:99`). Xvfb must be started before Chrome. `DISPLAY=:99` and `PULSE_RUNTIME_PATH=/tmp/pulse` must be passed as env vars to the browser launch call.
-- **Google Meet guest join in Docker:** The container has no Google session (browser_profile/ is gitignored and never copied in). On residential IPs (e.g. local Docker Desktop), Meet shows a "Your name?" field — fill it in and guest join works. Fix already in `DockerAdapter._browser_session()`. On data center IPs (e.g. DigitalOcean droplet), Google shows "You can't join this video call" and blocks the join entirely — bot detection fires on the IP. Production fix: export a real Google session from the signed-in macOS browser and mount it into the container. Approach: `playwright codegen` or `browser.new_context(storage_state=...)` loading a saved `auth_state.json`. This is unresolved and will need to be addressed before the droplet deployment works end-to-end.
-- **PulseAudio must be started before Python:** `pulse_setup.sh` creates the virtual sinks. If Python starts first, `parec` gets `Connection refused` immediately and the audio loop exits. Dockerfile CMD must be `bash pulse_setup.sh && python3 entrypoint.py`, not `python3 entrypoint.py` alone.
-- **PulseAudio default routing:** Chrome uses the default PulseAudio sink for audio output (meeting audio IN) and the default source for mic input (TTS audio OUT). Must set `pactl set-default-sink MeetingInput` and `pactl set-default-source MeetingOutput.monitor` in `pulse_setup.sh` after creating the virtual devices. Without this, Chrome outputs to the wrong sink and audio IN is silent.
-- **Chrome does not enumerate PulseAudio monitor sources as microphones:** `MeetingOutput.monitor` is a monitor source — Chrome's `getUserMedia()` returns `NotFoundError` ("Microphone not found") because Chrome ignores monitor sources when enumerating mic devices. Fix: use `module-virtual-source` in `pulse_setup.sh` to wrap the monitor as a proper source named `VirtualMic`. Set `VirtualMic` as the default PulseAudio source. Audio path: mpv → MeetingOutput → MeetingOutput.monitor → VirtualMic → Chrome mic → WebRTC → participants. Do not revert to setting `MeetingOutput.monitor` as default source — Chrome will not see it.
-- **Audio quality on Apple Silicon (QEMU):** When running the `linux/amd64` Docker image on a Mac (ARM64), QEMU CPU emulation causes audio buffer underruns — Operator's voice sounds fuzzy/staticky. This is expected and likely resolves on the native AMD64 DigitalOcean droplet. Test on droplet before investigating sample rate or codec issues.
-- **Backchannel + completeness check removed from scope** — utterances finalize on silence, no mid-prompt continuation logic.
+- **Audio output device is BlackHole only (`coreaudio/BlackHole2ch_UID`) on macOS** — do NOT change to Multi-Output Device. mpv plays TTS → BlackHole → Chrome mic → call participants hear Operator. Multi-Output Device causes voice to play through MacBook speakers.
+- **Ghost session in Meet:** Closing the browser without clicking Leave leaves the Operator account registered as "in the meeting." Next join attempt shows "Switch here" instead of "Join now." Fix: `leave()` must click the Leave button before `browser.close()`. Handle "Switch here" as a fallback join path.
+- **Headless Chrome suppresses audio rendering:** In true headless mode (`headless=True`), Chrome disables audio output entirely. Fix: run Chrome in headed mode (`headless=False`) against a virtual display (Xvfb on `:99`). Xvfb must be started before Chrome. `DISPLAY=:99` must be passed as env var to the browser launch call.
+- **Google Meet guest join — residential vs. data center IPs:** On residential IPs (local machine, Docker Desktop), Meet shows a "Your name?" field — fill it and guest join works. On data center IPs (DigitalOcean droplet), Google shows "You can't join this video call" and blocks join entirely — bot detection fires on the IP. Production fix for cloud: export a real Google session via `scripts/auth_export.py` and load it as `storage_state` in Playwright.
+- **PulseAudio must be started before Python:** `pulse_setup.sh` creates the virtual sinks. If Python starts first, `parec` gets `Connection refused`. Startup order: PulseAudio setup → Python.
+- **PulseAudio default routing:** Chrome uses the default PulseAudio sink for audio output (meeting audio IN) and the default source for mic input (TTS audio OUT). Must set `pactl set-default-sink MeetingInput` and `pactl set-default-source MeetingOutput.monitor` after creating virtual devices. Without this, Chrome outputs to the wrong sink.
+- **Chrome does not enumerate PulseAudio monitor sources as microphones:** `MeetingOutput.monitor` is a monitor source — Chrome's `getUserMedia()` returns `NotFoundError`. Fix: use `module-virtual-source` to wrap the monitor as a proper source named `VirtualMic`. Set `VirtualMic` as the default PulseAudio source. Audio path: mpv → MeetingOutput → MeetingOutput.monitor → VirtualMic → Chrome mic → WebRTC → participants. Do not revert to `MeetingOutput.monitor` as default source.
+- **Audio quality on Apple Silicon (QEMU):** When running the `linux/amd64` Docker image on a Mac (ARM64), QEMU CPU emulation causes audio buffer underruns — Operator's voice sounds fuzzy/staticky. Test on native AMD64 (DigitalOcean droplet) before investigating sample rate or codec issues.
+- **DockerAdapter was cloud-oriented:** `docker_adapter.py` hardcodes `DISPLAY=:99` and `PULSE_RUNTIME_PATH=/tmp/pulse` for the Docker container environment. These must be removed/made environment-aware in `linux_adapter.py` for local machine use.
 - **LLM round-trip is 0.9–3s** — not fixable in code; mask it with backchannels, don't try to eliminate it.
 - **Porcupine removed** — app uses Whisper-based inline wake detection. `PORCUPINE_ACCESS_KEY` in `.env` is unused leftover.
-- **token.json expiry** — expires 2026-03-25 but has `refresh_token`; Google Calendar library auto-renews. If Calendar breaks, check here first.
+- **token.json expiry** — token.json has `refresh_token`; Google Calendar library auto-renews. If Calendar breaks, check here first.
 
 ---
 
@@ -148,283 +170,533 @@ operator/
 - [x] **Env A** — Secrets recovered from USB: `.env` (all API keys present), `credentials.json`, `token.json`. `operator_mac.ppn` discarded (Porcupine removed).
 - [x] **Env B** — `.gitignore` created.
 - [x] **Env C** — `requirements.txt` created. Cross-platform at top; macOS-only (`rumps`, `pyobjc-core`, `pyobjc-framework-Cocoa`) noted at bottom — exclude from Docker.
-- [x] **Env D** — venv created, deps installed, Playwright Chromium downloaded. Currently Python 3.9 (see Env F).
-- [x] **Env E** — `.vscode/settings.json` created: `python.terminal.useEnvFile: true`, `python.defaultInterpreterPath` → venv. Apply: `Cmd+Shift+P` → "Reload Window".
-
-- [x] **Env F** — Upgrade Python 3.9 → 3.11
-  ```bash
-  brew install python@3.11
-  cd ~/Desktop/operator
-  rm -rf venv
-  python3.11 -m venv venv
-  source venv/bin/activate
-  pip install -r requirements.txt
-  python3 -m playwright install chromium
-  ```
-  **Test:** `python3 --version` → `Python 3.11.x`. Then: `python3 -c "import openai, faster_whisper, playwright; print('ok')"`.
-  No commit (venv is gitignored).
-
-- [x] **Env H** — New machine setup (March 2026)
-  - Install BlackHole 2ch: `brew install blackhole-2ch` (requires password; `.pkg` is at `/opt/homebrew/Caskroom/blackhole-2ch/0.6.1/` if brew fails silently)
-  - Install mpv: `brew install mpv`
-  - Compile Swift helper: `swiftc audio_capture.swift -o audio_capture -framework AVFoundation -framework ScreenCaptureKit -framework CoreMedia`
-  - Set Chrome microphone to BlackHole 2ch: `chrome://settings/content/microphone`
-  - System audio output stays on built-in speakers — no Multi-Output Device needed
-  - Rebuild app bundle: `python setup.py py2app -A && open dist/Operator.app`
-  - **Test pipeline without hardware:** `python tests/test_audio_processor.py --no-mic`
-
-- [x] **Env G** — Recreate `browser_profile/`
-  ```bash
-  source venv/bin/activate
-  python3 test_playwright.py
-  ```
-  Chrome opens → navigate to `accounts.google.com` → sign into **Operator Google account** (not personal) → press Enter in terminal.
-  **Test:** Run `python3 test_playwright.py` again — should say "Already logged in."
-  No commit (browser_profile/ is gitignored).
+- [x] **Env D** — venv created, deps installed, Playwright Chromium downloaded.
+- [x] **Env E** — `.vscode/settings.json` created.
+- [x] **Env F** — Upgrade Python 3.9 → 3.11.
+- [x] **Env G** — Recreate `browser_profile/` by signing into Operator Google account.
+- [x] **Env H** — New machine setup: BlackHole 2ch, mpv, Swift helper compiled, app bundle rebuilt.
 
 ---
 
-## Phase -1: Pre-Validation Probes
+## Phase -1: Pre-Validation Probes ✅
 
-### Probe A: Headless Chrome + Google Meet
-
-- [x] **Probe A.1** — Run `python3 tests/probe_a1_headless_meet.py`
-  - headless=True, no stealth config, reuses browser_profile/
-  - Screenshots → `/tmp/probe_a1_step*.png`
-  - **Pass:** "Operator" appears in participant list → proceed to A.2
-  - **Soft fail:** stuck/spinner → proceed to A.2 anyway
-  - **Hard fail:** redirected to sign-in before join UI → headless detected at session level
-
-- [x] **Probe A.2** — Run `python3 tests/probe_a2_stealth_meet.py`
-  - Stealth config: custom User-Agent (no "HeadlessChrome"), viewport 1920×1080, `--disable-blink-features=AutomationControlled`, JS `navigator.webdriver = undefined`
-  - **Pass:** "Operator" in participant list
-  - **Fail → contingency: Recall.ai.** Document failure, stop, make product decision before continuing.
-  - **Commit (if passes):** `test: headless Chrome Meet probe — PASSES, stealth config documented`
-
-### Probe B: PulseAudio Audio Quality
-
-- [x] **Probe B.1** — Install Docker Desktop. **Test:** `docker --version` → `Docker version 29.3.0`.
-
-- [x] **Probe B.2** — Build audio-test container (`docker/Dockerfile.probe_b2`, `docker/whisper_bench.py`, `tests/probe_b2_whisper_docker.py`)
-  - PulseAudio started successfully inside container.
-  - faster-whisper base WER: 9.1% avg (identical to local baseline of 9.9% — container adds zero degradation).
-  - **Result: PASS.** `test: Docker PulseAudio + Whisper probe — PASSES, 9.1% WER, config documented`
-
-### Decision Gate
-
-| Probe A | Probe B | Decision |
-|---------|---------|----------|
-| ✅ | ✅ | Proceed as planned |
-| ✅ | ❌ | Proceed, use CDP audio in Phase 3 |
-| ❌ | ✅ | Switch to Recall.ai for meeting join; discuss first |
-| ❌ | ❌ | Both contingencies; stop and discuss |
+- [x] **Probe A.1** — Headless Chrome + Google Meet (no stealth): PASSES
+- [x] **Probe A.2** — Headless Chrome + Google Meet (stealth config): PASSES
+- [x] **Probe B.1** — Docker Desktop installed
+- [x] **Probe B.2** — PulseAudio + Whisper accuracy in Docker: PASSES (9.1% WER, matches local baseline)
 
 ---
 
-## Phase 0: Codebase Cleanup
+## Phase 0: Codebase Cleanup ✅
 
-Baseline test before Phase 0: `python setup.py py2app -A && open dist/Operator.app` → menu bar icon appears → confirm idle state ⚪ → join test Meet → confirm "operator" wake phrase works.
+- [x] 0.1 — Delete benchmark files
+- [x] 0.2 — Delete `spec.md`
+- [x] 0.3 — Move test files into `tests/`
+- [x] 0.4 — Create `scripts/`, move `generate_backchannel.py`
+- [x] 0.5 — Create `assets/`, move ack `.mp3` files, update paths in `app.py`
 
-- [x] **Step 0.1** — Delete: `benchmark_stt.py`, `capture_clips.py`, `benchmark_clips/`, `benchmark_results.json`
-- [x] **Step 0.2** — Delete: `spec.md`
-- [x] **Step 0.3** — Move to `tests/`: `test_calendar.py`, `test_playwright.py`, `test_playwright_basic.py` (deleted `test_api_keys.py` — benchmark leftover)
-- [x] **Step 0.4** — Create `scripts/`, move `generate_backchannel.py` → `scripts/generate_backchannel.py`
-- [x] **Step 0.5** — Create `assets/`, move ack `.mp3` files into it. Update paths in `app.py`. Backchannel clips + logic removed from scope.
+---
 
-**Post-Phase 0 root:**
-```
-operator/
-├── app.py / audio_capture.swift / calendar_join.py / setup.py
-├── product-strategy.md / refactor-plan.md / agent-context.md
-├── requirements.txt / .env / .gitignore
-├── assets/ / scripts/ / tests/
+## Phase 1: Extract the Agent Pipeline ✅
+
+- [x] 1.1 — Create `pipeline/__init__.py`
+- [x] 1.2 — Extract audio processing → `pipeline/audio.py`
+- [x] 1.3 — Extract wake phrase detection → `pipeline/wake.py`
+- [x] 1.4 — Extract conversation state machine → `pipeline/conversation.py`
+- [x] 1.5 — Extract LLM calls → `pipeline/llm.py`
+- [x] 1.6 — Extract TTS → `pipeline/tts.py` (output device as parameter)
+
+---
+
+## Phase 2: Connector Interface ✅
+
+- [x] 2.1 — Create `connectors/__init__.py`
+- [x] 2.2 — Define `MeetingConnector` abstract interface → `connectors/base.py`
+- [x] 2.3 — Implement `MacOSAdapter` → `connectors/macos_adapter.py`
+
+---
+
+## Phase 3: Docker/Cloud Adapter ✅
+
+- [x] 3.0a–f — DigitalOcean droplet provisioned (`64.23.182.26`), Docker installed, code pushed
+- [x] 3.1 — `pipeline/` imports cleanly on Linux (no macOS leaks)
+- [x] 3.2 — `docker/Dockerfile` created
+- [x] 3.4 — PulseAudio virtual audio routing in container
+- [x] 3.5 — STT accuracy benchmark on container audio: PASS (3.3% WER)
+- [x] 3.6 — `DockerAdapter` implemented → `connectors/docker_adapter.py`
+- [x] 3.7 — `docker/entrypoint.py` created, wired to pipeline
+- [x] 3.8 — `tests/test_smoke_docker.py` created and passing
+
+---
+
+## Phase 4: Reorient — Cloud Cleanup + Linux Local Adapter
+
+### Step 4.1 — Move Docker files to `cloud/` ✅
+
+Move all cloud deployment artifacts into a `cloud/` subdirectory. This keeps the code but removes it from the top-level view.
+
+```bash
+mkdir -p cloud
+mv docker cloud/docker
 ```
 
----
+Update `.gitignore` if needed. Check that no imports in `pipeline/` or `connectors/` reference `docker/` paths — there shouldn't be any.
 
-## Phase 1: Extract the Agent Pipeline
-
-After this phase: `pipeline/` has zero macOS-specific imports. `app.py` imports from `pipeline.*`.
-
-- [x] **Step 1.1** — Create `pipeline/__init__.py` (empty)
-
-- [x] **Step 1.2** — Create `pipeline/audio.py`. Move from `app.py`:
-  - Constants: `SAMPLE_RATE`, `BYTES_PER_SAMPLE`, `UTTERANCE_CHECK_INTERVAL`, `UTTERANCE_SILENCE_THRESHOLD`, `UTTERANCE_MAX_DURATION`, `UTTERANCE_SILENCE_RMS`, `WHISPER_HALLUCINATIONS`
-  - Whisper model init
-  - Utterance-capture loop (PCM read, silence detection, utterance finalization)
-  - **Preserve:** 0.5s silence pad before Whisper (Gotcha #1), `WHISPER_HALLUCINATIONS` filter, RMS silence thresholds
-  **Test:** Run app. Trigger wake phrase. Whisper transcribes correctly. Check logs for import errors.
-  **Commit:** `refactor: extract audio processing into pipeline/audio.py`
-
-- [x] **Step 1.3** — Create `pipeline/wake.py`. Move: wake phrase detection (scan transcript for "operator", distinguish inline vs wake-only).
-  **Test:** Add to `tests/test_pipeline.py`:
-  - `"operator what's the plan"` → `("inline", "what's the plan")`
-  - `"operator"` → `("wake-only", "")`
-  - `"let's operate on that"` → `(None, "")`
-  Run test + full end-to-end.
-  **Commit:** `refactor: extract wake phrase detection into pipeline/wake.py`
-
-- [x] **Step 1.4** — Create `pipeline/conversation.py`. Move: state machine (`_state`, `_set_state()`), four states (idle/listening/thinking/speaking), 20s timeout, backchannel continuation timeout. State machine emits events; `app.py` translates to menu bar icon — state machine must NOT know about rumps or icons.
-  **Test:** Full wake→response cycle. Confirm icon changes: ⚪→🔴→🟡→🟢→⚪.
-  **Commit:** `refactor: extract conversation state machine into pipeline/conversation.py`
-
-- [x] **Step 1.5** — Create `pipeline/llm.py`. Move: `_ask_llm()`, `_check_completeness()`, `SYSTEM_PROMPT`, rolling transcript management (`MAX_TRANSCRIPT_LINES`).
-  **Test:** Full interaction — wake phrase → LLM response. Check logs.
-  **Commit:** `refactor: extract LLM calls into pipeline/llm.py`
-
-- [x] **Step 1.6** — Create `pipeline/tts.py`. Move: `_speak()`, `_play_backchannel()`, `_play_acknowledgment()`, `VOICE_ID`, `ACK_CLIPS`, `BACKCHANNEL_CLIPS`. **Make output device a parameter** (not hardcoded `BLACKHOLE_DEVICE`). macOS adapter passes BlackHole; Docker adapter passes PulseAudio sink.
-  **Test:** Wake phrase → ack clip plays → LLM response plays. Echo prevention works (Operator doesn't transcribe its own voice).
-  **Commit:** `refactor: extract TTS into pipeline/tts.py, make output device configurable`
-
-**End-of-phase test:** `python -c "from pipeline import audio, wake, conversation, llm, tts; print('all imports ok')"` + full end-to-end meet test.
-**End-of-phase commit:** `refactor: Phase 1 complete — agent pipeline extracted into pipeline/ package`
+**Test:** `python -c "from pipeline import audio, wake, conversation, llm, tts; print('ok')"` — no errors.
+**Commit:** `chore: move cloud/Docker deployment artifacts to cloud/ subdirectory`
 
 ---
 
-## Phase 2: Connector Interface
+### Step 4.2 — Create `connectors/linux_adapter.py` from `docker_adapter.py` ✅
 
-- [x] **Step 2.1** — Create `connectors/__init__.py` (empty)
-  **Test:** `python -c "import connectors; print('ok')"`
-  **Commit:** `feat: create connectors/ package scaffold`
+Copy `connectors/docker_adapter.py` to `connectors/linux_adapter.py`. Rename the class `LinuxAdapter`. Make these changes:
 
-- [x] **Step 2.2** — Create `connectors/base.py`. Define `MeetingConnector` (abstract base class):
-  ```python
-  def join(meeting_url): ...      # navigate + join as participant
-  def get_audio_stream(): ...     # return raw audio from meeting
-  def send_audio(audio_data): ... # play audio as agent's mic
-  def send_chat(message): ...     # post to meeting chat
-  def leave(): ...                # leave cleanly
-  ```
-  Each method raises `NotImplementedError`.
-  **Test:** Instantiate a dummy subclass implementing all 5 methods with `pass` — no errors.
-  **Commit:** `feat: define MeetingConnector abstract interface in connectors/base.py`
+1. **Remove** the hardcoded `env={"DISPLAY": ":99", "PULSE_RUNTIME_PATH": "/tmp/pulse"}` from the Playwright launch call. Replace with: read `DISPLAY` from `os.environ` (fall back to `:99` only if not set), and do NOT set `PULSE_RUNTIME_PATH` — let PulseAudio use its system default socket.
+2. **Remove** `--no-sandbox` from the default `launch_args` list. Add a note: "re-add if running as root." Keep it available as an optional constructor parameter.
+3. **Rename** all logging strings from `DockerAdapter` to `LinuxAdapter`.
+4. **Keep** `docker_adapter.py` in place — it will move to `cloud/` in a later cleanup step. Do not delete it yet.
 
-- [x] **Step 2.3** — Create `connectors/macos_adapter.py`. `MacOSAdapter(MeetingConnector)`:
-  - `join()` → wrap Playwright + Chrome logic from `calendar_join.py`
-  - `get_audio_stream()` → wrap Swift helper subprocess launch (ScreenCaptureKit)
-  - `send_audio()` → wrap mpv → BlackHole playback
-  - `send_chat()` → stub, log "chat not yet implemented"
-  - `leave()` → close browser
-  Update `app.py` to use `MacOSAdapter` instead of calling Playwright/Swift directly.
-  **Test:** Full end-to-end meet test. Check logs confirm `MacOSAdapter` instantiated.
-  **Commit:** `refactor: wrap macOS meeting logic as MacOSAdapter in connectors/macos_adapter.py`
-  **Phase 2 verified:** March 24, 2026 — MacOSAdapter instantiated, Swift helper launched via adapter, meeting auto-joined, full pipeline confirmed.
-
-**End-of-phase commit:** `refactor: Phase 2 complete — connector interface defined, macOS adapter implemented`
+**Test:** Import check: `python -c "from connectors.linux_adapter import LinuxAdapter; print('ok')"`.
+**Commit:** `feat: add LinuxAdapter for local-machine headless Linux (connectors/linux_adapter.py)`
 
 ---
 
-## Phase 3: Docker Adapter
+### Step 4.3 — Create `scripts/linux_setup.sh` ✅
 
-### DigitalOcean Setup (one-time)
+Create a shell script that sets up the required PulseAudio virtual audio devices on a local Linux machine. This is the same set of `pactl` commands that `cloud/docker/pulse_setup.sh` runs at container startup, adapted for local use (no Docker-specific paths).
 
-- [x] **3.0a** — Create account at digitalocean.com. $200 credit for 60 days on new accounts. No commit.
+```bash
+#!/usr/bin/env bash
+# Operator — Linux local audio setup
+# Creates PulseAudio virtual devices required for meeting audio routing.
+# Run once per session (devices reset on reboot or when PulseAudio restarts).
+set -e
 
-- [x] **3.0b** — Generate SSH key + add to DigitalOcean:
-  ```bash
-  ssh-keygen -t ed25519 -C "operator-droplet"
-  cat ~/.ssh/id_ed25519.pub   # copy this → DigitalOcean Settings → Security → SSH Keys
-  ```
-  No commit.
+pactl load-module module-null-sink sink_name=MeetingOutput sink_properties=device.description=MeetingOutput
+pactl load-module module-null-sink sink_name=MeetingInput sink_properties=device.description=MeetingInput
+pactl load-module module-virtual-source source_name=VirtualMic master=MeetingOutput.monitor source_properties=device.description=VirtualMic
 
-- [x] **3.0c** — Create Droplet: Ubuntu 22.04 LTS, $12/mo (2 vCPU, 2GB RAM, 50GB SSD), closest region, SSH key "operator-droplet", hostname `operator-dev`. IP: `64.23.182.26`. No commit.
+pactl set-default-sink MeetingInput
+pactl set-default-source VirtualMic
 
-- [x] **3.0d** — SSH in, install Docker:
-  ```bash
-  ssh root@64.23.182.26
-  apt-get update && curl -fsSL https://get.docker.com | sh
-  ```
-  **Test:** `docker run hello-world` → "Hello from Docker!" No commit.
+echo "Operator: PulseAudio virtual devices ready."
+echo "  Audio IN  (meeting → Operator): parec --device=MeetingInput.monitor"
+echo "  Audio OUT (Operator → meeting): mpv --audio-device=pulse/MeetingOutput"
+```
 
-- [x] **3.0e** — Push code via GitHub (private repo `github.com/dufis1/operator`):
-  ```bash
-  # Local — already done
-  git remote add origin git@github.com:dufis1/operator.git
-  git push -u origin main --force
-  # Droplet — already done
-  git clone git@github.com:dufis1/operator.git && cd operator
-  ```
-  `.env` confirmed NOT in push. No commit needed (repo already had commits).
+Make executable: `chmod +x scripts/linux_setup.sh`
 
-- [x] **3.0f** — Set API keys on Droplet. Keys set in `/etc/environment`, verified via `python3 -c "import os; print(bool(os.environ.get('OPENAI_API_KEY')))"` after fresh SSH login. No commit.
-
-### Docker Adapter Build
-
-- [x] **Step 3.1** — On Linux (or inside container), validate pipeline imports:
-  ```bash
-  python -c "from pipeline import audio, wake, conversation, llm, tts; print('all ok')"
-  ```
-  Fix any macOS-specific import leaks (`rumps`, `PyObjCTools`, macOS `sounddevice`, etc.)
-  **Commit:** `fix: remove any remaining macOS-specific imports from pipeline/ modules`
-
-- [x] **Step 3.2** — Create `docker/Dockerfile`: Ubuntu 22.04, Python 3.11, PulseAudio, pip deps from `requirements.txt` (macOS-only packages excluded), Chromium + Playwright.
-  *Note: base is `python:3.11-slim` (Debian Bookworm) not ubuntu:22.04 — deadsnakes PPA GPG fails in Docker on ARM64 Mac. Functionally equivalent. `--platform linux/amd64` added to target the x86_64 droplet.*
-  **Test:** `docker build -t operator-test .` from `docker/` — no errors.
-  **Commit:** `feat: add base Dockerfile in docker/ folder`
-
-- [ ] **Step 3.3** — *(Already done — `requirements.txt` exists. Skip.)*
-
-- [x] **Step 3.4** — Extend Dockerfile + startup script: create PulseAudio virtual sink `MeetingOutput` (TTS out) and virtual source `MeetingInput` (meeting audio in). Configure headless Chrome to use them.
-  **Test:** Start container. Play audio file into `MeetingOutput` → confirm it appears on `MeetingInput`.
-  **Commit:** `feat: configure PulseAudio virtual audio routing in Docker container`
-
-- [x] **Step 3.5** — Re-run STT accuracy benchmark on container audio:
-  1. Record 5 clips inside container
-  2. Run faster-whisper base on them
-  3. Compare WER + latency against `benchmark_results.json` (macOS baseline)
-  **Pass criteria:** WER ≤ 0.15%, latency ≤ 1.5s.
-  **Result: PASS.** avg_wer 3.3% (< 15%). Latency 3.3s is QEMU-inflated (~3x); expected < 1.2s on native x86_64 droplet. Results in `benchmark_results_docker.json`. Bench image: `Dockerfile.bench` (extends production + espeak).
-  **Commit:** `test: STT accuracy benchmark on container audio — results in benchmark_results_docker.json`
-
-- [x] **Step 3.6** — Create `connectors/docker_adapter.py`. `DockerAdapter(MeetingConnector)`:
-  - `join()` → headless Playwright/Chromium, stealth config, dismiss popups, set PulseAudio devices, click "Join now"
-  - `get_audio_stream()` → read from PulseAudio `MeetingInput`
-  - `send_audio()` → write to PulseAudio `MeetingOutput`
-  - `send_chat()` → find chat input in Meet UI, type, send (use ARIA labels not CSS classes)
-  - `leave()` → close browser
-  **Key risks:** bot detection (mitigate with stealth config from Probe A.2), Meet UI changes (use ARIA labels).
-  **Test:** Full end-to-end inside container: join test Meet, speak "operator", confirm response. Log timing vs macOS baseline.
-  **Commit:** `feat: implement DockerAdapter in connectors/docker_adapter.py`
-
-- [x] **Step 3.7** — Create `docker/entrypoint.py`: read config from env vars, instantiate `DockerAdapter` + pipeline, wire together, start main loop.
-  **Test:** `docker run -e OPENAI_API_KEY=... -e ELEVENLABS_API_KEY=... operator` → joins test meeting, responds to wake phrase.
-  **Commit:** `feat: add Docker container entry point, wire DockerAdapter to pipeline`
-
-- [x] **Step 3.8** — Create `tests/test_smoke_docker.py`: start container, join test Meet room, play pre-recorded clip "operator, say the word hello", listen for audio response within 10s, assert received, teardown. Add to GitHub Actions as daily CI job.
-  **Result: PASS.** 1,916,928 bytes captured from MeetingOutput.monitor (full TTS response). Two fixes discovered during test: (1) Dockerfile CMD updated to run `pulse_setup.sh` before Python (PulseAudio wasn't starting); (2) DockerAdapter `_browser_session` now fills "Your name" field before clicking join (unauthenticated guest join requires name input).
-  **Commit:** `feat: add daily smoke test for Docker adapter (test_smoke_docker.py)`
-
-**End-of-phase commit:** `feat: Phase 3 complete — Docker container adapter implemented and smoke-tested`
+**Test:** On a Linux machine (or inside the existing Docker container for now): run `bash scripts/linux_setup.sh` → no errors → `pactl list short sinks` shows `MeetingOutput` and `MeetingInput`.
+**Commit:** `feat: add scripts/linux_setup.sh for local Linux PulseAudio setup`
 
 ---
 
-## Phase 4: Product Features
+### Step 4.4 — Update `connectors/__init__.py` ✅
 
-- [ ] **Step 4.1** — Implement `send_chat()` in `DockerAdapter` for chat mode. Add `MODE` env var: `voice` | `chat` | `both`. In chat mode: monitor meeting chat for `@operator`, strip mention, send to LLM, post response.
-  **Test:** In test Meet, type `@operator what's 2+2?` → agent posts response in chat.
-  **Commit:** `feat: add chat mode — respond in meeting chat when @mentioned`
+If `connectors/__init__.py` imports or references `DockerAdapter`, update it to also expose `LinuxAdapter`. Do not remove `DockerAdapter` — it's still referenced by `cloud/docker/entrypoint.py`.
 
-- [ ] **Step 4.2** — Add `send_reaction(emoji)` to `MeetingConnector`. On "thinking" state: fire 🤔 reaction + post "On it..." in chat. On response complete: fire ✅ reaction. Extend `base.py` interface.
-  **Test:** Trigger wake phrase → 🤔 appears within 1s → ✅ appears after response.
-  **Commit:** `feat: add visual feedback — emoji reactions and chat acknowledgments during processing`
-
-- [ ] **Step 4.3** — Create `config.yaml` + `config.py` reader. Move all hardcoded constants out of `app.py` and pipeline modules: LLM provider/model, voice ID/model, agent name, wake phrase, system prompt, interaction mode, connector type, conversation timeout.
-  **Test:** Change `wake_phrase` to `atlas`, run app, confirm responds to "atlas" not "operator". Revert to "operator", confirm.
-  **Commit:** `feat: add loadout config.yaml, read all configuration from it`
+**Test:** `python -c "from connectors import LinuxAdapter; print('ok')"` (adjust based on what `__init__.py` actually exports).
+**Commit:** `chore: expose LinuxAdapter in connectors/__init__.py`
 
 ---
 
-## Phase 5: Setup Wizard (MVP)
+### Step 4.5 — Verify `LinuxAdapter` end-to-end (local Linux or native droplet)
 
-- [ ] **Step 5.1** — Create `scripts/setup_wizard.py`: interactive CLI — asks for OpenAI key (validates), ElevenLabs key (validates), voice selection (list + preview), interaction mode, connector type → writes `.env` and `config.yaml`.
-  **Test:** Run from scratch with no `.env`. Follow prompts. Confirm `.env` + `config.yaml` created. Run app — works without additional config.
-  **Commit:** `feat: add MVP command-line setup wizard`
+On the DigitalOcean droplet (without Docker — running natively on the AMD64 host):
+1. Pull latest code: `git pull`
+2. Run `bash scripts/linux_setup.sh`
+3. Set `DISPLAY` (start Xvfb if needed: `Xvfb :99 -screen 0 1920x1080x24 &`)
+4. Run a test join using `LinuxAdapter` directly
+
+This also resolves the open question about whether fuzzy audio is QEMU-related (see Hard-Won Knowledge). If audio is clear on the native droplet, the issue was QEMU. If still fuzzy, proceed to Phase 7 audio quality investigation.
+
+**Test:** Full wake → LLM → TTS cycle on native AMD64. Log audio quality observations.
+**Commit:** `test: verify LinuxAdapter end-to-end on native Linux (no Docker)`
 
 ---
 
-## Open Questions (flag when hit)
+### Step 4.6 — Verify `MacOSAdapter` end-to-end on local macOS
 
-1. **Calendar secrets in Docker** — `credentials.json` + `token.json` need to be passed as env vars or mounted secrets. How to handle?
-2. **Multi-meeting concurrency** — orchestration layer to spin containers up/down per meeting. Scope unclear for v1.
-3. **Wake phrase customization** — test reliability before committing to the feature (Whisper transcription fidelity on custom phrases).
-4. **Licensing** — MIT vs. Apache 2.0 for open-source release.
+Confirm the macOS path still works correctly after the Phase 4 reorganization. No code changes — this is a sanity check.
+
+Run `python setup.py py2app -A && open dist/Operator.app`. Join a test Meet. Trigger the wake phrase. Confirm full cycle: wake phrase detected → LLM responds → TTS fires → meeting participants can hear Operator.
+
+**Test:** Full wake → LLM → TTS cycle on macOS. Confirm menu bar icon state transitions (⚪→🔴→🟡→🟢→⚪).
+**Commit:** `test: confirm MacOSAdapter end-to-end on local macOS after Phase 4 reorientation`
+
+---
+
+## Phase 5: Config System (The Loadout)
+
+### Step 5.1 — Create `config.yaml`
+
+Create `config.yaml` in the repo root. This is the loadout — the single serializable unit of agent configuration. API keys stay in `.env`; `config.yaml` is for everything else.
+
+```yaml
+# Operator loadout config
+# Secrets (API keys) stay in .env — this file is safe to commit and share.
+
+agent:
+  name: "Operator"
+  wake_phrase: "operator"
+  system_prompt: >
+    You are Operator, an AI assistant in a video call.
+    Keep responses short and conversational — under 30 words.
+    Avoid bullet points, headers, or markdown — speak naturally.
+  interaction_mode: "voice"      # voice | chat | both
+  conversation_timeout: 20       # seconds in listening mode after a response
+
+llm:
+  provider: "openai"
+  model: "gpt-4.1-mini"
+
+tts:
+  provider: "elevenlabs"
+  voice_id: "JBFqnCBsd6RMkjVDRZzb"
+  model: "eleven_turbo_v2"
+
+stt:
+  model: "base"                  # faster-whisper model size: tiny | base | small | medium
+  device: "cpu"
+  compute_type: "int8"
+
+connector:
+  type: "auto"                   # auto | macos | linux | docker
+  browser_profile_dir: "./browser_profile"
+  auth_state_file: null          # path to auth_state.json, or null for guest join
+```
+
+**Test:** `python -c "import yaml; c = yaml.safe_load(open('config.yaml')); print(c['agent']['name'])"` → `Operator`.
+**Commit:** `feat: add config.yaml — externalize all agent configuration (loadout)`
+
+---
+
+### Step 5.2 — Create `config.py`
+
+Create `config.py` in the repo root. This is the single source of truth for all modules.
+
+```python
+import os
+import yaml
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
+_ROOT = Path(__file__).parent
+_config = yaml.safe_load((_ROOT / "config.yaml").read_text())
+
+# Agent
+AGENT_NAME           = _config["agent"]["name"]
+WAKE_PHRASE          = _config["agent"]["wake_phrase"]
+SYSTEM_PROMPT        = _config["agent"]["system_prompt"]
+INTERACTION_MODE     = _config["agent"]["interaction_mode"]
+CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
+
+# LLM
+LLM_PROVIDER = _config["llm"]["provider"]
+LLM_MODEL    = _config["llm"]["model"]
+
+# TTS
+TTS_PROVIDER = _config["tts"]["provider"]
+TTS_VOICE_ID = _config["tts"]["voice_id"]
+TTS_MODEL    = _config["tts"]["model"]
+
+# STT
+STT_MODEL        = _config["stt"]["model"]
+STT_DEVICE       = _config["stt"]["device"]
+STT_COMPUTE_TYPE = _config["stt"]["compute_type"]
+
+# Connector
+CONNECTOR_TYPE       = _config["connector"]["type"]
+BROWSER_PROFILE_DIR  = _config["connector"]["browser_profile_dir"]
+AUTH_STATE_FILE      = _config["connector"]["auth_state_file"]
+
+# Secrets from .env
+OPENAI_API_KEY    = os.environ["OPENAI_API_KEY"]
+ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
+```
+
+**Test:** `python -c "import config; print(config.AGENT_NAME)"` → `Operator`.
+**Commit:** `feat: add config.py — single source of truth for all configuration`
+
+---
+
+### Step 5.3 — Wire `config.py` into pipeline modules
+
+Replace hardcoded constants in each `pipeline/` module with imports from `config`. One module at a time. Test after each.
+
+Order: `pipeline/llm.py` (SYSTEM_PROMPT, LLM_MODEL, OPENAI_API_KEY) → `pipeline/tts.py` (TTS_VOICE_ID, TTS_MODEL, ELEVENLABS_API_KEY) → `pipeline/wake.py` (WAKE_PHRASE) → `pipeline/conversation.py` (CONVERSATION_TIMEOUT) → `pipeline/audio.py` (STT_MODEL, STT_DEVICE, STT_COMPUTE_TYPE).
+
+**Test after each module:** Full wake → LLM → TTS cycle. Confirm behavior unchanged.
+**Commit (one per module):** e.g. `refactor: read LLM config from config.py in pipeline/llm.py`
+
+---
+
+### Step 5.4 — Wire `config.py` into adapters and entry points
+
+Update `app.py` and `connectors/linux_adapter.py` (and `connectors/macos_adapter.py` if it has hardcoded values) to read from `config`.
+
+**Test:** Change `agent.name` in `config.yaml` to something different → confirm the agent joins meetings under the new name. Revert.
+**Commit:** `refactor: read connector and agent config from config.py in adapters and entry points`
+
+---
+
+## Phase 6: Consolidate Entry Points
+
+### Step 6.1 — Create `pipeline/runner.py`
+
+Extract the shared transcription loop that exists in both `app.py` and `cloud/docker/entrypoint.py` into `pipeline/runner.py`. The runner takes a `MeetingConnector` instance and starts the main loop: audio capture → wake detection → LLM → TTS.
+
+```python
+# pipeline/runner.py
+class AgentRunner:
+    def __init__(self, connector: MeetingConnector, config):
+        ...
+    def run(self, meeting_url: str):
+        ...  # the transcription loop
+```
+
+**Test:** `python -c "from pipeline.runner import AgentRunner; print('ok')"`.
+**Commit:** `refactor: extract shared transcription loop into pipeline/runner.py`
+
+---
+
+### Step 6.2 — Simplify `app.py` to use `runner.py`
+
+`app.py` becomes a thin macOS shell: instantiate `MacOSAdapter`, instantiate `AgentRunner`, wire state change callbacks to menu bar icon updates, call `runner.run()`.
+
+**Test:** Full end-to-end macOS test — wake phrase → response.
+**Commit:** `refactor: simplify app.py to thin macOS shell using pipeline/runner.py`
+
+---
+
+### Step 6.3 — Create Linux entry point using `runner.py`
+
+Create `run_linux.py` (or `__main__.py` for `python -m operator`): check `$DISPLAY` and PulseAudio sinks are set up, instantiate `LinuxAdapter`, instantiate `AgentRunner`, call `runner.run(MEETING_URL)` where `MEETING_URL` is passed as a CLI argument or env var.
+
+**Test:** On Linux, `python run_linux.py <meet-url>` → agent joins and responds to wake phrase.
+**Commit:** `feat: add run_linux.py — Linux local entry point using LinuxAdapter + AgentRunner`
+
+---
+
+### Step 6.4 — Add OS auto-detection
+
+Create `__main__.py` so `python -m operator` works. Auto-detect OS: if `sys.platform == "darwin"` → use `MacOSAdapter`, else → use `LinuxAdapter`.
+
+**Test:** `python -m operator --help` works. On macOS, runs macOS adapter. On Linux, runs Linux adapter.
+**Commit:** `feat: add __main__.py with OS auto-detection — python -m operator works on both platforms`
+
+---
+
+## Phase 7: Performance Iteration
+
+### Step 7.1 — Test audio quality on native AMD64 (no QEMU)
+
+On the DigitalOcean droplet, pull latest, run `bash scripts/linux_setup.sh`, start Xvfb, join a test meeting using `LinuxAdapter`. Listen carefully to Operator's voice.
+
+**Pass:** Voice is clear — fuzzy audio was QEMU-related. Note in Hard-Won Knowledge. No further audio investigation needed.
+**Fail:** Voice still fuzzy on native AMD64 — proceed to 7.2.
+**Commit (if pass):** `chore: confirm QEMU as source of audio quality issue — resolved on native AMD64`
+
+---
+
+### Step 7.2 — Sample rate audit
+
+If audio is still fuzzy on native AMD64: trace the sample rate at each step of the chain.
+- ElevenLabs output sample rate (check API response headers or audio metadata)
+- mpv playback sample rate (run with `--msg-level=ao=debug`)
+- PulseAudio sink sample rate (`pactl list short sinks`)
+- Chrome WebRTC encoding rate (chrome://webrtc-internals)
+
+Identify any mismatch and correct it. The likely fix is forcing a consistent 16kHz or 48kHz throughout.
+
+**Test:** Voice sounds clear in meeting. Compare against earlier fuzzy recordings.
+**Commit:** `fix: correct sample rate mismatch in TTS → PulseAudio → Chrome → WebRTC chain`
+
+---
+
+### Step 7.3 — Tune filler phrase silence threshold
+
+The silence threshold for firing backchannel filler phrases (in `pipeline/conversation.py` or `pipeline/audio.py`) needs tuning. Current behavior: [note current value here before starting]. Goal: fires only when there is actual silence after a direct question to the agent — not during the speaker's natural pauses.
+
+Test with multiple human speech patterns. Adjust the threshold until fillers feel natural. Document the final value and rationale.
+
+**Commit:** `tune: adjust filler phrase silence threshold to N ms — rationale in comment`
+
+---
+
+### Step 7.4 — TTS reliability improvements
+
+In `pipeline/tts.py`: add retry logic for transient ElevenLabs API failures (e.g. 3 retries with exponential backoff). Add graceful degradation: if TTS fails after retries, log the error and post the response text to meeting chat as a fallback (requires `send_chat()` to be wired up).
+
+**Test:** Simulate API failure (temporarily set an invalid API key). Confirm graceful log + no crash.
+**Commit:** `fix: add retry logic and graceful degradation to pipeline/tts.py`
+
+---
+
+### Step 7.5 — STT accuracy review
+
+Review the `WHISPER_HALLUCINATIONS` list in `pipeline/audio.py`. Add any new false-positive patterns discovered during Phase 3 testing.
+
+Evaluate `small` model vs. `base`: run both on 10–20 representative utterances from real meeting audio. Compare WER and latency. If `small` improves accuracy meaningfully without pushing latency past 1.5s, update `config.yaml` default.
+
+**Test:** Wake phrase reliability — "operator" detected correctly; "let's operate on that" not triggered.
+**Commit:** `tune: update WHISPER_HALLUCINATIONS filter; [update model if changed]`
+
+---
+
+## Phase 8: Open-Source Packaging
+
+### Step 8.1 — Add `pyproject.toml`
+
+```toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "operator-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "An open-source bridge layer that lets any AI agent join any video call as a live participant."
+license = {text = "MIT"}
+dependencies = [
+    "openai", "elevenlabs", "faster-whisper", "playwright",
+    "python-dotenv", "numpy", "soundfile", "sounddevice",
+    "google-auth-oauthlib", "google-api-python-client", "pyyaml",
+]
+
+[project.optional-dependencies]
+macos = ["rumps", "pyobjc-core", "pyobjc-framework-Cocoa"]
+
+[project.scripts]
+operator-setup = "scripts.setup_wizard:main"
+operator-run   = "operator.__main__:main"
+```
+
+**Test:** `pip install -e .` in a clean venv → no errors.
+**Commit:** `feat: add pyproject.toml for pip install`
+
+---
+
+### Step 8.2 — Add `LICENSE`
+
+Create `LICENSE` file with MIT license text. Year: 2026. Copyright holder: [confirm with user].
+
+**Commit:** `chore: add MIT LICENSE`
+
+---
+
+### Step 8.3 — Rewrite `README.md`
+
+Structure:
+1. One-line description
+2. Quick start (5 steps: prerequisites, install, run wizard, paste meeting link, done)
+3. Architecture (three layers — brief, with diagram)
+4. Configuration (config.yaml fields)
+5. Swapping providers (how to change LLM, TTS, STT)
+6. Platform support (macOS, Linux)
+7. Contributing
+
+Do NOT include anything from the old README.
+
+**Commit:** `docs: rewrite README.md for open-source audience`
+
+---
+
+## Phase 9: Setup Wizard
+
+### Step 9.1 — Create `scripts/setup_wizard.py`
+
+Interactive CLI wizard. Steps in order:
+1. Detect OS (silent — no prompt)
+2. Ask: OpenAI API key → validate with a test call → store in `.env`
+3. Ask: ElevenLabs API key → validate → store in `.env`
+4. Ask: agent name (default: "Operator")
+5. Ask: wake phrase (default: "operator") — warn if phrase is unusual
+6. Ask: voice selection → list available voices → offer preview → confirm
+7. Ask: interaction mode (voice / chat / both)
+8. Ask: Google account for agent? (y/n) — if yes, open browser for one-time login via `scripts/auth_export.py`
+9. OS-specific audio setup:
+   - macOS: `brew install blackhole-2ch` (silent), write Chrome mic preference to profile JSON
+   - Linux: run `scripts/linux_setup.sh`
+10. Write `config.yaml`
+11. Print: "Setup complete. Run `python -m operator <meeting-url>` to start."
+
+**Test:** Run from scratch with no `.env` and no `config.yaml`. Complete prompts. Confirm both files created. Run `python -m operator <test-meet-url>` — agent joins and responds to wake phrase.
+**Commit:** `feat: add scripts/setup_wizard.py — guided first-run setup`
+
+---
+
+### Step 9.2 — Wire into `pyproject.toml` entry point
+
+`operator-setup` command should call `setup_wizard.main()`. Verify `operator-setup` works after `pip install -e .`.
+
+**Commit:** `feat: wire setup_wizard to operator-setup entry point`
+
+---
+
+## Phase 10: Chat Mode
+
+### Step 10.1 — Add interaction mode to config
+
+`config.yaml` already has `interaction_mode: "voice"`. Ensure `config.py` exposes `INTERACTION_MODE`. Both adapters and the runner should check this value.
+
+**Commit:** `feat: read interaction_mode from config.yaml`
+
+---
+
+### Step 10.2 — Implement chat monitoring in `LinuxAdapter`
+
+In `linux_adapter.py`:
+- Add a `monitor_chat()` method that polls the meeting chat panel for new messages containing `@<AGENT_NAME>`
+- When found: strip the mention, return the message text
+- The runner calls this in chat mode instead of (or in addition to) wake phrase detection
+
+The chat panel ARIA labels are already partially implemented in `send_chat()` — use the same approach to read messages.
+
+**Test:** In a test Meet, type `@operator what's 2+2?` → agent posts `4` (or similar) in chat within 10s.
+**Commit:** `feat: implement chat monitoring in LinuxAdapter`
+
+---
+
+### Step 10.3 — Implement same in `MacOSAdapter`
+
+Mirror the `monitor_chat()` implementation in `macos_adapter.py`.
+
+**Test:** Same as 10.2, on macOS.
+**Commit:** `feat: implement chat monitoring in MacOSAdapter`
+
+---
+
+## Phase 11: Visual Feedback
+
+### Step 11.1 — Chat acknowledgment
+
+When the agent enters the "thinking" state: call `connector.send_chat("On it...")`. When the response is ready and TTS/chat message has been sent, optionally follow up. Keep it short — this is a signal, not a conversation.
+
+Wire into `pipeline/conversation.py` state transitions (or `pipeline/runner.py`).
+
+**Test:** Trigger wake phrase → "On it..." appears in chat within 1s of wake detection.
+**Commit:** `feat: post chat acknowledgment when agent enters thinking state`
+
+---
+
+### Step 11.2 — Emoji reactions
+
+Add `send_reaction(emoji)` to `MeetingConnector` base interface. Implement in both adapters. Fire 🤔 on thinking state, ✅ when response is delivered.
+
+Google Meet reaction button ARIA label: "Send a reaction" — click it, then click the emoji. Test this Playwright interaction manually before wiring into the pipeline.
+
+**Test:** Wake phrase → 🤔 appears within 1s → ✅ appears after response.
+**Commit:** `feat: add emoji reactions to MeetingConnector — thinking and done states`
+
+---
+
+## Open Questions
+
+1. **Audio quality root cause** — QEMU emulation vs. sample rate mismatch vs. WebRTC Opus? Test on native AMD64 in Phase 7.1.
+2. **Wake phrase customization** — allow users to set their own wake phrase in `config.yaml`? Test Whisper reliability on custom phrases before committing.
+3. **Calendar auto-join** — watch Google Calendar and auto-join on a schedule? Or keep paste-the-link for v1?
+4. **Linux distro coverage** — Ubuntu/Debian tier-1; PulseAudio vs. PipeWire (Fedora, Ubuntu 22.04+) needs separate validation path.
+5. **Calendar secrets in cloud** — `credentials.json` + `token.json` for the cloud path: env vars or mounted secrets?
