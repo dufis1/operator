@@ -107,7 +107,7 @@ class MacOSAdapter(MeetingConnector):
                     user_data_dir=BROWSER_PROFILE,
                     headless=False,
                     executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                    args=["--use-fake-ui-for-media-stream"],
+                    args=["--use-fake-ui-for-media-stream", "--headless=new"],
                 )
                 page = browser.pages[0] if browser.pages else browser.new_page()
 

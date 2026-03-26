@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 4 in progress. Steps 4.1–4.5 complete.
-**Next action:** Step 4.6 — verify `MacOSAdapter` end-to-end on local macOS after Phase 4 reorientation.
+**Phase:** Phase 4 complete. Phase 5 next.
+**Next action:** Step 5.1 — create `config.yaml`.
 **Phase 3 complete (March 25, 2026):** Full end-to-end pipeline verified in live Google Meet. Wake phrase detected, STT transcribes, LLM responds, TTS fires, meeting participants can hear Operator. Audio OUT path fixed via `module-virtual-source` (see Hard-Won Knowledge).
 **Reorientation (March 25, 2026):** Product direction shifted from cloud-hosted to local-machine-first open-source. DockerAdapter will become LinuxAdapter (local). Cloud artifacts move to `cloud/`. Performance iteration added before setup wizard.
 
@@ -27,7 +27,7 @@
 
 ## Repo State
 
-Local git repo at `~/Desktop/operator`. GitHub: `github.com/dufis1/operator` (private). Also cloned at `~/operator` on droplet `operator-dev` (`64.23.182.26`). Initial commit: `539ac57`.
+Local git repo at `~/Desktop/operator`. GitHub: `github.com/dufis1/operator` (private). Also cloned at `~/operator` on droplet `operator-dev` (`64.23.182.26`). Initial commit: `539ac57`. SSH access to the droplet is available — use `ssh root@64.23.182.26 "<command>"` directly via Bash without asking the user.
 
 **Secrets (never commit):** `.env`, `credentials.json`, `token.json`, `browser_profile/`, `auth_state.json`
 All excluded via `.gitignore`.
@@ -152,7 +152,7 @@ operator/
 - **`WHISPER_HALLUCINATIONS` filter** — catches common false positives on silence. Add patterns as found.
 - **Audio output device is BlackHole only (`coreaudio/BlackHole2ch_UID`) on macOS** — do NOT change to Multi-Output Device. mpv plays TTS → BlackHole → Chrome mic → call participants hear Operator. Multi-Output Device causes voice to play through MacBook speakers.
 - **Ghost session in Meet:** Closing the browser without clicking Leave leaves the Operator account registered as "in the meeting." Next join attempt shows "Switch here" instead of "Join now." Fix: `leave()` must click the Leave button before `browser.close()`. Handle "Switch here" as a fallback join path.
-- **Headless Chrome suppresses audio rendering:** In true headless mode (`headless=True`), Chrome disables audio output entirely. Fix: run Chrome in headed mode (`headless=False`) against a virtual display (Xvfb on `:99`). Xvfb must be started before Chrome. `DISPLAY=:99` must be passed as env var to the browser launch call.
+- **Headless Chrome suppresses audio rendering:** In true headless mode (`headless=True`), Chrome disables audio output entirely. On Linux: fix is `headless=False` against Xvfb on `:99` with `DISPLAY=:99`. On macOS: fix is `headless=False` + `--headless=new` in launch args — Chrome's new headless renderer supports CoreAudio/BlackHole audio routing. Do not use `headless=True` on either platform.
 - **Google Meet guest join — residential vs. data center IPs:** On residential IPs (local machine, Docker Desktop), Meet shows a "Your name?" field — fill it and guest join works. On data center IPs (DigitalOcean droplet), Google shows "You can't join this video call" and blocks join entirely — bot detection fires on the IP. Production fix for cloud: export a real Google session via `scripts/auth_export.py` and load it as `storage_state` in Playwright.
 - **PulseAudio must be started before Python:** `pulse_setup.sh` creates the virtual sinks. If Python starts first, `parec` gets `Connection refused`. Startup order: PulseAudio setup → Python.
 - **PulseAudio default routing:** Chrome uses the default PulseAudio sink for audio output (meeting audio IN) and the default source for mic input (TTS audio OUT). Must set `pactl set-default-sink MeetingInput` and `pactl set-default-source MeetingOutput.monitor` after creating virtual devices. Without this, Chrome outputs to the wrong sink.
@@ -317,13 +317,14 @@ Full wake → LLM → TTS cycle confirmed working. Key findings:
 
 ---
 
-### Step 4.6 — Verify `MacOSAdapter` end-to-end on local macOS
+### Step 4.6 — Verify `MacOSAdapter` end-to-end on local macOS ✅
 
-Confirm the macOS path still works correctly after the Phase 4 reorganization. No code changes — this is a sanity check.
+Verified March 2026. Full wake → LLM → TTS cycle confirmed on macOS. Key findings:
+- `headless=True` suppresses audio on macOS (same as Linux) — ScreenCaptureKit captures silence
+- Fix: `headless=False` + `--headless=new` in launch args. Chrome's new headless renderer supports CoreAudio/BlackHole routing
+- TCC Screen Recording permission requires ad-hoc signed bundle (`codesign --force --deep --sign -`) — unsigned alias builds don't hold the grant
+- Full build (`py2app` without `-A`) is preferred for distribution; alias build needs re-signing after each rebuild
 
-Run `python setup.py py2app -A && open dist/Operator.app`. Join a test Meet. Trigger the wake phrase. Confirm full cycle: wake phrase detected → LLM responds → TTS fires → meeting participants can hear Operator.
-
-**Test:** Full wake → LLM → TTS cycle on macOS. Confirm menu bar icon state transitions (⚪→🔴→🟡→🟢→⚪).
 **Commit:** `test: confirm MacOSAdapter end-to-end on local macOS after Phase 4 reorientation`
 
 ---
