@@ -19,7 +19,7 @@ How to run locally:
 
 What it does:
     1. Checks Docker daemon is running and required env vars are set
-    2. Builds the production image (docker/Dockerfile) tagged 'operator-smoke'
+    2. Builds the production image (cloud/docker/Dockerfile) tagged 'operator-smoke'
     3. Starts the container in the background
     4. Polls docker logs until "in meeting" appears (up to 90s) — confirms Chrome joined
     5. Plays assets/smoke_test_prompt.mp3 into MeetingInput PulseAudio sink via docker exec
@@ -108,7 +108,7 @@ def main():
 
     log(f"Building image '{IMAGE_NAME}' (cached layers make this fast after first run)...")
     build = subprocess.run(
-        ["docker", "build", "-f", "docker/Dockerfile", "-t", IMAGE_NAME, "."],
+        ["docker", "build", "-f", "cloud/docker/Dockerfile", "-t", IMAGE_NAME, "."],
         cwd=PROJECT_ROOT,
     )
     if build.returncode != 0:

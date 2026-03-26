@@ -14,7 +14,7 @@ How to run:
 
 What it does:
     1. Checks Docker daemon is running
-    2. Builds docker/Dockerfile.probe_b2 as image 'operator-probe-b2'
+    2. Builds cloud/docker/Dockerfile.probe_b2 as image 'operator-probe-b2'
     3. Runs the container, which transcribes benchmark_clips/ inside Docker
     4. Parses the JSON result and prints PASS or FAIL
 
@@ -61,7 +61,7 @@ def main():
     # Build the image
     log(f"Building image '{IMAGE_NAME}' (first run installs deps — may take ~3 min)...")
     build = subprocess.run(
-        ["docker", "build", "-f", "docker/Dockerfile.probe_b2", "-t", IMAGE_NAME, "."],
+        ["docker", "build", "-f", "cloud/docker/Dockerfile.probe_b2", "-t", IMAGE_NAME, "."],
         cwd=PROJECT_ROOT,
     )
     if build.returncode != 0:
