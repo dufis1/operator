@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 4 in progress. Steps 4.1–4.4 complete.
-**Next action:** Step 4.5 — verify `LinuxAdapter` end-to-end on native DigitalOcean droplet (no Docker).
+**Phase:** Phase 4 in progress. Steps 4.1–4.5 complete.
+**Next action:** Step 4.6 — verify `MacOSAdapter` end-to-end on local macOS after Phase 4 reorientation.
 **Phase 3 complete (March 25, 2026):** Full end-to-end pipeline verified in live Google Meet. Wake phrase detected, STT transcribes, LLM responds, TTS fires, meeting participants can hear Operator. Audio OUT path fixed via `module-virtual-source` (see Hard-Won Knowledge).
 **Reorientation (March 25, 2026):** Product direction shifted from cloud-hosted to local-machine-first open-source. DockerAdapter will become LinuxAdapter (local). Cloud artifacts move to `cloud/`. Performance iteration added before setup wizard.
 
@@ -157,7 +157,10 @@ operator/
 - **PulseAudio must be started before Python:** `pulse_setup.sh` creates the virtual sinks. If Python starts first, `parec` gets `Connection refused`. Startup order: PulseAudio setup → Python.
 - **PulseAudio default routing:** Chrome uses the default PulseAudio sink for audio output (meeting audio IN) and the default source for mic input (TTS audio OUT). Must set `pactl set-default-sink MeetingInput` and `pactl set-default-source MeetingOutput.monitor` after creating virtual devices. Without this, Chrome outputs to the wrong sink.
 - **Chrome does not enumerate PulseAudio monitor sources as microphones:** `MeetingOutput.monitor` is a monitor source — Chrome's `getUserMedia()` returns `NotFoundError`. Fix: use `module-virtual-source` to wrap the monitor as a proper source named `VirtualMic`. Set `VirtualMic` as the default PulseAudio source. Audio path: mpv → MeetingOutput → MeetingOutput.monitor → VirtualMic → Chrome mic → WebRTC → participants. Do not revert to `MeetingOutput.monitor` as default source.
-- **Audio quality on Apple Silicon (QEMU):** When running the `linux/amd64` Docker image on a Mac (ARM64), QEMU CPU emulation causes audio buffer underruns — Operator's voice sounds fuzzy/staticky. Test on native AMD64 (DigitalOcean droplet) before investigating sample rate or codec issues.
+- **Audio quality on Apple Silicon (QEMU):** When running the `linux/amd64` Docker image on a Mac (ARM64), QEMU CPU emulation causes audio buffer underruns — Operator's voice sounds fuzzy/staticky. **Confirmed on native AMD64 (DigitalOcean droplet, March 2026): audio still choppy — QEMU is not the cause.** Root cause is sample rate mismatch in the TTS → PulseAudio → Chrome → WebRTC chain. Fix in Phase 7.2.
+- **PulseAudio must run in user mode (not --system) on the droplet:** `pulseaudio --system --daemonize` creates a socket at `/run/pulse/native` which requires `pulse-access` group membership — parec and Chrome both get `Access denied`. Fix: `pulseaudio --daemonize` (no `--system`). User-mode socket lands at `/run/user/0/pulse/native` and is accessible to root without any group config.
+- **DockerAdapter hardcodes `PULSE_RUNTIME_PATH=/tmp/pulse` for Chrome:** On bare Linux (not Docker), PulseAudio's user-mode socket is at `/run/user/0/pulse/native`, not `/tmp/pulse`. Chrome can't find PulseAudio, `getUserMedia` fails, Meet shows "mic not found", VirtualMic stays SUSPENDED. Fix without code change: `mkdir -p /tmp/pulse && ln -sf /run/user/0/pulse/native /tmp/pulse/native`. LinuxAdapter must not hardcode this path — let Chrome inherit `PULSE_SERVER` from environment or use the default socket discovery.
+- **`mpv` is not installed by default on a bare Ubuntu droplet:** `apt install -y mpv` required. Without it, the acknowledgment clip playback crashes immediately after wake phrase detection.
 - **DockerAdapter was cloud-oriented:** `docker_adapter.py` hardcodes `DISPLAY=:99` and `PULSE_RUNTIME_PATH=/tmp/pulse` for the Docker container environment. These must be removed/made environment-aware in `linux_adapter.py` for local machine use.
 - **LLM round-trip is 0.9–3s** — not fixable in code; mask it with backchannels, don't try to eliminate it.
 - **Porcupine removed** — app uses Whisper-based inline wake detection. `PORCUPINE_ACCESS_KEY` in `.env` is unused leftover.
@@ -300,17 +303,16 @@ If `connectors/__init__.py` imports or references `DockerAdapter`, update it to 
 
 ---
 
-### Step 4.5 — Verify `LinuxAdapter` end-to-end (local Linux or native droplet)
+### Step 4.5 — Verify `LinuxAdapter` end-to-end (local Linux or native droplet) ✅
 
-On the DigitalOcean droplet (without Docker — running natively on the AMD64 host):
-1. Pull latest code: `git pull`
-2. Run `bash scripts/linux_setup.sh`
-3. Set `DISPLAY` (start Xvfb if needed: `Xvfb :99 -screen 0 1920x1080x24 &`)
-4. Run a test join using `LinuxAdapter` directly
+Verified on `operator-dev` droplet (64.23.182.26, native AMD64, no Docker), March 2026.
 
-This also resolves the open question about whether fuzzy audio is QEMU-related (see Hard-Won Knowledge). If audio is clear on the native droplet, the issue was QEMU. If still fuzzy, proceed to Phase 7 audio quality investigation.
+Full wake → LLM → TTS cycle confirmed working. Key findings:
+- Audio still choppy on native AMD64 → QEMU is not the cause → Phase 7.2 (sample rate audit) needed
+- PulseAudio must run in user mode (`pulseaudio --daemonize`, not `--system`) — see Hard-Won Knowledge
+- `mpv` must be installed separately (`apt install mpv`)
+- DockerAdapter's hardcoded `PULSE_RUNTIME_PATH=/tmp/pulse` breaks bare Linux; symlink workaround required — LinuxAdapter must not repeat this
 
-**Test:** Full wake → LLM → TTS cycle on native AMD64. Log audio quality observations.
 **Commit:** `test: verify LinuxAdapter end-to-end on native Linux (no Docker)`
 
 ---
@@ -695,7 +697,7 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 
 ## Open Questions
 
-1. **Audio quality root cause** — QEMU emulation vs. sample rate mismatch vs. WebRTC Opus? Test on native AMD64 in Phase 7.1.
+1. **Audio quality root cause** — QEMU ruled out (tested native AMD64, March 2026 — still choppy). Root cause is sample rate mismatch in TTS → PulseAudio → Chrome → WebRTC chain. Audit in Phase 7.2.
 2. **Wake phrase customization** — allow users to set their own wake phrase in `config.yaml`? Test Whisper reliability on custom phrases before committing.
 3. **Calendar auto-join** — watch Google Calendar and auto-join on a schedule? Or keep paste-the-link for v1?
 4. **Linux distro coverage** — Ubuntu/Debian tier-1; PulseAudio vs. PipeWire (Fedora, Ubuntu 22.04+) needs separate validation path.
