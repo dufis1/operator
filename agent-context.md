@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 6 complete. All steps 6.1–6.4 done.
-**Next action:** Step 7.1 — test audio quality on native AMD64 droplet (no QEMU).
+**Phase:** Phase 7 in progress. Step 7.1 complete (audio still choppy on native AMD64 — QEMU ruled out). Step 7.2 (sample rate audit) diagnosed: PulseAudio virtual sinks running at 44100Hz; Chrome WebRTC runs at 48000Hz; real-time SRC is the cause. Fix ready (set sinks to 48000Hz in linux_setup.sh).
+**Next action:** Step 7.2 — apply 48kHz fix and confirm audio quality. Then Step 7.3 — TTS provider benchmark.
 **Phase 6 progress (March 26, 2026):**
 - Step 6.1: `pipeline/runner.py` created — `AgentRunner` class encapsulates the full transcription loop, prompt handling, acknowledgment playback, and audio capture lifecycle. Interface: `AgentRunner(connector, tts_output_device, on_state_change, stop_event)`.
 - Step 6.1.5: `calendar_join.py` deleted, replaced with `caldav_poller.py` — CalDAV + system keychain, no OAuth. `config.yaml` gained `caldav.bot_gmail` field. `requirements.txt` updated (removed google-auth-oauthlib/google-api-python-client, added caldav/keyring).
@@ -532,32 +532,49 @@ Create `__main__.py` so `python -m operator` works. Auto-detect OS: if `sys.plat
 
 ## Phase 7: Performance Iteration
 
-### Step 7.1 — Test audio quality on native AMD64 (no QEMU)
+### Step 7.1 — Test audio quality on native AMD64 (no QEMU) ✅
 
-On the DigitalOcean droplet, pull latest, run `bash scripts/linux_setup.sh`, start Xvfb, join a test meeting using `LinuxAdapter`. Listen carefully to Operator's voice.
-
-**Pass:** Voice is clear — fuzzy audio was QEMU-related. Note in Hard-Won Knowledge. No further audio investigation needed.
-**Fail:** Voice still fuzzy on native AMD64 — proceed to 7.2.
-**Commit (if pass):** `chore: confirm QEMU as source of audio quality issue — resolved on native AMD64`
+Tested on `operator-dev` droplet (64.23.182.26, native AMD64, no Docker). Audio still choppy — QEMU ruled out. Root cause is sample rate mismatch (see Step 7.2). See Hard-Won Knowledge for full finding.
 
 ---
 
-### Step 7.2 — Sample rate audit
+### Step 7.2 — Sample rate audit + fix
 
-If audio is still fuzzy on native AMD64: trace the sample rate at each step of the chain.
-- ElevenLabs output sample rate (check API response headers or audio metadata)
-- mpv playback sample rate (run with `--msg-level=ao=debug`)
-- PulseAudio sink sample rate (`pactl list short sinks`)
-- Chrome WebRTC encoding rate (chrome://webrtc-internals)
+**Diagnosed (March 26, 2026):** PulseAudio virtual sinks default to 44100Hz. Chrome's WebRTC engine runs at 48000Hz. PulseAudio's real-time 44100→48000 SRC (sample rate conversion) using the default `speex-float-1` resampler causes audible artifacts.
 
-Identify any mismatch and correct it. The likely fix is forcing a consistent 16kHz or 48kHz throughout.
+**Fix:** Explicitly create `MeetingOutput` and `MeetingInput` sinks at 48000Hz in `scripts/linux_setup.sh`. Add `rate=48000` to the `pactl load-module module-null-sink` calls for both sinks. mpv handles the 44.1kHz→48kHz decode internally without quality loss.
 
-**Test:** Voice sounds clear in meeting. Compare against earlier fuzzy recordings.
-**Commit:** `fix: correct sample rate mismatch in TTS → PulseAudio → Chrome → WebRTC chain`
+**Test:** Restart PulseAudio on the droplet, re-run `bash scripts/linux_setup.sh`, confirm `pactl list short sinks` shows `48000Hz`. Join a test meeting and listen — voice should be clear.
+**Commit:** `fix: set PulseAudio virtual sinks to 48kHz to match Chrome WebRTC — eliminates SRC artifacts`
 
 ---
 
-### Step 7.3 — Tune filler phrase silence threshold
+### Step 7.3 — TTS provider benchmark
+
+ElevenLabs was chosen without a systematic evaluation. Before investing further in TTS reliability (Step 7.5), benchmark all three viable providers against each other in the actual meeting audio chain (after the 48kHz fix is in place).
+
+**Providers to test:**
+- **ElevenLabs** (`eleven_flash_v2_5`) — current provider. High voice quality. Requires paid plan.
+- **OpenAI TTS** (`tts-1` / `tts-1-hd`) — same OpenAI API key already in use. Streaming supported. One fewer vendor.
+- **Piper** (local, open source) — runs on the machine, no API call, no cost, outputs natively at any sample rate. Lower voice quality but aligns with open-source-first direction.
+
+**Test phrases:** Use the same 8–10 phrases for all three — mix of short acknowledgments ("Got it, one moment"), longer explanations (2–3 sentences), and technical language.
+
+**Measure for each:**
+1. Latency to first audio chunk (time from `speak()` call to audio starting)
+2. Total playback time per phrase
+3. Cost per character (or $0 for Piper)
+4. Setup complexity (install steps, dependencies added)
+5. Voice quality through WebRTC — listen in an actual meeting, not just locally. WebRTC's Opus codec compresses audio; naturalness degrades differently per voice.
+
+**Decision criteria:** Document scores in a short table. Pick the provider that best balances quality-through-WebRTC, latency, and vendor count. Update `config.yaml`, `requirements.txt`, and `pipeline/tts.py` for the winning provider.
+
+**Test:** Full wake → LLM → TTS → meeting participants hear Operator cycle with the chosen provider.
+**Commit:** `feat: switch TTS provider to [provider] — benchmark results in commit body`
+
+---
+
+### Step 7.4 — Tune filler phrase silence threshold
 
 The silence threshold for firing backchannel filler phrases (in `pipeline/conversation.py` or `pipeline/audio.py`) needs tuning. Current behavior: [note current value here before starting]. Goal: fires only when there is actual silence after a direct question to the agent — not during the speaker's natural pauses.
 
@@ -567,16 +584,16 @@ Test with multiple human speech patterns. Adjust the threshold until fillers fee
 
 ---
 
-### Step 7.4 — TTS reliability improvements
+### Step 7.5 — TTS reliability improvements
 
-In `pipeline/tts.py`: add retry logic for transient ElevenLabs API failures (e.g. 3 retries with exponential backoff). Add graceful degradation: if TTS fails after retries, log the error and post the response text to meeting chat as a fallback (requires `send_chat()` to be wired up).
+After the provider decision in Step 7.3: add retry logic for transient API failures (e.g. 3 retries with exponential backoff) for whichever provider was chosen. Add graceful degradation: if TTS fails after retries, log the error and post the response text to meeting chat as a fallback (requires `send_chat()` to be wired up). Skip this step if Piper was chosen (local — no API failures possible).
 
 **Test:** Simulate API failure (temporarily set an invalid API key). Confirm graceful log + no crash.
 **Commit:** `fix: add retry logic and graceful degradation to pipeline/tts.py`
 
 ---
 
-### Step 7.5 — STT accuracy review
+### Step 7.6 — STT accuracy review
 
 Review the `WHISPER_HALLUCINATIONS` list in `pipeline/audio.py`. Add any new false-positive patterns discovered during Phase 3 testing.
 
