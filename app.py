@@ -1,10 +1,8 @@
 """
 Operator — AI Meeting Participant
-Runs in the macOS menu bar. Listens to meeting audio for "operator",
-then responds via text-to-speech through a virtual audio device.
+Runs in the macOS menu bar. Delegates pipeline work to AgentRunner.
 """
 import os
-import random
 import subprocess
 import threading
 import time
@@ -12,17 +10,12 @@ import logging
 import soundfile as sf
 import numpy as np
 import rumps
-from elevenlabs.client import ElevenLabs
-from openai import OpenAI
 from PyObjCTools.AppHelper import callAfter
 import config
 from caldav_poller import CalDAVPoller
 from connectors.macos_adapter import MacOSAdapter
-from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
-from pipeline.wake import detect_wake_phrase
-from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
-from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
-from pipeline.tts import TTSClient
+from pipeline.audio import SAMPLE_RATE
+from pipeline.runner import AgentRunner
 
 logging.basicConfig(
     filename="/tmp/operator.log",
@@ -46,13 +39,7 @@ STATE_ICONS = {
     "speaking":  "🟢",
 }
 
-
 AUDIO_CAPTURE_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_capture")
-ACK_CLIPS = [
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ack_yeah.mp3"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ack_yes.mp3"),
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "ack_mmhm.mp3"),
-]
 
 
 class OperatorApp(rumps.App):
@@ -69,23 +56,8 @@ class OperatorApp(rumps.App):
             rumps.MenuItem("Quit", callback=self.quit_app),
         ]
 
-        # Conversation state machine
-        self.conv = ConversationState(on_state_change=self._on_conv_state_change)
-
-        # Audio processor (initialised in _load_and_start after API key check)
-        self.audio = None
-
-        # macOS connector (audio capture + meeting join)
         self.connector = None
-
-        # Continuous audio capture state
-        self._capture_proc = None
-
-        # Rolling transcript
-        self._transcript_lines = []
-        self._transcript_lock = threading.Lock()
-
-        # Calendar auto-join
+        self.runner = None
         self._calendar_poller = None
 
         threading.Thread(target=self._load_and_start, daemon=True).start()
@@ -127,211 +99,21 @@ class OperatorApp(rumps.App):
             self._set_state("⚠️", key_error)
             return
 
-        self._set_state("⚪", "Loading Whisper model...")
-        self.audio = AudioProcessor()
-
-        self._set_state("⚪", "Connecting to APIs...")
+        self._set_state("⚪", "Loading...")
         self.connector = MacOSAdapter()
-        self.openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
-        self.llm = LLMClient(self.openai_client)
-        self.eleven = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
-        self.tts = TTSClient(self.eleven, BLACKHOLE_DEVICE)
-
-        self._start_continuous_capture()
-        threading.Thread(target=self._transcription_loop, daemon=True).start()
+        self.runner = AgentRunner(
+            connector=self.connector,
+            tts_output_device=BLACKHOLE_DEVICE,
+            on_state_change=self._on_conv_state_change,
+        )
 
         self._calendar_poller = CalDAVPoller(self.connector)
         self._calendar_poller.start()
 
-        self.conv.set_idle()
-
-    def _play_acknowledgment(self):
-        """Play a random acknowledgment clip through BlackHole, with echo prevention."""
-        clip = random.choice(ACK_CLIPS)
-        clip_name = os.path.basename(clip).replace("ack_", "").replace(".mp3", "")
-        log.info(f"Operator says: \"{clip_name}\" (acknowledgment)")
-        self.audio.is_speaking = True
-        self.audio.drain_audio_buffer()
-        self.tts.play_clip(clip)
-        time.sleep(0.2)
-        self.audio.drain_audio_buffer()
-        self.audio.is_speaking = False
-        log.info("TIMING ack_done")
+        self.runner.run()  # blocks until stopped
 
     # ------------------------------------------------------------------
-    # Continuous audio capture
-    # ------------------------------------------------------------------
-
-    def _start_continuous_capture(self):
-        """Launch the Swift helper via MacOSAdapter and read audio continuously."""
-        try:
-            self._capture_proc = self.connector.get_audio_stream()
-            self.audio.capturing = True
-            log.info("Continuous capture: helper launched via MacOSAdapter")
-        except FileNotFoundError as e:
-            log.error(str(e))
-            self._set_state("❌", "Helper not found")
-            return
-        except OSError as e:
-            log.error(f"Continuous capture: failed to launch helper: {e}")
-            self._set_state("❌", f"Helper launch failed: {e}")
-            return
-
-        # Read stderr logs from Swift helper
-        threading.Thread(target=self._read_capture_stderr, daemon=True).start()
-        # Read audio data continuously
-        threading.Thread(target=self._audio_read_loop, daemon=True).start()
-
-    def _read_capture_stderr(self):
-        """Log stderr output from the Swift helper."""
-        for line in self._capture_proc.stderr:
-            log.debug(f"[swift] {line.decode().rstrip()}")
-
-    def _audio_read_loop(self):
-        """Continuously read PCM data from the Swift helper into the audio buffer."""
-        CHUNK_SIZE = 4096
-        while self.audio.capturing:
-            chunk = self._capture_proc.stdout.read(CHUNK_SIZE)
-            if not chunk:
-                log.warning("Continuous capture: helper stopped (stdout closed)")
-                self.audio.capturing = False
-                break
-            self.audio.feed_audio(chunk)
-
-        log.info("Continuous capture: read loop ended")
-
-    def _stop_continuous_capture(self):
-        """Stop the Swift helper."""
-        if self.audio:
-            self.audio.capturing = False
-        if self._capture_proc:
-            log.info("Continuous capture: stopping helper")
-            try:
-                self._capture_proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                self._capture_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._capture_proc.terminate()
-            self._capture_proc = None
-
-    # ------------------------------------------------------------------
-    # Transcription loop
-    # ------------------------------------------------------------------
-
-    def _transcription_loop(self):
-        """Utterance-based loop: detects 'operator' wake phrase via Whisper,
-        routes to LLM for prompt utterances, accumulates ambient speech into
-        the rolling transcript."""
-        log.info("Transcription loop: started")
-
-        while self.audio.capturing:
-            text = self.audio.capture_next_utterance(is_prompt=False)
-            if not text:
-                continue
-
-            text_lower = text.lower()
-
-            if text_lower.strip().strip(".,!?") in WHISPER_HALLUCINATIONS:
-                log.info(f"Ignoring hallucination: {text}")
-                continue
-
-            wake_type, trailing = detect_wake_phrase(text)
-
-            if wake_type is not None:
-                if wake_type == "inline":
-                    log.info(f"TIMING wake_inline prompt=\"{trailing}\"")
-                    self.conv.set_listening("Listening for prompt...")
-                    self._finalize_prompt(trailing)
-                else:  # wake-only
-                    log.info("TIMING wake_only waiting_for_prompt")
-                    self.conv.set_listening("Listening for prompt...")
-                    self._play_acknowledgment()
-                    prompt = self.audio.capture_next_utterance(is_prompt=True)
-                    if prompt:
-                        self._finalize_prompt(prompt)
-                    else:
-                        log.info("Prompt was empty after wake phrase, returning to idle")
-                        self.conv.set_idle()
-                        continue
-
-                # After Operator responds, stay in conversation mode: keep accepting
-                # follow-up replies without requiring the wake phrase again.
-                # Exit when CONVERSATION_TIMEOUT passes with no speech.
-                log.info("Entering conversation mode")
-                while self.audio.capturing:
-                    self.conv.set_listening("Listening...")
-                    followup = self.audio.capture_next_utterance(is_prompt=True, no_speech_timeout=CONVERSATION_TIMEOUT)
-                    if not followup:
-                        log.info("Conversation mode: no follow-up, returning to idle")
-                        break
-                    if followup.lower().strip().strip(".,!?") in WHISPER_HALLUCINATIONS:
-                        continue
-                    self._finalize_prompt(followup)
-                self.conv.set_idle()
-            else:
-                # Ambient (no wake phrase) — add to rolling transcript
-                log.info(f"Utterance: {text}")
-                with self._transcript_lock:
-                    self._transcript_lines.append(text)
-                    if len(self._transcript_lines) > MAX_TRANSCRIPT_LINES:
-                        self._transcript_lines = self._transcript_lines[-MAX_TRANSCRIPT_LINES:]
-
-        log.info("Transcription loop: ended")
-
-    def _finalize_prompt(self, prompt):
-        """Send finalized prompt to the LLM."""
-        if not prompt:
-            log.info("Prompt was empty after wake phrase, returning to idle")
-            self.conv.set_idle()
-            return
-
-        log.info(f"TIMING prompt_finalized \"{prompt}\"")
-        self.conv.set_thinking()
-
-        # Echo prevention: pause audio ingestion for the entire think+speak cycle
-        self.audio.is_speaking = True
-        self.audio.drain_audio_buffer()
-        log.info("Echo prevention: paused audio ingestion")
-
-        # Build context from rolling transcript
-        with self._transcript_lock:
-            context = "\n".join(self._transcript_lines[-20:])
-
-        full_prompt = f"[Meeting transcript so far]\n{context}\n\n[Someone just said to you]\n{prompt}"
-        log.info(f"Sending to LLM: {full_prompt[:200]}...")
-
-        try:
-            log.info("TIMING llm_request_sent")
-            t_llm_start = time.time()
-            reply = self.llm.ask(full_prompt)
-            t_llm_end = time.time()
-            log.info(f"TIMING llm_response_received ({t_llm_end - t_llm_start:.1f}s) \"{reply}\"")
-
-            self.conv.set_speaking()
-            log.info("TIMING tts_request_sent")
-            t_speak_start = time.time()
-            self.tts.speak(reply)
-            t_speak_end = time.time()
-            log.info(f"TIMING tts_playback_done")
-            log.info(
-                f"Pipeline timing — llm: {t_llm_end - t_llm_start:.1f}s, "
-                f"speak: {t_speak_end - t_speak_start:.1f}s, "
-                f"total: {t_speak_end - t_llm_start:.1f}s"
-            )
-        except Exception as e:
-            log.error(f"Pipeline error: {e}")
-        finally:
-            # Echo prevention: drain anything that leaked in, then resume ingestion
-            self.audio.drain_audio_buffer()
-            self.audio.is_speaking = False
-            log.info("Echo prevention: resumed audio ingestion")
-
-        self.conv.set_idle()
-
-    # ------------------------------------------------------------------
-    # Menu
+    # Menu actions
     # ------------------------------------------------------------------
 
     def test_capture(self, _):
@@ -359,13 +141,11 @@ class OperatorApp(rumps.App):
             self.status_item.title = f"❌ Helper launch failed: {e}"
             return
 
-        # Log stderr from Swift helper in a background thread
         def read_stderr():
             for line in proc.stderr:
                 log.debug(f"[swift] {line.decode().rstrip()}")
         threading.Thread(target=read_stderr, daemon=True).start()
 
-        # Read PCM data for the capture duration
         bytes_needed = SAMPLE_RATE * 4 * CAPTURE_SECONDS
         data = b""
         while len(data) < bytes_needed:
@@ -375,7 +155,6 @@ class OperatorApp(rumps.App):
                 break
             data += chunk
 
-        # Stop the helper
         log.debug("_do_capture: closing stdin to stop helper")
         proc.stdin.close()
         try:
@@ -413,7 +192,8 @@ class OperatorApp(rumps.App):
             self.status_item.title = f"Permission error: {e}"
 
     def quit_app(self, _):
-        self._stop_continuous_capture()
+        if self.runner:
+            self.runner.stop()
         if self._calendar_poller:
             self._calendar_poller.stop()
         elif self.connector:
