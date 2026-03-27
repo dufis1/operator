@@ -18,14 +18,15 @@
 
 ## Current Status
 
-**Phase:** Phase 6 in progress. Steps 6.1, 6.1.5, 6.2, and 6.3 complete.
-**Next action:** Step 6.4 — create `__main__.py` with OS auto-detection (`python -m operator` works on both platforms).
+**Phase:** Phase 6 complete. All steps 6.1–6.4 done.
+**Next action:** Step 7.1 — test audio quality on native AMD64 droplet (no QEMU).
 **Phase 6 progress (March 26, 2026):**
 - Step 6.1: `pipeline/runner.py` created — `AgentRunner` class encapsulates the full transcription loop, prompt handling, acknowledgment playback, and audio capture lifecycle. Interface: `AgentRunner(connector, tts_output_device, on_state_change, stop_event)`.
 - Step 6.1.5: `calendar_join.py` deleted, replaced with `caldav_poller.py` — CalDAV + system keychain, no OAuth. `config.yaml` gained `caldav.bot_gmail` field. `requirements.txt` updated (removed google-auth-oauthlib/google-api-python-client, added caldav/keyring).
 - Step 6.2: `app.py` simplified from 426 → 205 lines. Now a thin macOS shell: creates `MacOSAdapter` + `AgentRunner` + `CalDAVPoller`, wires `_on_conv_state_change` callback for menu bar icon updates, calls `runner.run()`. All pipeline logic removed from app.py.
 - End-to-end test passed (March 26, 2026): wake phrase detected via `say` command, LLM responded correctly, TTS fired through BlackHole, state machine cycled correctly. TTS not audible to user (expected — BlackHole has no physical output; audio goes into meeting participants' ears in real use).
 - Step 6.3: `run_linux.py` created — Linux entry point. Accepts meeting URL as CLI arg or MEETING_URL env var. Checks $DISPLAY and PulseAudio sinks (MeetingOutput + MeetingInput) before starting, fails fast with actionable error if prerequisites are missing. Instantiates LinuxAdapter + AgentRunner(tts_output_device="pulse/MeetingOutput") and calls runner.run(url).
+- Step 6.4: `__main__.py` created — cross-platform entry point. argparse `--help` works on both platforms. On macOS → launches OperatorApp (rumps menu bar). On Linux → same preflight checks as run_linux.py + dispatches to LinuxAdapter. Platform-specific imports deferred inside functions so the file imports cleanly everywhere. Note: `python -m operator` conflicts with stdlib `operator` module — use `python __main__.py` or `python .` until Step 8.1 (pyproject.toml) resolves this.
 **Phase 3 complete (March 25, 2026):** Full end-to-end pipeline verified in live Google Meet. Wake phrase detected, STT transcribes, LLM responds, TTS fires, meeting participants can hear Operator. Audio OUT path fixed via `module-virtual-source` (see Hard-Won Knowledge).
 **Reorientation (March 25, 2026):** Product direction shifted from cloud-hosted to local-machine-first open-source. DockerAdapter will become LinuxAdapter (local). Cloud artifacts move to `cloud/`. Performance iteration added before setup wizard.
 
