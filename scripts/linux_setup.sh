@@ -4,8 +4,8 @@
 # Run once per session (devices reset on reboot or when PulseAudio restarts).
 set -e
 
-pactl load-module module-null-sink sink_name=MeetingOutput sink_properties=device.description=MeetingOutput
-pactl load-module module-null-sink sink_name=MeetingInput sink_properties=device.description=MeetingInput
+pactl load-module module-null-sink sink_name=MeetingOutput sink_properties=device.description=MeetingOutput rate=48000
+pactl load-module module-null-sink sink_name=MeetingInput sink_properties=device.description=MeetingInput rate=48000
 pactl load-module module-virtual-source source_name=VirtualMic master=MeetingOutput.monitor source_properties=device.description=VirtualMic
 
 pactl set-default-sink MeetingInput
