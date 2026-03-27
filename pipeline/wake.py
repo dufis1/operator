@@ -3,8 +3,7 @@ Wake phrase detection for Operator.
 
 No macOS-specific imports. Pure string logic — safe to use in any connector.
 """
-
-WAKE_PHRASE = "operator"
+import config
 
 
 def detect_wake_phrase(text):
@@ -19,11 +18,11 @@ def detect_wake_phrase(text):
                             e.g. "let's operate on that" → (None, "")
     """
     text_lower = text.lower()
-    if WAKE_PHRASE not in text_lower:
+    if config.WAKE_PHRASE not in text_lower:
         return (None, "")
 
-    idx = text_lower.find(WAKE_PHRASE)
-    trailing = text[idx + len(WAKE_PHRASE):].strip().strip(",.:?!")
+    idx = text_lower.find(config.WAKE_PHRASE)
+    trailing = text[idx + len(config.WAKE_PHRASE):].strip().strip(",.:?!")
 
     if trailing:
         return ("inline", trailing)
