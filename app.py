@@ -11,11 +11,11 @@ import time
 import logging
 import soundfile as sf
 import numpy as np
-from dotenv import load_dotenv
 import rumps
 from elevenlabs.client import ElevenLabs
 from openai import OpenAI
 from PyObjCTools.AppHelper import callAfter
+import config
 from calendar_join import CalendarPoller
 from connectors.macos_adapter import MacOSAdapter
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
@@ -23,8 +23,6 @@ from pipeline.wake import detect_wake_phrase
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
 from pipeline.tts import TTSClient
-
-load_dotenv()
 
 logging.basicConfig(
     filename="/tmp/operator.log",
@@ -115,9 +113,9 @@ class OperatorApp(rumps.App):
 
     def _check_api_keys(self):
         missing = []
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not config.OPENAI_API_KEY:
             missing.append("OPENAI_API_KEY")
-        if not os.environ.get("ELEVENLABS_API_KEY"):
+        if not config.ELEVENLABS_API_KEY:
             missing.append("ELEVENLABS_API_KEY")
         if missing:
             return f"Missing API keys: {', '.join(missing)}. Add them to your .env file."
@@ -134,9 +132,9 @@ class OperatorApp(rumps.App):
 
         self._set_state("⚪", "Connecting to APIs...")
         self.connector = MacOSAdapter()
-        self.openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        self.openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
         self.llm = LLMClient(self.openai_client)
-        self.eleven = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
+        self.eleven = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
         self.tts = TTSClient(self.eleven, BLACKHOLE_DEVICE)
 
         self._start_continuous_capture()

@@ -15,6 +15,7 @@ import threading
 import time
 
 from playwright.sync_api import sync_playwright
+import config
 
 from .base import MeetingConnector
 
@@ -43,7 +44,11 @@ Object.defineProperty(navigator, 'webdriver', {
 class LinuxAdapter(MeetingConnector):
     """MeetingConnector for headless local Linux using PulseAudio + Playwright Chromium."""
 
-    def __init__(self, user_data_dir="/tmp/operator_browser_profile", auth_state_file=None):
+    def __init__(self, user_data_dir=None, auth_state_file=None):
+        if user_data_dir is None:
+            user_data_dir = config.BROWSER_PROFILE_DIR
+        if auth_state_file is None:
+            auth_state_file = config.AUTH_STATE_FILE
         self._user_data_dir = user_data_dir
         self._auth_state_file = auth_state_file  # path to storage_state JSON from auth_export.py
         self._leave_event = threading.Event()

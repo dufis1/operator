@@ -13,6 +13,7 @@ import threading
 import time
 
 from playwright.sync_api import sync_playwright
+import config
 
 from .base import MeetingConnector
 
@@ -22,7 +23,7 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 AUDIO_CAPTURE_HELPER = os.path.join(_BASE, "audio_capture")
 BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
-BROWSER_PROFILE = os.path.join(_BASE, "browser_profile")
+BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 
 
 class MacOSAdapter(MeetingConnector):
