@@ -10,10 +10,9 @@ No macOS imports.
 import subprocess
 import time
 import logging
+import config
 
 log = logging.getLogger(__name__)
-
-VOICE_ID = "JBFqnCBsd6RMkjVDRZzb"  # George
 
 
 class TTSClient:
@@ -35,8 +34,8 @@ class TTSClient:
         t0 = time.time()
         audio_stream = self._eleven.text_to_speech.stream(
             text=text,
-            voice_id=VOICE_ID,
-            model_id="eleven_flash_v2_5",
+            voice_id=config.TTS_VOICE_ID,
+            model_id=config.TTS_MODEL,
         )
         proc = subprocess.Popen(
             ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
