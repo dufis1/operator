@@ -1,0 +1,123 @@
+"""
+Operator — AI Meeting Participant
+Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
+
+Usage:
+    python __main__.py              # macOS: opens menu bar app (CalDAV auto-join)
+    python __main__.py <meet-url>   # Linux: joins a specific meeting
+    python .                        # same as above from the repo root
+
+Note: `python -m operator` conflicts with Python's built-in `operator` module.
+      It will work correctly once the package is installed via pyproject.toml (Step 8.1).
+"""
+import argparse
+import sys
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="operator",
+        description="Operator — AI meeting participant",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "macOS: meeting URL is not required — Operator monitors your calendar\n"
+            "       via CalDAV and joins automatically.\n\n"
+            "Linux: meeting URL is required. Set DISPLAY and run\n"
+            "       scripts/linux_setup.sh before starting."
+        ),
+    )
+    parser.add_argument(
+        "meeting_url",
+        nargs="?",
+        metavar="MEET_URL",
+        help="Google Meet URL to join (Linux only)",
+    )
+    args = parser.parse_args()
+
+    if sys.platform == "darwin":
+        _run_macos()
+    else:
+        _run_linux(args.meeting_url)
+
+
+def _run_macos():
+    """Launch the macOS menu bar app."""
+    from app import OperatorApp
+    OperatorApp().run()
+
+
+def _run_linux(meeting_url):
+    """Run preflight checks then start the agent on Linux."""
+    import logging
+    import os
+    import subprocess
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    )
+    log = logging.getLogger("operator")
+
+    # Resolve meeting URL
+    if not meeting_url:
+        meeting_url = os.environ.get("MEETING_URL")
+    if not meeting_url:
+        print("Linux: a meeting URL is required.")
+        print("  python __main__.py <meet-url>")
+        print("  MEETING_URL=<url> python __main__.py")
+        sys.exit(1)
+
+    # Check $DISPLAY (required for headless Chrome audio rendering)
+    display = os.environ.get("DISPLAY")
+    if not display:
+        log.error(
+            "DISPLAY is not set. Start Xvfb first:\n"
+            "  Xvfb :99 -screen 0 1920x1080x24 &\n"
+            "  export DISPLAY=:99"
+        )
+        sys.exit(1)
+    log.info(f"DISPLAY={display}")
+
+    # Check PulseAudio virtual sinks
+    try:
+        result = subprocess.run(
+            ["pactl", "list", "short", "sinks"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except FileNotFoundError:
+        log.error("pactl not found — is PulseAudio installed?")
+        sys.exit(1)
+
+    missing = [s for s in ("MeetingOutput", "MeetingInput") if s not in result.stdout]
+    if missing:
+        log.error(
+            f"Missing PulseAudio sinks: {missing}\n"
+            "Run scripts/linux_setup.sh first:\n"
+            "  bash scripts/linux_setup.sh"
+        )
+        sys.exit(1)
+    log.info("PulseAudio sinks: MeetingOutput and MeetingInput found")
+
+    # Start the agent
+    from connectors.linux_adapter import LinuxAdapter
+    from pipeline.runner import AgentRunner
+
+    log.info(f"Starting Operator (Linux) — joining {meeting_url}")
+    connector = LinuxAdapter()
+    runner = AgentRunner(
+        connector=connector,
+        tts_output_device="pulse/MeetingOutput",
+    )
+
+    try:
+        runner.run(meeting_url)
+    except KeyboardInterrupt:
+        log.info("Interrupted — leaving meeting")
+        runner.stop()
+        connector.leave()
+
+
+if __name__ == "__main__":
+    main()
