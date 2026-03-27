@@ -6,11 +6,12 @@ notifies a caller-supplied callback whenever the state changes. No macOS
 imports — the caller (app.py) is responsible for translating states to icons.
 """
 import logging
+import config
 
 log = logging.getLogger(__name__)
 
 # How long to stay in conversation mode with no follow-up before returning to idle.
-CONVERSATION_TIMEOUT = 20.0  # seconds
+CONVERSATION_TIMEOUT = config.CONVERSATION_TIMEOUT
 
 
 class ConversationState:
