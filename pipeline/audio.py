@@ -13,6 +13,7 @@ import logging
 import numpy as np
 import soundfile as sf
 from faster_whisper import WhisperModel
+import config
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ class AudioProcessor:
 
     def __init__(self):
         log.info("AudioProcessor: loading Whisper model...")
-        self.whisper = WhisperModel("base", device="cpu", compute_type="int8")
+        self.whisper = WhisperModel(config.STT_MODEL, device=config.STT_DEVICE, compute_type=config.STT_COMPUTE_TYPE)
         self._audio_buffer = b""
         self._audio_lock = threading.Lock()
         self.capturing = False
