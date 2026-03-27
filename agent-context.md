@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Step 7.1 complete (audio still choppy on native AMD64 — QEMU ruled out). Step 7.2 (sample rate audit) diagnosed: PulseAudio virtual sinks running at 44100Hz; Chrome WebRTC runs at 48000Hz; real-time SRC is the cause. Fix ready (set sinks to 48000Hz in linux_setup.sh).
-**Next action:** Step 7.2 — apply 48kHz fix and confirm audio quality. Then Step 7.3 — TTS provider benchmark.
+**Phase:** Phase 7 in progress. Steps 7.1 and 7.2 complete. Voice confirmed clear through WebRTC. Dominant latency issue identified: Whisper cold-start on droplet ~28s; subsequent runs <2s. mpv drain also inflated (~5s for a short phrase). LLM 5.2s. Total end-to-end ~42s.
+**Next action:** Step 7.6 (Whisper latency/accuracy review) before Step 7.3 (TTS benchmark) — Whisper latency will dwarf any TTS provider difference.
 **Phase 6 progress (March 26, 2026):**
 - Step 6.1: `pipeline/runner.py` created — `AgentRunner` class encapsulates the full transcription loop, prompt handling, acknowledgment playback, and audio capture lifecycle. Interface: `AgentRunner(connector, tts_output_device, on_state_change, stop_event)`.
 - Step 6.1.5: `calendar_join.py` deleted, replaced with `caldav_poller.py` — CalDAV + system keychain, no OAuth. `config.yaml` gained `caldav.bot_gmail` field. `requirements.txt` updated (removed google-auth-oauthlib/google-api-python-client, added caldav/keyring).
@@ -174,6 +174,12 @@ operator/
 - **CalDAV app password must be stored in system keychain** — macOS Keychain or Linux Secret Service. Never store in `.env` or commit to the repo.
 - **CalDAV poll interval is 1 minute** — this is the safe rate limit floor for Google's CalDAV endpoint. Do not poll faster.
 - **Only accepted events appear via CalDAV** — the bot's Gmail must have accepted the meeting invite for the event to be visible. The user must accept invites on the bot's behalf; Operator cannot auto-accept.
+- **Chrome requires `--no-sandbox` when running as root on a server** — without it, Chrome's audio service sandbox blocks PulseAudio socket access. Symptom: VirtualMic stays SUSPENDED, Meet shows "Microphone not found." Add to `launch_args` for both auth and guest paths.
+- **Playwright `env=` in `launch()` replaces the full process environment** — passing `env={"DISPLAY": ":99"}` strips `XDG_RUNTIME_DIR`, `HOME`, `PATH`, etc. Chrome loses PulseAudio socket discovery. Fix: do NOT pass `env=` at all; set `DISPLAY` in the caller's environment before launching Python (`DISPLAY=:99 python3 run_linux.py`).
+- **Chrome 130+ uses PipeWire by default for WebRTC audio on Linux** — if PipeWire is not installed, WebRTC audio capture silently fails (VirtualMic SUSPENDED) while video and regular Chrome audio still work. Fix: add `--disable-features=WebRTCPipeWireCapturer` to Chrome launch args to force PulseAudio.
+- **PulseAudio user-mode on the droplet dies without `--exit-idle-time=-1`** — `pulseaudio --daemonize` as root exits immediately at idle. Fix: `pulseaudio --daemonize --exit-idle-time=-1`. Add to startup procedure.
+- **Whisper cold-start on the droplet is ~28s; subsequent runs are <2s** — first inference triggers JIT/model warmup. Not fixable in code; warm up Whisper before entering the transcription loop or use a persistent inference thread. Addressed in Step 7.6.
+- **mpv drain inflated to ~5s for short TTS clips** — mpv buffers aggressively; drain time does not track audio duration. Investigate `--audio-buffer=50` or streaming TTS directly to parec/pacat to bypass mpv.
 
 ---
 
@@ -538,14 +544,16 @@ Tested on `operator-dev` droplet (64.23.182.26, native AMD64, no Docker). Audio 
 
 ---
 
-### Step 7.2 — Sample rate audit + fix
+### Step 7.2 — Sample rate audit + fix ✅
 
 **Diagnosed (March 26, 2026):** PulseAudio virtual sinks default to 44100Hz. Chrome's WebRTC engine runs at 48000Hz. PulseAudio's real-time 44100→48000 SRC (sample rate conversion) using the default `speex-float-1` resampler causes audible artifacts.
 
-**Fix:** Explicitly create `MeetingOutput` and `MeetingInput` sinks at 48000Hz in `scripts/linux_setup.sh`. Add `rate=48000` to the `pactl load-module module-null-sink` calls for both sinks. mpv handles the 44.1kHz→48kHz decode internally without quality loss.
+**Fix:** Added `rate=48000` to both `pactl load-module module-null-sink` calls in `scripts/linux_setup.sh`. Also fixed three blockers in `LinuxAdapter` discovered during live test (March 27, 2026):
+1. Added `--no-sandbox` to Chrome launch args — required when running as root; without it Chrome's audio sandbox blocks PulseAudio.
+2. Removed `env={"DISPLAY": display}` from `p.chromium.launch()` — Playwright replaces the full environment if `env=` is passed, stripping `XDG_RUNTIME_DIR` and breaking PulseAudio socket discovery.
+3. Added `--disable-features=WebRTCPipeWireCapturer` — Chrome 130+ tries PipeWire first; fails silently on droplet (no PipeWire). Forces PulseAudio for WebRTC audio.
 
-**Test:** Restart PulseAudio on the droplet, re-run `bash scripts/linux_setup.sh`, confirm `pactl list short sinks` shows `48000Hz`. Join a test meeting and listen — voice should be clear.
-**Commit:** `fix: set PulseAudio virtual sinks to 48kHz to match Chrome WebRTC — eliminates SRC artifacts`
+**Result:** Voice confirmed clear through WebRTC in live meeting (March 27, 2026). VirtualMic RUNNING, audio flowing to parec, Whisper transcribing correctly.
 
 ---
 

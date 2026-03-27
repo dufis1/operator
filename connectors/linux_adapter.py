@@ -160,17 +160,20 @@ class LinuxAdapter(MeetingConnector):
                     "--use-fake-ui-for-media-stream",
                     "--disable-blink-features=AutomationControlled",
                     "--disable-infobars",
+                    "--no-sandbox",  # required when running as root (droplet/server)
+                    "--disable-features=WebRTCPipeWireCapturer",  # force PulseAudio for WebRTC; PipeWire not installed
                 ]
                 if self._auth_state_file:
                     # Authenticated path: launch + new_context with saved session.
                     # headless=False + DISPLAY (Xvfb) enables audio rendering —
                     # headless Chrome suppresses audio output entirely.
-                    display = os.environ.get("DISPLAY", ":99")
+                    # Do NOT pass env= — Playwright replaces the full environment if
+                    # you do, stripping XDG_RUNTIME_DIR and breaking PulseAudio discovery.
+                    # DISPLAY is already set in os.environ by the caller (run_linux.py).
                     log.info(f"LinuxAdapter: loading auth state from {self._auth_state_file}")
                     raw_browser = p.chromium.launch(
                         headless=False,
                         args=launch_args,
-                        env={"DISPLAY": display},
                     )
                     browser = raw_browser.new_context(
                         storage_state=self._auth_state_file,
