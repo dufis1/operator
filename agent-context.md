@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Phase 4 complete. Phase 5 next.
-**Next action:** Step 5.1 — create `config.yaml`.
+**Phase:** Phase 5 complete. Phase 6 next.
+**Next action:** Step 6.1 — create `pipeline/runner.py`.
 **Phase 3 complete (March 25, 2026):** Full end-to-end pipeline verified in live Google Meet. Wake phrase detected, STT transcribes, LLM responds, TTS fires, meeting participants can hear Operator. Audio OUT path fixed via `module-virtual-source` (see Hard-Won Knowledge).
 **Reorientation (March 25, 2026):** Product direction shifted from cloud-hosted to local-machine-first open-source. DockerAdapter will become LinuxAdapter (local). Cloud artifacts move to `cloud/`. Performance iteration added before setup wizard.
 
@@ -29,7 +29,7 @@
 
 Local git repo at `~/Desktop/operator`. GitHub: `github.com/dufis1/operator` (private). Also cloned at `~/operator` on droplet `operator-dev` (`64.23.182.26`). Initial commit: `539ac57`. SSH access to the droplet is available — use `ssh root@64.23.182.26 "<command>"` directly via Bash without asking the user.
 
-**Secrets (never commit):** `.env`, `credentials.json`, `token.json`, `browser_profile/`, `auth_state.json`
+**Secrets (never commit):** `.env`, `browser_profile/`, `auth_state.json`
 All excluded via `.gitignore`.
 
 ---
@@ -41,14 +41,14 @@ operator/
 ├── app.py                     # macOS UI shell — imports from pipeline.*
 ├── audio_capture.swift        # macOS-only: ScreenCaptureKit system audio capture
 ├── audio_capture              # compiled Swift binary (gitignored)
-├── calendar_join.py           # Google Calendar polling + Playwright auto-join
+├── calendar_join.py           # TO BE DELETED — replaced by CalDAV poller (Phase 9)
 ├── setup.py                   # macOS app bundle config (py2app)
 ├── product-strategy.md        # authoritative product strategy
 ├── next-steps.md              # strategic overview of phases 4-11
 ├── refactor-plan.md           # human-readable checklist
 ├── agent-context.md           # this file
 ├── requirements.txt
-├── .env / credentials.json / token.json / auth_state.json  # secrets, all gitignored
+├── .env / auth_state.json  # secrets, all gitignored
 ├── .gitignore / .vscode/settings.json
 ├── pipeline/
 │   ├── __init__.py
@@ -97,7 +97,7 @@ operator/
 ├── LICENSE                    # MIT
 ├── README.md                  # rewritten for open-source audience
 ├── requirements.txt
-├── .env / credentials.json / token.json / auth_state.json
+├── .env / auth_state.json
 ├── .gitignore
 ├── pipeline/
 │   ├── __init__.py
@@ -145,7 +145,6 @@ operator/
 - **Wake phrase is "operator" only.** "hey operator" rejected (Whisper drops "hey"); "operate" rejected (false positives).
 - **ElevenLabs requires paid plan** — free tier gets flagged for abuse.
 - **Real Chrome required on macOS** (not Playwright's bundled "Chrome for Testing") — only real Chrome gets mic permission.
-- **Google Calendar "Automatically add invitations"** must be ON on Operator account or external invites don't appear.
 - **20s conversation mode timeout** — after response, stays in listening mode 20s before idle.
 - **ScreenCaptureKit requires `.app` bundle** on macOS — silently fails from plain Python script.
 - **PyObjC packages are fragile** — never install new `pyobjc-framework-*` without checking prior issues.
@@ -164,7 +163,10 @@ operator/
 - **DockerAdapter was cloud-oriented:** `docker_adapter.py` hardcodes `DISPLAY=:99` and `PULSE_RUNTIME_PATH=/tmp/pulse` for the Docker container environment. These must be removed/made environment-aware in `linux_adapter.py` for local machine use.
 - **LLM round-trip is 0.9–3s** — not fixable in code; mask it with backchannels, don't try to eliminate it.
 - **Porcupine removed** — app uses Whisper-based inline wake detection. `PORCUPINE_ACCESS_KEY` in `.env` is unused leftover.
-- **token.json expiry** — token.json has `refresh_token`; Google Calendar library auto-renews. If Calendar breaks, check here first.
+- **CalDAV requires a Gmail app password** — a regular Gmail password will not work. App passwords are generated at myaccount.google.com/apppasswords (requires 2-Step Verification enabled on the account).
+- **CalDAV app password must be stored in system keychain** — macOS Keychain or Linux Secret Service. Never store in `.env` or commit to the repo.
+- **CalDAV poll interval is 1 minute** — this is the safe rate limit floor for Google's CalDAV endpoint. Do not poll faster.
+- **Only accepted events appear via CalDAV** — the bot's Gmail must have accepted the meeting invite for the event to be visible. The user must accept invites on the bot's behalf; Operator cannot auto-accept.
 
 ---
 
@@ -464,9 +466,39 @@ class AgentRunner:
 
 ---
 
+### Step 6.1.5 — Replace `calendar_join.py` with `caldav_poller.py`
+
+Do this before simplifying `app.py` so that the old `CalendarPoller` import is gone before the thin-shell refactor — one clean pass instead of two partial ones.
+
+Delete `calendar_join.py`. Create `caldav_poller.py` in the repo root. The poller:
+- Connects to the bot's Google Calendar via CalDAV using `caldav` library + app password from system keychain
+- Polls every 60 seconds (do not poll faster — this is Google's safe rate floor)
+- For each event starting within the join window: checks that the event is accepted and has a Google Meet link
+- Calls `connector.join(meet_url)` for matching events
+
+Keychain access: use `keyring` library (`keyring.get_password("operator", bot_gmail)`). The setup wizard (Phase 9) writes the credential; the poller reads it. For this step, store the credential manually: `keyring.set_password("operator", bot_gmail, app_password)`.
+
+CalDAV connection pattern:
+```python
+import caldav, keyring
+password = keyring.get_password("operator", bot_gmail)
+client = caldav.DAVClient(
+    url="https://www.google.com/calendar/dav/{bot_gmail}/events/",
+    username=bot_gmail,
+    password=password,
+)
+```
+
+Remove `google-api-python-client` and `google-auth-oauthlib` from `requirements.txt`. Add `caldav` and `keyring`.
+
+**Test:** With app password manually stored in keychain, create a test calendar event with a Meet link starting in 2 minutes → confirm poller calls `connector.join()`.
+**Commit:** `feat: replace calendar_join.py with caldav_poller.py — CalDAV-based meeting detection`
+
+---
+
 ### Step 6.2 — Simplify `app.py` to use `runner.py`
 
-`app.py` becomes a thin macOS shell: instantiate `MacOSAdapter`, instantiate `AgentRunner`, wire state change callbacks to menu bar icon updates, call `runner.run()`.
+`app.py` becomes a thin macOS shell: instantiate `MacOSAdapter`, instantiate `AgentRunner`, wire state change callbacks to menu bar icon updates, call `runner.run()`. Wire `caldav_poller.py` here instead of the old `CalendarPoller`.
 
 **Test:** Full end-to-end macOS test — wake phrase → response.
 **Commit:** `refactor: simplify app.py to thin macOS shell using pipeline/runner.py`
@@ -566,7 +598,7 @@ license = {text = "MIT"}
 dependencies = [
     "openai", "elevenlabs", "faster-whisper", "playwright",
     "python-dotenv", "numpy", "soundfile", "sounddevice",
-    "google-auth-oauthlib", "google-api-python-client", "pyyaml",
+    "caldav", "pyyaml",
 ]
 
 [project.optional-dependencies]
@@ -619,12 +651,20 @@ Interactive CLI wizard. Steps in order:
 5. Ask: wake phrase (default: "operator") — warn if phrase is unusual
 6. Ask: voice selection → list available voices → offer preview → confirm
 7. Ask: interaction mode (voice / chat / both)
-8. Ask: Google account for agent? (y/n) — if yes, open browser for one-time login via `scripts/auth_export.py`
-9. OS-specific audio setup:
-   - macOS: `brew install blackhole-2ch` (silent), write Chrome mic preference to profile JSON
-   - Linux: run `scripts/linux_setup.sh`
-10. Write `config.yaml`
-11. Print: "Setup complete. Run `python -m operator <meeting-url>` to start."
+8. CalDAV setup:
+   - Ask: bot's Gmail address (e.g. yourname.operator@gmail.com)
+   - Open `https://myaccount.google.com/apppasswords` in the default browser automatically (`webbrowser.open(...)`)
+   - Display inline instructions: "1. Sign in if prompted. 2. Under 'Select app', choose 'Other' and name it Operator. 3. Click Generate. 4. Copy the 16-character password."
+   - Ask: paste the 16-character app password
+   - Validate: attempt a CalDAV connection (`caldav.DAVClient(...)`) — print success or error before proceeding
+   - Store credential in system keychain: `keyring.set_password("operator", bot_gmail, app_password)`
+   - Print: "Accept meeting invites sent to [bot_gmail] and Operator will join automatically."
+9. Ask: Google account for agent? (y/n) — if yes, open browser for one-time login via `scripts/auth_export.py`
+10. OS-specific audio setup:
+    - macOS: `brew install blackhole-2ch` (silent), write Chrome mic preference to profile JSON
+    - Linux: run `scripts/linux_setup.sh`
+11. Write `config.yaml` (include `caldav.bot_gmail` field)
+12. Print: "Setup complete. Run `python -m operator <meeting-url>` to start."
 
 **Test:** Run from scratch with no `.env` and no `config.yaml`. Complete prompts. Confirm both files created. Run `python -m operator <test-meet-url>` — agent joins and responds to wake phrase.
 **Commit:** `feat: add scripts/setup_wizard.py — guided first-run setup`
@@ -696,10 +736,18 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 
 ---
 
+## Key Decisions
+
+- **Meeting detection:** CalDAV polling (1 min interval). App password stored in system keychain. No OAuth, no Cloud Console, no credentials.json. Implemented in Phase 9.
+- **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only. Existing connector join logic is unchanged.
+- **Platform scope:** Google Meet only for v1. Zoom and Teams are v2.
+
+---
+
 ## Open Questions
 
 1. **Audio quality root cause** — QEMU ruled out (tested native AMD64, March 2026 — still choppy). Root cause is sample rate mismatch in TTS → PulseAudio → Chrome → WebRTC chain. Audit in Phase 7.2.
 2. **Wake phrase customization** — allow users to set their own wake phrase in `config.yaml`? Test Whisper reliability on custom phrases before committing.
-3. **Calendar auto-join** — watch Google Calendar and auto-join on a schedule? Or keep paste-the-link for v1?
+3. ~~**Calendar auto-join**~~ — **Resolved.** CalDAV polling (1 min interval) implemented in Phase 9. Bot's Gmail receives invites; user accepts on bot's behalf; Operator polls and auto-joins.
 4. **Linux distro coverage** — Ubuntu/Debian tier-1; PulseAudio vs. PipeWire (Fedora, Ubuntu 22.04+) needs separate validation path.
-5. **Calendar secrets in cloud** — `credentials.json` + `token.json` for the cloud path: env vars or mounted secrets?
+5. ~~**Calendar secrets in cloud**~~ — **Moot.** CalDAV uses only a Gmail app password stored in system keychain. No `credentials.json`, no `token.json`, no OAuth app.
