@@ -33,6 +33,9 @@ CONNECTOR_TYPE      = _config["connector"]["type"]
 BROWSER_PROFILE_DIR = _config["connector"]["browser_profile_dir"]
 AUTH_STATE_FILE     = _config["connector"]["auth_state_file"]
 
+# CalDAV
+CALDAV_BOT_GMAIL = _config["caldav"]["bot_gmail"]
+
 # Secrets from .env
 OPENAI_API_KEY     = os.environ["OPENAI_API_KEY"]
 ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]

@@ -16,7 +16,7 @@ from elevenlabs.client import ElevenLabs
 from openai import OpenAI
 from PyObjCTools.AppHelper import callAfter
 import config
-from calendar_join import CalendarPoller
+from caldav_poller import CalDAVPoller
 from connectors.macos_adapter import MacOSAdapter
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.wake import detect_wake_phrase
@@ -140,7 +140,7 @@ class OperatorApp(rumps.App):
         self._start_continuous_capture()
         threading.Thread(target=self._transcription_loop, daemon=True).start()
 
-        self._calendar_poller = CalendarPoller(connector=self.connector)
+        self._calendar_poller = CalDAVPoller(self.connector)
         self._calendar_poller.start()
 
         self.conv.set_idle()

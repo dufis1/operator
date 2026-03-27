@@ -35,3 +35,8 @@ connector:
   type: "auto"                   # auto | macos | linux | docker
   browser_profile_dir: "./browser_profile"
   auth_state_file: null          # path to auth_state.json, or null for guest join
+
+caldav:
+  bot_gmail: null                # bot's Gmail address, e.g. "yourname.operator@gmail.com"
+                                 # set this to enable CalDAV calendar polling + auto-join
+                                 # app password must be stored in keychain (see caldav_poller.py)
