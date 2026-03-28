@@ -18,19 +18,15 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1 and 7.2 complete. Step 7.3 (TTS benchmark) in progress.
-**Next action:** Run the Meet phase for the 5 new free-tier providers, collect quality scores, then implement the multi-provider TTS architecture in `config.yaml` and `pipeline/tts.py`.
+**Phase:** Phase 7 in progress. Steps 7.1, 7.2, and 7.3 complete.
+**Next action:** Step 7.4 — tune filler phrase silence threshold (too aggressive = collides with speaker; too conservative = awkward silence).
 
-**Step 7.3 progress (March 2026):**
-- Latency, clips, streaming phases complete for 6 providers: ElevenLabs, OpenAI tts-1, tts-1-hd, gpt-4o-mini-tts, macOS say (Flo), Piper amy-medium.
-- Quality scores so far: `{"elevenlabs": 5, "openai_tts1": 4, "openai_tts1hd": 5, "piper": 2, "openai_mini_tts": 5, "macos_say": 3}`
-- Sentence streaming analysis done: TTFAB is length-independent (ElevenLabs delta +0.020s = noise). Sentence streaming is the highest-leverage latency win available — gives back full LLM generation time (~1-3s) for free.
-- gpt-4o-mini-tts is 2.4× faster than tts-1, same price, same quality (5/5) — best paid option.
-- macOS say: Siri voices inaccessible (private `SiriTTS.framework`, no public API). Flo (built-in neural) scored 3/5. Premium voices (Ava/Zoe) require manual download from System Settings; no programmatic download path.
-- Piper amy-medium scored 2/5 — result was misleading due to poor voice selection. lessac-high is a different quality tier.
-- 5 new free-tier providers added to `scripts/bench_tts.py`: `piper_lessac` (en_US-lessac-high), `kokoro_heart` (af_heart), `kokoro_emma` (bf_emma), `kokoro_isabella` (bf_isabella), `kokoro_sky` (af_sky). Clips pre-generated. Kokoro 0.9.4 installed (python3.11), en_core_web_sm spacy model installed.
-- **Remaining:** Run `--phase meet --providers piper_lessac kokoro_heart kokoro_emma kokoro_isabella kokoro_sky` to collect WebRTC quality scores for these providers.
-- **Architecture decided:** `tts.provider: local | openai | elevenlabs` in `config.yaml`. `local_engine: kokoro | piper`. Kokoro models auto-download on first run (~82MB MIT). Final default voice TBD pending Meet quality scores.
+**Step 7.3 complete (March 27, 2026):**
+- Full benchmark across 11 providers. Final quality scores: `{"elevenlabs": 5, "openai_tts1hd": 5, "openai_mini_tts": 5, "kokoro_isabella": 5, "kokoro_sky": 5, "kokoro_heart": 4, "kokoro_emma": 4, "openai_tts1": 4, "macos_say": 3, "piper_lessac": 3, "piper": 2}`
+- Decision: `kokoro_heart` (af_heart) as default local voice (4/5, free). `gpt-4o-mini-tts` for openai tier (5/5, ~0.87s TTFAB, cheapest). ElevenLabs unchanged (5/5, ~0.39s TTFAB).
+- Multi-provider architecture implemented in `pipeline/tts.py` and `config.yaml`. TTSClient now takes only `output_device`; all provider clients are lazy-inited internally. Kokoro wrapped in try/except ImportError with graceful fallback to macos_say. `ELEVENLABS_API_KEY` is now optional in `.env`.
+- Kokoro requires Python 3.10–3.12 (caps at <3.13). System python3 on this Mac is 3.14 — Kokoro must be installed under python3.11 (`pip3.11 install kokoro soundfile`). For open-source users: document Python 3.10–3.12 requirement for local tier; rest of project works on any Python.
+- Sentence streaming analysis done: TTFAB is length-independent → sentence streaming is the highest-leverage latency win available (gives back full LLM generation time for free). Implement in a later step.
 **Phase 6 progress (March 26, 2026):**
 - Step 6.1: `pipeline/runner.py` created — `AgentRunner` class encapsulates the full transcription loop, prompt handling, acknowledgment playback, and audio capture lifecycle. Interface: `AgentRunner(connector, tts_output_device, on_state_change, stop_event)`.
 - Step 6.1.5: `calendar_join.py` deleted, replaced with `caldav_poller.py` — CalDAV + system keychain, no OAuth. `config.yaml` gained `caldav.bot_gmail` field. `requirements.txt` updated (removed google-auth-oauthlib/google-api-python-client, added caldav/keyring).
@@ -74,7 +70,7 @@ operator/
 │   ├── wake.py                # detect_wake_phrase: inline vs wake-only detection
 │   ├── conversation.py        # ConversationState: idle/listening/thinking/speaking
 │   ├── llm.py                 # LLMClient: GPT-4.1-mini calls + conversation history
-│   └── tts.py                 # TTSClient: ElevenLabs TTS + clip playback (output device = param)
+│   └── tts.py                 # TTSClient: multi-provider TTS (local/openai/elevenlabs), lazy-init, output device = param
 ├── connectors/
 │   ├── __init__.py
 │   ├── base.py                # MeetingConnector: abstract interface

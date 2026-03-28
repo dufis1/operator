@@ -4,7 +4,7 @@
 
 *Last updated: March 27, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.3 benchmark nearly complete.** Latency, clips, streaming, and quality scoring done for 6 providers (ElevenLabs, OpenAI tts-1, tts-1-hd, gpt-4o-mini-tts, macOS say, Piper amy). Scores: ElevenLabs 5, tts-1 4, tts-1-hd 5, mini-tts 5, macOS say 3, Piper amy 2. Sentence streaming analysis done — TTFAB is length-independent, so streaming gives back full LLM generation time for free. New free-tier providers (Kokoro × 4 voices + Piper lessac-high) added to benchmark; clips pre-generated; **Meet quality test still needed for new providers.** Architecture decision pending those scores: free/local TTS as default, paid providers opt-in via `config.yaml`.
+> **Current status: Phase 7 in progress — Step 7.3 complete.** Full 11-provider TTS benchmark done. Top scores (5/5): ElevenLabs, gpt-4o-mini-tts, kokoro_isabella, kokoro_sky, kokoro_heart, OpenAI tts-1-hd. Multi-provider architecture implemented: `tts.provider: local | openai | elevenlabs` in config.yaml. Default is `local/kokoro_heart` (free, 4/5 quality). Next: Step 7.4 — filler phrase silence threshold tuning.
 
 ---
 
@@ -140,7 +140,7 @@
 |------|-------------|--------|
 | 7.1 | Audio quality — test on native AMD64 (DigitalOcean droplet without Docker) to confirm/rule out QEMU as cause of fuzzy audio | ✅ Done — audio still choppy, QEMU ruled out |
 | 7.2 | Audio quality — fix 44100Hz→48000Hz sample rate mismatch: set PulseAudio virtual sinks to 48kHz in `linux_setup.sh` | ✅ Done — also fixed 3 Chrome audio bugs in `LinuxAdapter` (no-sandbox, env= override, PipeWire). Voice clear. |
-| 7.3 | TTS provider benchmark — evaluate ElevenLabs vs OpenAI TTS vs Piper on voice quality through WebRTC, latency, cost, and vendor count. Make final provider decision. | 🔄 In progress — Kokoro/Piper lessac Meet test remaining |
+| 7.3 | TTS provider benchmark — evaluate ElevenLabs vs OpenAI TTS vs Piper on voice quality through WebRTC, latency, cost, and vendor count. Make final provider decision. | ✅ Done — kokoro_heart default; full 3-tier architecture in pipeline/tts.py + config.yaml |
 | 7.4 | Latency masking — tune filler phrase silence threshold (too aggressive = collides with speaker; too conservative = awkward silence) | ⬜ |
 | 7.5 | TTS reliability — improve error handling and retry logic in `pipeline/tts.py` for chosen provider (skip if Piper chosen — local, no API failures) | ⬜ |
 | 7.6 | STT accuracy — review `WHISPER_HALLUCINATIONS` filter; evaluate `small` model vs `base` for accuracy/latency trade-off | ⬜ |
@@ -202,7 +202,7 @@
 - **Wake word:** Whisper-based inline detection — Porcupine removed
 - **STT:** faster-whisper (benchmarked)
 - **LLM:** GPT-4.1-mini
-- **TTS:** TBD — Step 7.3 benchmark in progress. Architecture decided: free/local default (`kokoro` or `piper`), paid opt-in (`openai`, `elevenlabs`) via `config.yaml tts.provider`. Final voice TBD pending Kokoro WebRTC quality scores.
+- **TTS:** Three-tier architecture — `tts.provider: local | openai | elevenlabs`. Default: `local/kokoro_heart` (af_heart, 4/5, free). OpenAI tier: `gpt-4o-mini-tts` (5/5, ~0.87s TTFAB). ElevenLabs tier: `eleven_flash_v2_5` (5/5, ~0.39s TTFAB). Kokoro requires Python 3.10–3.12; falls back to `macos_say` gracefully if unavailable.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only.
 - **Meeting detection:** CalDAV polling (1 min interval), app password stored in system keychain. No OAuth, no credentials.json.
 - **Licensing:** MIT (decided)
