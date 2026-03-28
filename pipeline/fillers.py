@@ -20,10 +20,11 @@ FILLERS_DIR = os.path.join(_BASE, "assets", "fillers")
 # Keywords that route to each bucket.  Checked in order: empathetic first,
 # then cerebral, then neutral as the default.
 _EMPATHETIC_KEYWORDS = {
-    "feel", "felt", "feeling", "hard", "difficult", "struggling", "worried",
-    "anxious", "frustrated", "confused", "lost", "scared", "nervous", "upset",
+    "feel", "felt", "feeling", "difficult", "struggling", "worried",
+    "anxious", "frustrated", "confused", "scared", "nervous", "upset",
     "honest", "honestly", "stress", "stressed", "overwhelming", "overwhelmed",
     "afraid", "fear", "hurt", "pain", "tired", "exhausted",
+    "really", "very", "seriously",
 }
 _CEREBRAL_KEYWORDS = {
     "what", "why", "how", "which", "explain", "difference", "better", "should",
@@ -33,12 +34,18 @@ _CEREBRAL_KEYWORDS = {
 }
 
 
+_SHORT_QUERY_THRESHOLD = 8  # word count; short prompts get casual/neutral fillers
+
+
 def classify(text: str) -> str:
     """Return 'empathetic', 'cerebral', or 'neutral' based on prompt keywords."""
-    words = {w.strip(".,!?;:\"'()") for w in text.lower().split()}
-    if words & _EMPATHETIC_KEYWORDS:
+    words = [w.strip(".,!?;:\"'()") for w in text.lower().split()]
+    word_set = set(words)
+    if word_set & _EMPATHETIC_KEYWORDS:
         return "empathetic"
-    if words & _CEREBRAL_KEYWORDS:
+    if len(words) <= _SHORT_QUERY_THRESHOLD:
+        return "neutral"
+    if word_set & _CEREBRAL_KEYWORDS:
         return "cerebral"
     return "neutral"
 
