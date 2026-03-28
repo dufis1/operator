@@ -312,11 +312,14 @@ class AgentRunner:
             threading.Thread(target=_synthesize, daemon=True).start()
 
             # Play filler clips until synthesis is ready
-            filler_clips = fillers.get_clips(fillers.classify(prompt))
+            filler_bucket = fillers.classify(prompt)
+            log.info(f"Filler bucket: {filler_bucket} (prompt: {prompt!r})")
+            filler_clips = fillers.get_clips(filler_bucket)
             if filler_clips:
                 for clip in itertools.cycle(filler_clips):
                     if synthesis_done.is_set():
                         break
+                    log.info(f"Filler clip: {os.path.basename(clip)}")
                     self.tts.play_clip(clip)
 
             synthesis_done.wait()

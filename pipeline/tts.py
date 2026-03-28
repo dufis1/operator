@@ -67,7 +67,7 @@ class TTSClient:
             from kokoro import KPipeline
             voice_id = _KOKORO_VOICES[config.TTS_LOCAL_VOICE]
             lang_code = "b" if voice_id.startswith("b") else "a"
-            self._kokoro_pipeline = KPipeline(lang_code=lang_code)
+            self._kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
             self._kokoro_voice = voice_id
             log.info(f"Kokoro TTS ready (voice={voice_id})")
         except ImportError:
