@@ -18,8 +18,19 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete.
-**Next action:** Resolve ScreenCaptureKit audio capture hang before live benchmark (see blocker note below). Once resolved: run live meeting test, paste `/tmp/operator.log` to benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s from end of speech).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Logging infrastructure overhauled.
+**Next action:** Benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s). Run live meeting test, grep TIMING lines from `/tmp/operator.log`, compare perceived responsiveness with fillers masking the synthesis wait.
+
+**Logging overhaul (March 28, 2026):**
+- Standardized log format to `%(asctime)s %(levelname)s %(name)s — %(message)s` across all entry points (was missing module name on macOS).
+- Added `STARTUP` prefix markers to all initialization steps in runner.py, audio.py, tts.py — `grep STARTUP /tmp/operator.log` shows full init sequence.
+- Downgraded noisy connector UI automation logs (button clicks, popup dismissals) from INFO → DEBUG. Only meaningful state changes (joined, in meeting, left) remain at INFO.
+- Reduced per-sample audio debug noise — silence/speech logs now fire only on state transitions, not every 0.5s check.
+- Created `docs/model-log.md` — annotated reference log covering startup, ambient listening, wake-only, inline wake, LLM+TTS, conversation mode, timeout, and shutdown. Includes timing baselines and troubleshooting notes. Gitignored.
+- Updated end-session skill with log verification step: if logging changed, compare against model log and update it.
+
+**Watchdog race condition fix (March 28, 2026):**
+`audio_capture.swift` watchdog was firing unconditionally after 10s even when capture had already started successfully — killing a working capture process. Fixed by adding `captureStarted` flag set in `startCapture` completion handler; watchdog checks it before `exit(3)`.
 
 **RESOLVED — ScreenCaptureKit audio hang (March 28, 2026):**
 Root cause: `audio_capture` binary had a stale TCC permission entry tied to its linker-generated codesign identity. After `tccutil reset` + manual re-add, macOS matched the binary to the zombie TCC record, causing `startCapture` to silently hang. Proven by testing an identical binary with a different codesign identifier — worked immediately.

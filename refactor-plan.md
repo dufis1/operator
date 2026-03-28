@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.4 complete.** Speculative processing + filler clip pipeline wired and clips generated (43 phrases, 3 buckets). Audio capture hardened against stale macOS TCC permissions (pre-flight check, watchdog, auto-retry with re-sign). Live meeting test confirmed working. Next: benchmark latency delta vs baseline.
+> **Current status: Phase 7 in progress — Step 7.4 complete.** Logging infrastructure overhauled: standardized format, STARTUP markers, model-log reference doc for debugging. Fixed watchdog race condition in audio_capture.swift. Next: benchmark latency delta vs baseline (Step 7.4 follow-up).
 
 ---
 
