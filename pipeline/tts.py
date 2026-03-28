@@ -69,7 +69,7 @@ class TTSClient:
             lang_code = "b" if voice_id.startswith("b") else "a"
             self._kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
             self._kokoro_voice = voice_id
-            log.info(f"Kokoro TTS ready (voice={voice_id})")
+            log.info(f"STARTUP Kokoro TTS ready (voice={voice_id})")
         except ImportError:
             log.warning(
                 "Kokoro not installed (requires Python 3.10–3.12 and: pip install kokoro soundfile). "

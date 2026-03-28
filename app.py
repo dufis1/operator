@@ -20,7 +20,7 @@ from pipeline.runner import AgentRunner
 logging.basicConfig(
     filename="/tmp/operator.log",
     level=logging.DEBUG,
-    format="%(asctime)s %(levelname)s %(message)s",
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 log = logging.getLogger(__name__)
 # Silence noisy HTTP debug logs from API clients

@@ -34,8 +34,9 @@ class AudioProcessor:
     """Manages the audio buffer, silence detection, utterance capture, and Whisper STT."""
 
     def __init__(self):
-        log.info("AudioProcessor: loading Whisper model...")
+        log.info(f"STARTUP Whisper model={config.STT_MODEL} device={config.STT_DEVICE}")
         self.whisper = WhisperModel(config.STT_MODEL, device=config.STT_DEVICE, compute_type=config.STT_COMPUTE_TYPE)
+        log.info("STARTUP Whisper model loaded")
         self._audio_buffer = b""
         self._audio_lock = threading.Lock()
         self.capturing = False
@@ -92,14 +93,15 @@ class AudioProcessor:
                         log.info(f"TIMING {label}_speech_first rms={rms:.4f}")
                     silence_count = 0
                     utterance_audio += raw
-                    log.debug(f"Utterance speech (rms={rms:.4f})")
                 elif speech_detected:
                     utterance_audio += raw
                     silence_count += 1
-                    log.debug(f"Utterance silence {silence_count}/{UTTERANCE_SILENCE_THRESHOLD} (rms={rms:.4f})")
+                    if silence_count == 1:
+                        log.debug(f"Utterance silence started (rms={rms:.4f})")
             elif speech_detected:
                 silence_count += 1
-                log.debug(f"Utterance no-audio silence {silence_count}/{UTTERANCE_SILENCE_THRESHOLD}")
+                if silence_count == 1:
+                    log.debug("Utterance silence started (no audio)")
 
             # Fire speculative callback on the first silence chunk
             if (speech_detected

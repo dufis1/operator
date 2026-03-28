@@ -194,7 +194,7 @@ class DockerAdapter(MeetingConnector):
                     not_now.wait_for(timeout=3000)
                     not_now.click()
                     page.wait_for_timeout(500)
-                    log.info("DockerAdapter: dismissed notifications popup")
+                    log.debug("DockerAdapter: dismissed notifications popup")
                 except Exception:
                     pass
 
@@ -204,9 +204,9 @@ class DockerAdapter(MeetingConnector):
                     cam_btn.wait_for(timeout=3000)
                     cam_btn.click()
                     page.wait_for_timeout(300)
-                    log.info("DockerAdapter: camera turned off")
+                    log.debug("DockerAdapter: camera turned off")
                 except Exception:
-                    log.info("DockerAdapter: camera button not found or already off")
+                    log.debug("DockerAdapter: camera button not found or already off")
 
                 # Ensure microphone is on before joining.
                 # On the pre-join screen, a muted mic means Chrome won't call
@@ -217,9 +217,9 @@ class DockerAdapter(MeetingConnector):
                     mic_btn.wait_for(timeout=3000)
                     mic_btn.click()
                     page.wait_for_timeout(300)
-                    log.info("DockerAdapter: microphone enabled on pre-join screen")
+                    log.debug("DockerAdapter: microphone enabled on pre-join screen")
                 except Exception:
-                    log.info("DockerAdapter: mic already on (pre-join) or button not found")
+                    log.debug("DockerAdapter: mic already on (pre-join) or button not found")
 
                 # Fill in guest name if present (unauthenticated join shows a name field)
                 try:
@@ -227,7 +227,7 @@ class DockerAdapter(MeetingConnector):
                     name_input.wait_for(timeout=3000)
                     name_input.fill("Operator")
                     page.wait_for_timeout(500)
-                    log.info("DockerAdapter: filled guest name")
+                    log.debug("DockerAdapter: filled guest name")
                 except Exception:
                     pass  # signed-in users don't see this field
 
@@ -239,7 +239,7 @@ class DockerAdapter(MeetingConnector):
                         btn.wait_for(timeout=5000)
                         btn.click()
                         joined = True
-                        log.info(f"DockerAdapter: clicked {label!r}")
+                        log.debug(f"DockerAdapter: clicked {label!r}")
                         break
                     except Exception:
                         continue
@@ -251,21 +251,23 @@ class DockerAdapter(MeetingConnector):
                         browser._raw_browser.close()
                     return
 
+                log.info("DockerAdapter: joined meeting successfully")
+
                 # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
                 page.wait_for_timeout(5000)
                 try:
                     mic_btn = page.get_by_role("button", name="Turn on microphone")
                     mic_btn.wait_for(timeout=5000)
                     mic_btn.click()
-                    log.info("DockerAdapter: microphone unmuted (post-join)")
+                    log.debug("DockerAdapter: microphone unmuted (post-join)")
                 except Exception:
-                    log.info("DockerAdapter: mic already on or button not found (post-join)")
+                    log.debug("DockerAdapter: mic already on or button not found (post-join)")
 
                 # Diagnostic screenshot — shows Meet UI state at join time.
                 # docker cp <container-id>:/tmp/meet_after_join.png . to inspect.
                 try:
                     page.screenshot(path="/tmp/meet_after_join.png")
-                    log.info("DockerAdapter: screenshot saved to /tmp/meet_after_join.png")
+                    log.debug("DockerAdapter: screenshot saved to /tmp/meet_after_join.png")
                 except Exception as e:
                     log.warning(f"DockerAdapter: screenshot failed: {e}")
 
@@ -282,9 +284,9 @@ class DockerAdapter(MeetingConnector):
                     leave_btn.wait_for(timeout=3000)
                     leave_btn.click()
                     page.wait_for_timeout(1000)
-                    log.info("DockerAdapter: clicked Leave call")
+                    log.debug("DockerAdapter: clicked Leave call")
                 except Exception:
-                    log.info("DockerAdapter: Leave call button not found — closing directly")
+                    log.debug("DockerAdapter: Leave call button not found — closing directly")
 
                 self._page = None
                 browser.close()

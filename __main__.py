@@ -56,7 +56,7 @@ def _run_macos_headless(meeting_url):
     logging.basicConfig(
         filename="/tmp/operator.log",
         level=logging.DEBUG,
-        format="%(asctime)s %(levelname)s %(message)s",
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
     # Also print to stderr so the terminal shows progress
     logging.getLogger().addHandler(logging.StreamHandler(sys.stderr))

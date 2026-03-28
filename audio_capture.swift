@@ -52,6 +52,7 @@ class AudioOutputHandler: NSObject, SCStreamOutput {
 let handler = AudioOutputHandler()
 let delegate = StreamDelegate()
 let semaphore = DispatchSemaphore(value: 0)
+var captureStarted = false
 
 // Pre-flight: check Screen Recording permission before attempting capture
 if !CGPreflightScreenCaptureAccess() {
@@ -113,6 +114,7 @@ SCShareableContent.getWithCompletionHandler { content, error in
             fputs("audio_capture: ERROR starting capture: \(error.localizedDescription)\n", stderr)
             exit(1)
         }
+        captureStarted = true
         fputs("audio_capture: capture started — streaming until stdin closes\n", stderr)
 
         // Wait for stdin to close (parent process signals shutdown)
@@ -130,6 +132,7 @@ SCShareableContent.getWithCompletionHandler { content, error in
 
     // Watchdog: if startCapture hasn't completed in 10 seconds, something is wrong
     DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
+        if captureStarted { return }  // capture succeeded — watchdog no longer needed
         fputs("audio_capture: FATAL — startCapture completion handler not called after 10s\n", stderr)
         fputs("audio_capture: This usually means Screen Recording permission is not granted.\n", stderr)
         fputs("audio_capture: Check System Settings > Privacy & Security > Screen Recording\n", stderr)

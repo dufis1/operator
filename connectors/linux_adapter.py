@@ -205,7 +205,7 @@ class LinuxAdapter(MeetingConnector):
                     not_now.wait_for(timeout=3000)
                     not_now.click()
                     page.wait_for_timeout(500)
-                    log.info("LinuxAdapter: dismissed notifications popup")
+                    log.debug("LinuxAdapter: dismissed notifications popup")
                 except Exception:
                     pass
 
@@ -215,9 +215,9 @@ class LinuxAdapter(MeetingConnector):
                     cam_btn.wait_for(timeout=3000)
                     cam_btn.click()
                     page.wait_for_timeout(300)
-                    log.info("LinuxAdapter: camera turned off")
+                    log.debug("LinuxAdapter: camera turned off")
                 except Exception:
-                    log.info("LinuxAdapter: camera button not found or already off")
+                    log.debug("LinuxAdapter: camera button not found or already off")
 
                 # Ensure microphone is on before joining.
                 # On the pre-join screen, a muted mic means Chrome won't call
@@ -228,9 +228,9 @@ class LinuxAdapter(MeetingConnector):
                     mic_btn.wait_for(timeout=3000)
                     mic_btn.click()
                     page.wait_for_timeout(300)
-                    log.info("LinuxAdapter: microphone enabled on pre-join screen")
+                    log.debug("LinuxAdapter: microphone enabled on pre-join screen")
                 except Exception:
-                    log.info("LinuxAdapter: mic already on (pre-join) or button not found")
+                    log.debug("LinuxAdapter: mic already on (pre-join) or button not found")
 
                 # Fill in guest name if present (unauthenticated join shows a name field)
                 try:
@@ -238,7 +238,7 @@ class LinuxAdapter(MeetingConnector):
                     name_input.wait_for(timeout=3000)
                     name_input.fill("Operator")
                     page.wait_for_timeout(500)
-                    log.info("LinuxAdapter: filled guest name")
+                    log.debug("LinuxAdapter: filled guest name")
                 except Exception:
                     pass  # signed-in users don't see this field
 
@@ -250,7 +250,7 @@ class LinuxAdapter(MeetingConnector):
                         btn.wait_for(timeout=5000)
                         btn.click()
                         joined = True
-                        log.info(f"LinuxAdapter: clicked {label!r}")
+                        log.debug(f"LinuxAdapter: clicked {label!r}")
                         break
                     except Exception:
                         continue
@@ -262,20 +262,22 @@ class LinuxAdapter(MeetingConnector):
                         browser._raw_browser.close()
                     return
 
+                log.info("LinuxAdapter: joined meeting successfully")
+
                 # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
                 page.wait_for_timeout(5000)
                 try:
                     mic_btn = page.get_by_role("button", name="Turn on microphone")
                     mic_btn.wait_for(timeout=5000)
                     mic_btn.click()
-                    log.info("LinuxAdapter: microphone unmuted (post-join)")
+                    log.debug("LinuxAdapter: microphone unmuted (post-join)")
                 except Exception:
-                    log.info("LinuxAdapter: mic already on or button not found (post-join)")
+                    log.debug("LinuxAdapter: mic already on or button not found (post-join)")
 
                 # Diagnostic screenshot
                 try:
                     page.screenshot(path="/tmp/meet_after_join.png")
-                    log.info("LinuxAdapter: screenshot saved to /tmp/meet_after_join.png")
+                    log.debug("LinuxAdapter: screenshot saved to /tmp/meet_after_join.png")
                 except Exception as e:
                     log.warning(f"LinuxAdapter: screenshot failed: {e}")
 
@@ -292,9 +294,9 @@ class LinuxAdapter(MeetingConnector):
                     leave_btn.wait_for(timeout=3000)
                     leave_btn.click()
                     page.wait_for_timeout(1000)
-                    log.info("LinuxAdapter: clicked Leave call")
+                    log.debug("LinuxAdapter: clicked Leave call")
                 except Exception:
-                    log.info("LinuxAdapter: Leave call button not found — closing directly")
+                    log.debug("LinuxAdapter: Leave call button not found — closing directly")
 
                 self._page = None
                 browser.close()

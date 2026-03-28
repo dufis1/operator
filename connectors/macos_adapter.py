@@ -121,7 +121,7 @@ class MacOSAdapter(MeetingConnector):
                     not_now.wait_for(timeout=3000)
                     not_now.click()
                     page.wait_for_timeout(500)
-                    log.info("MacOSAdapter: dismissed notifications popup")
+                    log.debug("MacOSAdapter: dismissed notifications popup")
                 except Exception:
                     pass
 
@@ -131,9 +131,9 @@ class MacOSAdapter(MeetingConnector):
                     cam_btn.wait_for(timeout=3000)
                     cam_btn.click()
                     page.wait_for_timeout(300)
-                    log.info("MacOSAdapter: camera turned off")
+                    log.debug("MacOSAdapter: camera turned off")
                 except Exception:
-                    log.info("MacOSAdapter: camera button not found or already off")
+                    log.debug("MacOSAdapter: camera button not found or already off")
 
                 # Click join button
                 joined = False
@@ -143,7 +143,7 @@ class MacOSAdapter(MeetingConnector):
                         btn.wait_for(timeout=5000)
                         btn.click()
                         joined = True
-                        log.info(f"MacOSAdapter: clicked {label!r}")
+                        log.debug(f"MacOSAdapter: clicked {label!r}")
                         break
                     except Exception:
                         continue
@@ -153,15 +153,17 @@ class MacOSAdapter(MeetingConnector):
                     browser.close()
                     return
 
+                log.info("MacOSAdapter: joined meeting successfully")
+
                 # Ensure mic is unmuted after join
                 page.wait_for_timeout(3000)
                 try:
                     mic_btn = page.get_by_role("button", name="Turn on microphone")
                     mic_btn.wait_for(timeout=3000)
                     mic_btn.click()
-                    log.info("MacOSAdapter: microphone unmuted")
+                    log.debug("MacOSAdapter: microphone unmuted")
                 except Exception:
-                    log.info("MacOSAdapter: mic already on or button not found")
+                    log.debug("MacOSAdapter: mic already on or button not found")
 
                 log.info("MacOSAdapter: in meeting — holding browser open")
 

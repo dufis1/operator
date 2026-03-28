@@ -90,30 +90,33 @@ class AgentRunner:
 
         Blocks until audio capture stops or stop() is called.
         """
-        log.info("AgentRunner: loading Whisper model...")
+        log.info("STARTUP begin")
+        log.info("STARTUP loading Whisper model...")
         self.audio = AudioProcessor()
 
-        log.info("AgentRunner: connecting to APIs...")
+        log.info("STARTUP connecting to APIs...")
         openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
         self.llm = LLMClient(openai_client)
+        log.info("STARTUP initializing TTS...")
         self.tts = TTSClient(self._tts_output_device)
 
         self.conv = ConversationState(on_state_change=self._on_state_change)
 
         if meeting_url:
-            log.info(f"AgentRunner: joining {meeting_url}")
+            log.info(f"STARTUP joining meeting {meeting_url}")
             self.connector.join(meeting_url)
             # Browser is non-blocking — give it time to reach the pre-join screen.
             time.sleep(12)
 
+        log.info("STARTUP starting audio capture...")
         self._start_capture()
         if not self.audio.capturing:
-            log.error("AgentRunner: audio capture failed to start — aborting")
+            log.error("STARTUP audio capture failed — aborting")
             self.connector.leave()
             return
 
         self.conv.set_idle()
-        log.info("AgentRunner: idle — listening for wake phrase")
+        log.info("STARTUP complete — idle, listening for wake phrase")
 
         try:
             self._transcription_loop()
