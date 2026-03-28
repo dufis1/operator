@@ -1,0 +1,94 @@
+{
+  "elevenlabs": [
+    {
+      "phrase_id": "s1",
+      "n_sentences": 1,
+      "ttfab_avg": 0.3682367083335218,
+      "ttfab_min": 0.3488307500083465,
+      "ttfab_max": 0.3946964159986237
+    },
+    {
+      "phrase_id": "s1s2",
+      "n_sentences": 2,
+      "ttfab_avg": 0.42904251400129095,
+      "ttfab_min": 0.34639112500008196,
+      "ttfab_max": 0.5012931670062244
+    },
+    {
+      "phrase_id": "s1s2s3",
+      "n_sentences": 3,
+      "ttfab_avg": 0.3877992639997198,
+      "ttfab_min": 0.36994008300825953,
+      "ttfab_max": 0.41312183398986235
+    }
+  ],
+  "openai_tts1": [
+    {
+      "phrase_id": "s1",
+      "n_sentences": 1,
+      "ttfab_avg": 1.9685730973336224,
+      "ttfab_min": 1.591980416997103,
+      "ttfab_max": 2.361141959001543
+    },
+    {
+      "phrase_id": "s1s2",
+      "n_sentences": 2,
+      "ttfab_avg": 1.2864890139947722,
+      "ttfab_min": 0.8007478749932488,
+      "ttfab_max": 1.9861374589963816
+    },
+    {
+      "phrase_id": "s1s2s3",
+      "n_sentences": 3,
+      "ttfab_avg": 1.7359697919988928,
+      "ttfab_min": 1.0572634169948287,
+      "ttfab_max": 2.390774416999193
+    }
+  ],
+  "openai_tts1hd": [
+    {
+      "phrase_id": "s1",
+      "n_sentences": 1,
+      "ttfab_avg": 3.2377265556618418,
+      "ttfab_min": 2.421208874991862,
+      "ttfab_max": 4.1841496669949265
+    },
+    {
+      "phrase_id": "s1s2",
+      "n_sentences": 2,
+      "ttfab_avg": 2.0857906393309045,
+      "ttfab_min": 1.7527817919908557,
+      "ttfab_max": 2.401679709000746
+    },
+    {
+      "phrase_id": "s1s2s3",
+      "n_sentences": 3,
+      "ttfab_avg": 2.0223308470012853,
+      "ttfab_min": 1.5506482909986516,
+      "ttfab_max": 2.7347452500107465
+    }
+  ],
+  "openai_mini_tts": [
+    {
+      "phrase_id": "s1",
+      "n_sentences": 1,
+      "ttfab_avg": 0.7323455413328096,
+      "ttfab_min": 0.6368025409901747,
+      "ttfab_max": 0.8985098749981262
+    },
+    {
+      "phrase_id": "s1s2",
+      "n_sentences": 2,
+      "ttfab_avg": 1.1077870693310008,
+      "ttfab_min": 0.8624082079913933,
+      "ttfab_max": 1.5780585419997806
+    },
+    {
+      "phrase_id": "s1s2s3",
+      "n_sentences": 3,
+      "ttfab_avg": 1.0003851386621438,
+      "ttfab_min": 0.8178557079954771,
+      "ttfab_max": 1.117936374997953
+    }
+  ]
+}

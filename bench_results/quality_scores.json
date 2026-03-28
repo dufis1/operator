@@ -1,0 +1,13 @@
+{
+  "elevenlabs": 5,
+  "openai_tts1": 4,
+  "openai_tts1hd": 5,
+  "piper": 2,
+  "openai_mini_tts": 5,
+  "macos_say": 3,
+  "piper_lessac": 3,
+  "kokoro_heart": 4,
+  "kokoro_emma": 4,
+  "kokoro_isabella": 5,
+  "kokoro_sky": 5
+}
