@@ -130,7 +130,7 @@ class AgentRunner:
     # Audio capture
     # ------------------------------------------------------------------
 
-    def _start_capture(self, stderr_tag="capture"):
+    def _start_capture(self, stderr_tag="capture", _retried=False):
         """Launch the audio stream via the connector and spin up read loops."""
         try:
             self._capture_proc = self.connector.get_audio_stream()
@@ -138,6 +138,7 @@ class AgentRunner:
             log.error(f"AgentRunner: get_audio_stream failed: {e}")
             return
         self.audio.capturing = True
+        self._capture_retried = _retried
         threading.Thread(
             target=self._read_capture_stderr, args=(stderr_tag,), daemon=True
         ).start()
@@ -153,11 +154,43 @@ class AgentRunner:
         while self.audio.capturing:
             chunk = self._capture_proc.stdout.read(CHUNK_SIZE)
             if not chunk:
-                log.warning("AgentRunner: capture process stopped (stdout closed)")
                 self.audio.capturing = False
+                rc = self._capture_proc.wait()
+                if rc == 3 and not self._capture_retried:
+                    log.warning(
+                        "AgentRunner: audio capture permission failed — "
+                        "re-signing binary and retrying..."
+                    )
+                    self._resign_audio_capture()
+                    self._start_capture(_retried=True)
+                    return
+                elif rc == 3:
+                    log.error(
+                        "AgentRunner: audio capture failed after re-sign — "
+                        "Screen Recording permission not granted. Check "
+                        "System Settings > Privacy & Security > Screen Recording."
+                    )
+                elif rc != 0:
+                    log.error(f"AgentRunner: audio capture exited with code {rc}")
+                else:
+                    log.warning("AgentRunner: capture process stopped (stdout closed)")
                 break
             self.audio.feed_audio(chunk)
         log.info("AgentRunner: audio read loop ended")
+
+    @staticmethod
+    def _resign_audio_capture():
+        """Re-sign the audio_capture binary with a fresh ad-hoc identity."""
+        binary = os.path.join(_BASE, "audio_capture")
+        try:
+            subprocess.run(
+                ["codesign", "--force", "--sign", "-",
+                 "--identifier", "com.operator.audio-capture", binary],
+                capture_output=True, timeout=10,
+            )
+            log.info(f"AgentRunner: re-signed {binary}")
+        except Exception as e:
+            log.error(f"AgentRunner: re-sign failed: {e}")
 
     def _stop_capture(self):
         if self.audio:

@@ -18,8 +18,32 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1, 7.2, and 7.3 complete.
-**Next action:** Step 7.4 — tune filler phrase silence threshold (too aggressive = collides with speaker; too conservative = awkward silence).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete.
+**Next action:** Resolve ScreenCaptureKit audio capture hang before live benchmark (see blocker note below). Once resolved: run live meeting test, paste `/tmp/operator.log` to benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s from end of speech).
+
+**BLOCKER — ScreenCaptureKit audio hang (March 28, 2026):**
+`audio_capture` binary hangs at `found display 2` — `startCapture` never fires its completion handler and no permission dialog appears. This broke mid-session with no code changes. Was working in the March 27 session.
+- Ruled out: wrong display (displays.first is always built-in), RMS threshold too high (no audio flowing at all), Meet echo cancellation (say command also not captured), Screen Recording permission toggle, tccutil reset + re-grant, recompile of binary, running from Terminal.app vs VS Code terminal, full VS Code restart.
+- Not yet tried: Console.app TCC log inspection during hang, checking if another process holds SCKit audio resource, ad-hoc codesign (`codesign --sign - audio_capture`), running the Operator.app bundle directly instead of `python __main__.py`.
+- Likely cause: TCC database entry for audio capture component of Screen & System Audio Recording is stale/corrupt after the reset — VS Code re-added manually may only cover screen capture, not the audio sub-permission. The binary needs VS Code to re-request the permission organically (not via manual re-add).
+
+**Step 7.4 complete — mechanics (March 28, 2026):**
+- `__main__.py`: macOS now accepts URL arg and joins headlessly via MacOSAdapter (bypasses menu bar app). Fixes `python __main__.py <url>` being silently ignored on macOS.
+- `assets/ack_*.mp3`: All three ack clips regenerated with Kokoro Heart voice (af_heart) for voice consistency.
+- `pipeline/fillers.py`: New module. `classify(text)` — keyword-based bucket routing (empathetic / cerebral / neutral). `get_clips(bucket)` — returns shuffled clip paths, falls back to neutral if bucket empty, returns `[]` if no clips at all (graceful no-op).
+- `pipeline/tts.py`: `speak()` split into `synthesize() -> bytes` + `play_audio(bytes)`. All three providers (kokoro, openai, elevenlabs) now buffer to bytes before playback. `speak()` preserved as thin wrapper for backward compat.
+- `pipeline/llm.py`: `ask(record=False)` skips history update. `record_exchange(user, reply)` commits a speculative exchange manually. This keeps history clean when speculative LLM calls are discarded.
+- `pipeline/audio.py`: `capture_next_utterance()` gains `on_first_silence` callback — fires once with a snapshot of accumulated audio bytes when silence_count first hits 1 (~500ms of silence). Non-blocking hook for speculative processing.
+- `pipeline/runner.py`: Full speculative + filler loop wired.
+  - `_SpeculativeResult`: holds transcript, full_prompt, llm_reply, ready Event.
+  - `_make_speculative_callback()`: returns the on_first_silence hook that spawns `_run_speculative()` in a background thread.
+  - `_run_speculative()`: Whisper on first-silence snapshot → LLM (record=False) → stores in spec. Runs during the ~500ms second silence chunk.
+  - `_finalize_prompt(prompt, speculative=)`: checks spec result (exact transcript match); if hit, calls `record_exchange()` and skips LLM call; if miss/timeout, falls back to normal LLM call. Then starts synthesis in a background thread, plays filler clips in foreground until synthesis_done is set, then plays response.
+  - Both wake-only prompt capture and conversation follow-up mode now pass speculative callbacks.
+- `scripts/gen_fillers.py`: Offline generation script — 43 phrases across 3 buckets using Kokoro Heart + ffmpeg → MP3. Phrase set refreshed March 28: "think" reduced from 13→6 instances, 9 new phrases added (momentum, acknowledgment, complexity signals). Run once with python3.11.
+- `assets/fillers/{neutral,cerebral,empathetic}/`: 43 clips generated and saved (neutral: 14, cerebral: 15, empathetic: 14).
+
+**Baseline logs captured (March 27, 2026 session):** Pre-7.4 timings from `/tmp/operator.log`: silence detection ~1s, Whisper ~120ms, LLM 0.6–2.1s (avg ~1.2s), Kokoro synthesis ~1.23s, total from end of speech ~3–4s. Use these as benchmark against post-clip live test.
 
 **Step 7.3 complete (March 27, 2026):**
 - Full benchmark across 11 providers. Final quality scores: `{"elevenlabs": 5, "openai_tts1hd": 5, "openai_mini_tts": 5, "kokoro_isabella": 5, "kokoro_sky": 5, "kokoro_heart": 4, "kokoro_emma": 4, "openai_tts1": 4, "macos_say": 3, "piper_lessac": 3, "piper": 2}`
@@ -66,11 +90,13 @@ operator/
 ├── .gitignore / .vscode/settings.json
 ├── pipeline/
 │   ├── __init__.py
-│   ├── audio.py               # AudioProcessor: buffer, silence detection, Whisper STT
+│   ├── audio.py               # AudioProcessor: buffer, silence detection, Whisper STT; on_first_silence hook
 │   ├── wake.py                # detect_wake_phrase: inline vs wake-only detection
 │   ├── conversation.py        # ConversationState: idle/listening/thinking/speaking
-│   ├── llm.py                 # LLMClient: GPT-4.1-mini calls + conversation history
-│   └── tts.py                 # TTSClient: multi-provider TTS (local/openai/elevenlabs), lazy-init, output device = param
+│   ├── fillers.py             # Filler clip management: classify(text) → bucket, get_clips(bucket) → paths
+│   ├── llm.py                 # LLMClient: GPT-4.1-mini; ask(record=False) + record_exchange() for speculative
+│   ├── runner.py              # AgentRunner: speculative Whisper+LLM + filler loop + pipeline orchestration
+│   └── tts.py                 # TTSClient: synthesize()->bytes + play_audio(bytes) split; speak() wrapper
 ├── connectors/
 │   ├── __init__.py
 │   ├── base.py                # MeetingConnector: abstract interface
@@ -85,9 +111,14 @@ operator/
 │   ├── bench_stt.py
 │   └── whisper_bench.py
 ├── assets/
-│   └── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3
+│   ├── ack_yeah.mp3 / ack_yes.mp3 / ack_mmhm.mp3  # Kokoro Heart voice
+│   └── fillers/
+│       ├── neutral/            # clips pending gen_fillers.py
+│       ├── cerebral/
+│       └── empathetic/
 ├── scripts/
 │   ├── generate_backchannel.py
+│   ├── gen_fillers.py         # run with python3.11 to populate assets/fillers/
 │   ├── auth_export.py         # exports Chrome session to auth_state.json
 │   └── probe_screenshot.py
 └── tests/
@@ -161,6 +192,7 @@ operator/
 - **Real Chrome required on macOS** (not Playwright's bundled "Chrome for Testing") — only real Chrome gets mic permission.
 - **20s conversation mode timeout** — after response, stays in listening mode 20s before idle.
 - **ScreenCaptureKit requires `.app` bundle** on macOS — silently fails from plain Python script.
+- **ScreenCaptureKit TCC entries are tied to codesign identity** — if the `audio_capture` binary is recompiled without a stable `--identifier`, macOS generates a hash-based identity. After a TCC reset or macOS update, the old identity's permission entry becomes stale — `startCapture` silently hangs forever (no error, no dialog). Fix: always sign with `codesign --force --sign - --identifier com.operator.audio-capture audio_capture` after compiling. The binary now has three layers of defense: (1) `CGPreflightScreenCaptureAccess()` pre-flight check that can trigger the permission dialog, (2) a 10-second watchdog that exits with code 3 if `startCapture` hangs, and (3) `AgentRunner` auto-retries once by re-signing the binary with a fresh identity. If it still fails, a clear error is logged. Never ship `audio_capture` with only a linker-generated signature.
 - **PyObjC packages are fragile** — never install new `pyobjc-framework-*` without checking prior issues.
 - **`WHISPER_HALLUCINATIONS` filter** — catches common false positives on silence. Add patterns as found.
 - **Audio output device is BlackHole only (`coreaudio/BlackHole2ch_UID`) on macOS** — do NOT change to Multi-Output Device. mpv plays TTS → BlackHole → Chrome mic → call participants hear Operator. Multi-Output Device causes voice to play through MacBook speakers.
