@@ -82,18 +82,39 @@ class TTSClient:
     # Public interface
     # ------------------------------------------------------------------
 
-    def speak(self, text):
-        """Synthesize text and play through the output device."""
-        t0 = time.time()
+    def synthesize(self, text) -> bytes:
+        """Synthesize text and return raw audio bytes (WAV/MP3). Does not play.
+
+        Use play_audio() to play the result, or pass it to a background thread
+        while fillers play.
+        """
         provider = config.TTS_PROVIDER
         if provider == "local":
-            self._speak_local(text)
+            return self._synthesize_local(text)
         elif provider == "openai":
-            self._speak_openai(text)
+            return self._synthesize_openai(text)
         elif provider == "elevenlabs":
-            self._speak_elevenlabs(text)
+            return self._synthesize_elevenlabs(text)
         else:
             raise ValueError(f"Unknown TTS provider: {provider!r}")
+
+    def play_audio(self, audio_bytes: bytes):
+        """Play raw audio bytes through the output device via mpv."""
+        if not audio_bytes:
+            return
+        proc = subprocess.Popen(
+            ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
+            stdin=subprocess.PIPE,
+        )
+        proc.stdin.write(audio_bytes)
+        proc.stdin.close()
+        proc.wait()
+
+    def speak(self, text):
+        """Synthesize and immediately play. Convenience wrapper for simple callers."""
+        t0 = time.time()
+        audio = self.synthesize(text)
+        self.play_audio(audio)
         log.info(f"TTS speak done ({time.time() - t0:.2f}s)")
 
     def play_clip(self, path):
@@ -107,18 +128,18 @@ class TTSClient:
     # Local provider
     # ------------------------------------------------------------------
 
-    def _speak_local(self, text):
+    def _synthesize_local(self, text) -> bytes:
         voice = config.TTS_LOCAL_VOICE
         if voice in _KOKORO_VOICES:
-            self._speak_kokoro(text)
+            return self._synthesize_kokoro(text)
         elif voice == "macos_say":
-            self._speak_macos_say(text)
+            return self._synthesize_macos_say(text)
         elif voice in _PIPER_VOICES:
-            self._speak_piper(text, voice)
+            return self._synthesize_piper(text, voice)
         else:
             raise ValueError(f"Unknown local_voice: {voice!r}")
 
-    def _speak_kokoro(self, text):
+    def _synthesize_kokoro(self, text) -> bytes:
         import numpy as np
         import soundfile as sf
 
@@ -132,45 +153,38 @@ class TTSClient:
 
         if not chunks:
             log.error("Kokoro produced no audio")
-            return
+            return b""
 
         audio = np.concatenate(chunks)
         buf = io.BytesIO()
         sf.write(buf, audio, 24000, format="WAV")
-        wav_bytes = buf.getvalue()
         log.info(f"TIMING tts_synth_done ({time.time() - t0:.2f}s)")
+        return buf.getvalue()
 
-        proc = subprocess.Popen(
-            ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
-            stdin=subprocess.PIPE,
-        )
-        proc.stdin.write(wav_bytes)
-        proc.stdin.close()
-        proc.wait()
-
-    def _speak_macos_say(self, text):
+    def _synthesize_macos_say(self, text) -> bytes:
         if platform.system() != "Darwin":
             log.error("macos_say is only available on macOS")
-            return
+            return b""
         voice = _best_macos_voice()
         if voice is None:
             log.error(
                 "No macOS voice available — download one in "
                 "System Settings → Accessibility → Spoken Content"
             )
-            return
+            return b""
         with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tf:
             tmp_path = tf.name
         try:
             subprocess.run(["say", "-v", voice, "-o", tmp_path, text], check=True, capture_output=True)
-            self.play_clip(tmp_path)
+            with open(tmp_path, "rb") as f:
+                return f.read()
         finally:
             try:
                 os.unlink(tmp_path)
             except Exception:
                 pass
 
-    def _speak_piper(self, text, local_voice):
+    def _synthesize_piper(self, text, local_voice) -> bytes:
         from pathlib import Path
         model = _PIPER_VOICES[local_voice]
         models_dir = Path(__file__).parent.parent / "bench_results" / "piper_models"
@@ -190,7 +204,8 @@ class TTSClient:
                  "--output_file", tmp_path],
                 input=text.encode(), capture_output=True, check=True,
             )
-            self.play_clip(tmp_path)
+            with open(tmp_path, "rb") as f:
+                return f.read()
         finally:
             try:
                 os.unlink(tmp_path)
@@ -201,17 +216,13 @@ class TTSClient:
     # OpenAI provider
     # ------------------------------------------------------------------
 
-    def _speak_openai(self, text):
+    def _synthesize_openai(self, text) -> bytes:
         if self._openai is None:
             from openai import OpenAI
             self._openai = OpenAI(api_key=config.OPENAI_API_KEY)
 
         t0 = time.time()
-        proc = subprocess.Popen(
-            ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
-            stdin=subprocess.PIPE,
-        )
-        first_chunk = True
+        chunks = []
         with self._openai.audio.speech.with_streaming_response.create(
             model=config.TTS_OPENAI_MODEL,
             voice=config.TTS_OPENAI_VOICE,
@@ -220,18 +231,15 @@ class TTSClient:
         ) as resp:
             for chunk in resp.iter_bytes(chunk_size=4096):
                 if chunk:
-                    if first_chunk:
-                        log.info(f"TIMING tts_first_chunk ({time.time() - t0:.2f}s)")
-                        first_chunk = False
-                    proc.stdin.write(chunk)
-        proc.stdin.close()
-        proc.wait()
+                    chunks.append(chunk)
+        log.info(f"TIMING tts_synth_done ({time.time() - t0:.2f}s)")
+        return b"".join(chunks)
 
     # ------------------------------------------------------------------
     # ElevenLabs provider
     # ------------------------------------------------------------------
 
-    def _speak_elevenlabs(self, text):
+    def _synthesize_elevenlabs(self, text) -> bytes:
         if self._eleven is None:
             from elevenlabs.client import ElevenLabs
             self._eleven = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
@@ -242,19 +250,9 @@ class TTSClient:
             voice_id=config.TTS_VOICE_ID,
             model_id=config.TTS_MODEL,
         )
-        proc = subprocess.Popen(
-            ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
-            stdin=subprocess.PIPE,
-        )
-        first_chunk = True
-        for chunk in audio_stream:
-            if chunk:
-                if first_chunk:
-                    log.info(f"TIMING tts_first_chunk ({time.time() - t0:.2f}s)")
-                    first_chunk = False
-                proc.stdin.write(chunk)
-        proc.stdin.close()
-        proc.wait()
+        chunks = [chunk for chunk in audio_stream if chunk]
+        log.info(f"TIMING tts_synth_done ({time.time() - t0:.2f}s)")
+        return b"".join(chunks)
 
 
 def _best_macos_voice() -> str | None:

@@ -13,7 +13,9 @@ Usage:
     runner.run()          # macOS: no URL, calendar poller calls connector.join() separately
     runner.run(url)       # Linux: join immediately, then loop
 """
+import itertools
 import logging
+import numpy as np
 import os
 import random
 import subprocess
@@ -25,11 +27,23 @@ from openai import OpenAI
 
 from pipeline.audio import AudioProcessor, WHISPER_HALLUCINATIONS
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
+from pipeline import fillers
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
 from pipeline.tts import TTSClient
 from pipeline.wake import detect_wake_phrase
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+class _SpeculativeResult:
+    """Holds the in-flight result of a speculative Whisper + LLM call."""
+    def __init__(self):
+        self.transcript = None   # Whisper result on the first-silence snapshot
+        self.full_prompt = None  # Context-augmented prompt sent to LLM
+        self.llm_reply = None    # LLM reply (None if not yet done or failed)
+        self.ready = threading.Event()
+
+
 ACK_CLIPS = [
     os.path.join(_BASE, "assets", "ack_yeah.mp3"),
     os.path.join(_BASE, "assets", "ack_yes.mp3"),
@@ -186,9 +200,13 @@ class AgentRunner:
                     log.info("TIMING wake_only waiting_for_prompt")
                     self.conv.set_listening("Listening for prompt...")
                     self._play_acknowledgment()
-                    prompt = self.audio.capture_next_utterance(is_prompt=True)
+                    spec = _SpeculativeResult()
+                    prompt = self.audio.capture_next_utterance(
+                        is_prompt=True,
+                        on_first_silence=self._make_speculative_callback(spec),
+                    )
                     if prompt:
-                        self._finalize_prompt(prompt)
+                        self._finalize_prompt(prompt, speculative=spec)
                     else:
                         log.info("Prompt empty after wake phrase — returning to idle")
                         self.conv.set_idle()
@@ -198,15 +216,18 @@ class AgentRunner:
                 log.info("Entering conversation mode")
                 while self.audio.capturing and not self._stop_event.is_set():
                     self.conv.set_listening("Listening...")
+                    spec = _SpeculativeResult()
                     followup = self.audio.capture_next_utterance(
-                        is_prompt=True, no_speech_timeout=CONVERSATION_TIMEOUT
+                        is_prompt=True,
+                        no_speech_timeout=CONVERSATION_TIMEOUT,
+                        on_first_silence=self._make_speculative_callback(spec),
                     )
                     if not followup:
                         log.info("Conversation mode: no follow-up — returning to idle")
                         break
                     if followup.lower().strip().strip(".,!?") in WHISPER_HALLUCINATIONS:
                         continue
-                    self._finalize_prompt(followup)
+                    self._finalize_prompt(followup, speculative=spec)
                 self.conv.set_idle()
             else:
                 # Ambient speech — append to rolling transcript
@@ -222,8 +243,8 @@ class AgentRunner:
     # Prompt handling
     # ------------------------------------------------------------------
 
-    def _finalize_prompt(self, prompt):
-        """Send a finalized prompt to the LLM and speak the response."""
+    def _finalize_prompt(self, prompt, speculative=None):
+        """Resolve the LLM reply and speak it, playing fillers while synthesis runs."""
         if not prompt:
             self.conv.set_idle()
             return
@@ -231,7 +252,6 @@ class AgentRunner:
         log.info(f"TIMING prompt_finalized \"{prompt}\"")
         self.conv.set_thinking()
 
-        # Echo prevention: pause audio ingestion for the entire think+speak cycle
         self.audio.is_speaking = True
         self.audio.drain_audio_buffer()
         log.info("Echo prevention: paused audio ingestion")
@@ -243,25 +263,74 @@ class AgentRunner:
             f"[Meeting transcript so far]\n{context}\n\n"
             f"[Someone just said to you]\n{prompt}"
         )
-        log.info(f"Sending to LLM: {full_prompt[:200]}...")
 
         try:
-            log.info("TIMING llm_request_sent")
+            # --- LLM: use speculative result if it matches, else call normally ---
             t0 = time.time()
-            reply = self.llm.ask(full_prompt)
-            t_llm = time.time()
-            log.info(f"TIMING llm_response_received ({t_llm - t0:.1f}s) \"{reply}\"")
+            if (speculative
+                    and speculative.ready.is_set()
+                    and speculative.transcript == prompt
+                    and speculative.llm_reply):
+                reply = speculative.llm_reply
+                self.llm.record_exchange(speculative.full_prompt, reply)
+                log.info(f"TIMING llm_speculative_hit \"{reply}\"")
+            else:
+                # If speculative is still in-flight, wait briefly for it
+                if speculative and not speculative.ready.is_set():
+                    speculative.ready.wait(timeout=0.3)
+                    if (speculative.ready.is_set()
+                            and speculative.transcript == prompt
+                            and speculative.llm_reply):
+                        reply = speculative.llm_reply
+                        self.llm.record_exchange(speculative.full_prompt, reply)
+                        log.info(f"TIMING llm_speculative_hit (late) \"{reply}\"")
+                    else:
+                        log.info("TIMING llm_request_sent")
+                        reply = self.llm.ask(full_prompt)
+                        log.info(f"TIMING llm_response_received ({time.time() - t0:.1f}s) \"{reply}\"")
+                else:
+                    log.info("TIMING llm_request_sent")
+                    reply = self.llm.ask(full_prompt)
+                    log.info(f"TIMING llm_response_received ({time.time() - t0:.1f}s) \"{reply}\"")
 
+            # --- TTS synthesis in background, fillers in foreground ---
             self.conv.set_speaking()
-            log.info("TIMING tts_request_sent")
             t_tts = time.time()
-            self.tts.speak(reply)
+            log.info("TIMING tts_request_sent")
+
+            synthesis_done = threading.Event()
+            wav_result = [None]
+
+            def _synthesize():
+                try:
+                    wav_result[0] = self.tts.synthesize(reply)
+                except Exception as exc:
+                    log.error(f"Synthesis error: {exc}")
+                finally:
+                    synthesis_done.set()
+
+            threading.Thread(target=_synthesize, daemon=True).start()
+
+            # Play filler clips until synthesis is ready
+            filler_clips = fillers.get_clips(fillers.classify(prompt))
+            if filler_clips:
+                for clip in itertools.cycle(filler_clips):
+                    if synthesis_done.is_set():
+                        break
+                    self.tts.play_clip(clip)
+
+            synthesis_done.wait()
+
+            # Play the actual response
+            t_play = time.time()
+            self.tts.play_audio(wav_result[0])
             t_done = time.time()
             log.info(
-                f"Pipeline timing — llm: {t_llm - t0:.1f}s, "
-                f"speak: {t_done - t_tts:.1f}s, "
+                f"Pipeline timing — llm: {t_play - t0:.1f}s, "
+                f"speak: {t_done - t_play:.1f}s, "
                 f"total: {t_done - t0:.1f}s"
             )
+
         except Exception as e:
             log.error(f"Pipeline error: {e}")
         finally:
@@ -270,6 +339,39 @@ class AgentRunner:
             log.info("Echo prevention: resumed audio ingestion")
 
         self.conv.set_idle()
+
+    def _make_speculative_callback(self, spec: _SpeculativeResult):
+        """Return an on_first_silence callback that kicks off speculative processing."""
+        def callback(audio_bytes: bytes):
+            threading.Thread(
+                target=self._run_speculative,
+                args=(audio_bytes, spec),
+                daemon=True,
+                name="speculative",
+            ).start()
+        return callback
+
+    def _run_speculative(self, audio_bytes: bytes, spec: _SpeculativeResult):
+        """Run Whisper + LLM on first-silence audio snapshot. Non-blocking."""
+        try:
+            audio = np.frombuffer(audio_bytes, dtype=np.float32)
+            text = self.audio.transcribe(audio)
+            spec.transcript = text
+            log.debug(f"Speculative Whisper: {text!r}")
+
+            if text and text.lower().strip().strip(".,!?") not in WHISPER_HALLUCINATIONS:
+                with self._transcript_lock:
+                    context = "\n".join(self._transcript_lines[-20:])
+                spec.full_prompt = (
+                    f"[Meeting transcript so far]\n{context}\n\n"
+                    f"[Someone just said to you]\n{text}"
+                )
+                spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
+                log.debug(f"Speculative LLM: {spec.llm_reply!r}")
+        except Exception as e:
+            log.debug(f"Speculative processing error: {e}")
+        finally:
+            spec.ready.set()
 
     def _play_acknowledgment(self):
         """Play a random acknowledgment clip through the TTS output device."""

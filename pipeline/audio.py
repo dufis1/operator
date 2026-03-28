@@ -54,14 +54,19 @@ class AudioProcessor:
             self._audio_buffer = b""
         return data
 
-    def capture_next_utterance(self, is_prompt=False, no_speech_timeout=None):
+    def capture_next_utterance(self, is_prompt=False, no_speech_timeout=None, on_first_silence=None):
         """Block until a complete utterance is detected. Returns transcribed text or ''.
 
-        no_speech_timeout: if set, give up and return '' if no speech starts within
-        this many seconds. Used for conversation follow-up mode.
+        no_speech_timeout:  give up and return '' if no speech starts within N seconds.
+                            Used for conversation follow-up mode.
+        on_first_silence:   optional callable(audio_bytes: bytes) fired once when the
+                            first silence chunk is detected.  Used to kick off speculative
+                            Whisper + LLM processing while we wait for the second chunk
+                            to confirm end-of-speech.
         """
         speech_detected = False
         silence_count = 0
+        first_silence_fired = False
         utterance_audio = b""
         speech_start_time = None
         capture_start = time.time()
@@ -95,6 +100,15 @@ class AudioProcessor:
             elif speech_detected:
                 silence_count += 1
                 log.debug(f"Utterance no-audio silence {silence_count}/{UTTERANCE_SILENCE_THRESHOLD}")
+
+            # Fire speculative callback on the first silence chunk
+            if (speech_detected
+                    and silence_count == 1
+                    and not first_silence_fired
+                    and on_first_silence):
+                first_silence_fired = True
+                on_first_silence(bytes(utterance_audio))
+                log.debug("Speculative: on_first_silence fired")
 
             if speech_detected:
                 if silence_count >= UTTERANCE_SILENCE_THRESHOLD:

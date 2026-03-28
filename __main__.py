@@ -35,7 +35,10 @@ def main():
     args = parser.parse_args()
 
     if sys.platform == "darwin":
-        _run_macos()
+        if args.meeting_url:
+            _run_macos_headless(args.meeting_url)
+        else:
+            _run_macos()
     else:
         _run_linux(args.meeting_url)
 
@@ -44,6 +47,44 @@ def _run_macos():
     """Launch the macOS menu bar app."""
     from app import OperatorApp
     OperatorApp().run()
+
+
+def _run_macos_headless(meeting_url):
+    """Join a specific meeting directly on macOS, no menu bar."""
+    import logging
+
+    logging.basicConfig(
+        filename="/tmp/operator.log",
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    # Also print to stderr so the terminal shows progress
+    logging.getLogger().addHandler(logging.StreamHandler(sys.stderr))
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("elevenlabs").setLevel(logging.WARNING)
+
+    log = logging.getLogger("operator")
+
+    from connectors.macos_adapter import MacOSAdapter
+    from pipeline.runner import AgentRunner
+
+    BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
+
+    log.info(f"Starting Operator (macOS headless) — joining {meeting_url}")
+    connector = MacOSAdapter()
+    runner = AgentRunner(
+        connector=connector,
+        tts_output_device=BLACKHOLE_DEVICE,
+    )
+
+    try:
+        runner.run(meeting_url)
+    except KeyboardInterrupt:
+        log.info("Interrupted — leaving meeting")
+        runner.stop()
+        connector.leave()
 
 
 def _run_linux(meeting_url):
