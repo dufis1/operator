@@ -18,8 +18,19 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1 and 7.2 complete. Voice confirmed clear through WebRTC. Dominant latency issue identified: Whisper cold-start on droplet ~28s; subsequent runs <2s. mpv drain also inflated (~5s for a short phrase). LLM 5.2s. Total end-to-end ~42s.
-**Next action:** Step 7.6 (Whisper latency/accuracy review) before Step 7.3 (TTS benchmark) — Whisper latency will dwarf any TTS provider difference.
+**Phase:** Phase 7 in progress. Steps 7.1 and 7.2 complete. Step 7.3 (TTS benchmark) in progress.
+**Next action:** Run the Meet phase for the 5 new free-tier providers, collect quality scores, then implement the multi-provider TTS architecture in `config.yaml` and `pipeline/tts.py`.
+
+**Step 7.3 progress (March 2026):**
+- Latency, clips, streaming phases complete for 6 providers: ElevenLabs, OpenAI tts-1, tts-1-hd, gpt-4o-mini-tts, macOS say (Flo), Piper amy-medium.
+- Quality scores so far: `{"elevenlabs": 5, "openai_tts1": 4, "openai_tts1hd": 5, "piper": 2, "openai_mini_tts": 5, "macos_say": 3}`
+- Sentence streaming analysis done: TTFAB is length-independent (ElevenLabs delta +0.020s = noise). Sentence streaming is the highest-leverage latency win available — gives back full LLM generation time (~1-3s) for free.
+- gpt-4o-mini-tts is 2.4× faster than tts-1, same price, same quality (5/5) — best paid option.
+- macOS say: Siri voices inaccessible (private `SiriTTS.framework`, no public API). Flo (built-in neural) scored 3/5. Premium voices (Ava/Zoe) require manual download from System Settings; no programmatic download path.
+- Piper amy-medium scored 2/5 — result was misleading due to poor voice selection. lessac-high is a different quality tier.
+- 5 new free-tier providers added to `scripts/bench_tts.py`: `piper_lessac` (en_US-lessac-high), `kokoro_heart` (af_heart), `kokoro_emma` (bf_emma), `kokoro_isabella` (bf_isabella), `kokoro_sky` (af_sky). Clips pre-generated. Kokoro 0.9.4 installed (python3.11), en_core_web_sm spacy model installed.
+- **Remaining:** Run `--phase meet --providers piper_lessac kokoro_heart kokoro_emma kokoro_isabella kokoro_sky` to collect WebRTC quality scores for these providers.
+- **Architecture decided:** `tts.provider: local | openai | elevenlabs` in `config.yaml`. `local_engine: kokoro | piper`. Kokoro models auto-download on first run (~82MB MIT). Final default voice TBD pending Meet quality scores.
 **Phase 6 progress (March 26, 2026):**
 - Step 6.1: `pipeline/runner.py` created — `AgentRunner` class encapsulates the full transcription loop, prompt handling, acknowledgment playback, and audio capture lifecycle. Interface: `AgentRunner(connector, tts_output_device, on_state_change, stop_event)`.
 - Step 6.1.5: `calendar_join.py` deleted, replaced with `caldav_poller.py` — CalDAV + system keychain, no OAuth. `config.yaml` gained `caldav.bot_gmail` field. `requirements.txt` updated (removed google-auth-oauthlib/google-api-python-client, added caldav/keyring).
@@ -177,6 +188,8 @@ operator/
 - **Chrome requires `--no-sandbox` when running as root on a server** — without it, Chrome's audio service sandbox blocks PulseAudio socket access. Symptom: VirtualMic stays SUSPENDED, Meet shows "Microphone not found." Add to `launch_args` for both auth and guest paths.
 - **Playwright `env=` in `launch()` replaces the full process environment** — passing `env={"DISPLAY": ":99"}` strips `XDG_RUNTIME_DIR`, `HOME`, `PATH`, etc. Chrome loses PulseAudio socket discovery. Fix: do NOT pass `env=` at all; set `DISPLAY` in the caller's environment before launching Python (`DISPLAY=:99 python3 run_linux.py`).
 - **Chrome 130+ uses PipeWire by default for WebRTC audio on Linux** — if PipeWire is not installed, WebRTC audio capture silently fails (VirtualMic SUSPENDED) while video and regular Chrome audio still work. Fix: add `--disable-features=WebRTCPipeWireCapturer` to Chrome launch args to force PulseAudio.
+- **Kokoro 0.9.4 requires spaCy `en_core_web_sm` model** — `KPipeline` downloads it at first run via `pip`. On systems where `pip` is not on PATH (Homebrew Python 3.14), download fails with "No package installer found." Fix: install the model directly — `pip3.11 install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl`. Kokoro is installed under Python 3.11 (`pip3.11 install kokoro soundfile`); run benchmark via `python3.11 scripts/bench_tts.py`.
+- **Kokoro voice `am_cloud` does not exist** — the full voice list is in the HuggingFace repo `hexgrad/Kokoro-82M/voices/`. American Female: af_heart, af_sky, af_bella, af_sarah, af_nova, af_alloy, etc. British Female: bf_emma, bf_isabella, bf_alice, bf_lily. Use `am_michael` or `am_puck` for American Male.
 - **PulseAudio user-mode on the droplet dies without `--exit-idle-time=-1`** — `pulseaudio --daemonize` as root exits immediately at idle. Fix: `pulseaudio --daemonize --exit-idle-time=-1`. Add to startup procedure.
 - **Whisper cold-start on the droplet is ~28s; subsequent runs are <2s** — first inference triggers JIT/model warmup. Not fixable in code; warm up Whisper before entering the transcription loop or use a persistent inference thread. Addressed in Step 7.6.
 - **mpv drain inflated to ~5s for short TTS clips** — mpv buffers aggressively; drain time does not track audio duration. Investigate `--audio-buffer=50` or streaming TTS directly to parec/pacat to bypass mpv.
