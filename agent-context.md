@@ -39,7 +39,7 @@ Fix: re-signed with stable identifier `com.operator.audio-capture`. Hardened wit
 **Step 7.4 complete — mechanics (March 28, 2026):**
 - `__main__.py`: macOS now accepts URL arg and joins headlessly via MacOSAdapter (bypasses menu bar app). Fixes `python __main__.py <url>` being silently ignored on macOS.
 - `assets/ack_*.mp3`: All three ack clips regenerated with Kokoro Heart voice (af_heart) for voice consistency.
-- `pipeline/fillers.py`: New module. `classify(text)` — keyword-based bucket routing (empathetic / cerebral / neutral). `get_clips(bucket)` — returns shuffled clip paths, falls back to neutral if bucket empty, returns `[]` if no clips at all (graceful no-op).
+- `pipeline/fillers.py`: New module. `classify(text)` — empathetic-first priority, then short-query gate (≤8 words → neutral), then cerebral keywords, else neutral. Empathetic keywords include intensifiers (really/very/seriously); removed ambiguous "hard"/"lost". `get_clips(bucket)` — returns shuffled clip paths, falls back to neutral if bucket empty, returns `[]` if no clips at all (graceful no-op).
 - `pipeline/tts.py`: `speak()` split into `synthesize() -> bytes` + `play_audio(bytes)`. All three providers (kokoro, openai, elevenlabs) now buffer to bytes before playback. `speak()` preserved as thin wrapper for backward compat.
 - `pipeline/llm.py`: `ask(record=False)` skips history update. `record_exchange(user, reply)` commits a speculative exchange manually. This keeps history clean when speculative LLM calls are discarded.
 - `pipeline/audio.py`: `capture_next_utterance()` gains `on_first_silence` callback — fires once with a snapshot of accumulated audio bytes when silence_count first hits 1 (~500ms of silence). Non-blocking hook for speculative processing.
@@ -49,7 +49,7 @@ Fix: re-signed with stable identifier `com.operator.audio-capture`. Hardened wit
   - `_run_speculative()`: Whisper on first-silence snapshot → LLM (record=False) → stores in spec. Runs during the ~500ms second silence chunk.
   - `_finalize_prompt(prompt, speculative=)`: checks spec result (exact transcript match); if hit, calls `record_exchange()` and skips LLM call; if miss/timeout, falls back to normal LLM call. Then starts synthesis in a background thread, plays filler clips in foreground until synthesis_done is set, then plays response.
   - Both wake-only prompt capture and conversation follow-up mode now pass speculative callbacks.
-- `scripts/gen_fillers.py`: Offline generation script — 43 phrases across 3 buckets using Kokoro Heart + ffmpeg → MP3. Phrase set refreshed March 28: "think" reduced from 13→6 instances, 9 new phrases added (momentum, acknowledgment, complexity signals). Run once with python3.11.
+- `scripts/gen_fillers.py`: Offline generation script — 43 phrases across 3 buckets using Kokoro Heart + ffmpeg → MP3. All phrases shortened to 1–4 syllables; ffmpeg `silenceremove` filter trims Kokoro padding (clips now 0.34–0.79s, down from 1.2–3.5s). Run once with python3.11.
 - `assets/fillers/{neutral,cerebral,empathetic}/`: 43 clips generated and saved (neutral: 14, cerebral: 15, empathetic: 14).
 
 **Baseline logs captured (March 27, 2026 session):** Pre-7.4 timings from `/tmp/operator.log`: silence detection ~1s, Whisper ~120ms, LLM 0.6–2.1s (avg ~1.2s), Kokoro synthesis ~1.23s, total from end of speech ~3–4s. Use these as benchmark against post-clip live test.
