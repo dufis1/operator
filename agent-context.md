@@ -21,11 +21,9 @@
 **Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete.
 **Next action:** Resolve ScreenCaptureKit audio capture hang before live benchmark (see blocker note below). Once resolved: run live meeting test, paste `/tmp/operator.log` to benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s from end of speech).
 
-**BLOCKER — ScreenCaptureKit audio hang (March 28, 2026):**
-`audio_capture` binary hangs at `found display 2` — `startCapture` never fires its completion handler and no permission dialog appears. This broke mid-session with no code changes. Was working in the March 27 session.
-- Ruled out: wrong display (displays.first is always built-in), RMS threshold too high (no audio flowing at all), Meet echo cancellation (say command also not captured), Screen Recording permission toggle, tccutil reset + re-grant, recompile of binary, running from Terminal.app vs VS Code terminal, full VS Code restart.
-- Not yet tried: Console.app TCC log inspection during hang, checking if another process holds SCKit audio resource, ad-hoc codesign (`codesign --sign - audio_capture`), running the Operator.app bundle directly instead of `python __main__.py`.
-- Likely cause: TCC database entry for audio capture component of Screen & System Audio Recording is stale/corrupt after the reset — VS Code re-added manually may only cover screen capture, not the audio sub-permission. The binary needs VS Code to re-request the permission organically (not via manual re-add).
+**RESOLVED — ScreenCaptureKit audio hang (March 28, 2026):**
+Root cause: `audio_capture` binary had a stale TCC permission entry tied to its linker-generated codesign identity. After `tccutil reset` + manual re-add, macOS matched the binary to the zombie TCC record, causing `startCapture` to silently hang. Proven by testing an identical binary with a different codesign identifier — worked immediately.
+Fix: re-signed with stable identifier `com.operator.audio-capture`. Hardened with three defense layers: (1) `CGPreflightScreenCaptureAccess()` pre-flight + dialog trigger, (2) 10s watchdog exits with code 3 instead of hanging, (3) `AgentRunner` detects code 3, re-signs binary, retries once. Also added `SCStreamDelegate` for error reporting, dedicated audio dispatch queue, minimized video overhead (2x2 @ 1fps). Live meeting test confirmed working end-to-end. See Hard-Won Knowledge for full details.
 
 **Step 7.4 complete — mechanics (March 28, 2026):**
 - `__main__.py`: macOS now accepts URL arg and joins headlessly via MacOSAdapter (bypasses menu bar app). Fixes `python __main__.py <url>` being silently ignored on macOS.

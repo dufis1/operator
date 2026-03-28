@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: March 27, 2026*
+*Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.3 complete.** Full 11-provider TTS benchmark done. Top scores (5/5): ElevenLabs, gpt-4o-mini-tts, kokoro_isabella, kokoro_sky, kokoro_heart, OpenAI tts-1-hd. Multi-provider architecture implemented: `tts.provider: local | openai | elevenlabs` in config.yaml. Default is `local/kokoro_heart` (free, 4/5 quality). Next: Step 7.4 — filler phrase silence threshold tuning.
+> **Current status: Phase 7 in progress — Step 7.4 complete.** Speculative processing + filler clip pipeline wired and clips generated (43 phrases, 3 buckets). Audio capture hardened against stale macOS TCC permissions (pre-flight check, watchdog, auto-retry with re-sign). Live meeting test confirmed working. Next: benchmark latency delta vs baseline.
 
 ---
 
@@ -141,7 +141,7 @@
 | 7.1 | Audio quality — test on native AMD64 (DigitalOcean droplet without Docker) to confirm/rule out QEMU as cause of fuzzy audio | ✅ Done — audio still choppy, QEMU ruled out |
 | 7.2 | Audio quality — fix 44100Hz→48000Hz sample rate mismatch: set PulseAudio virtual sinks to 48kHz in `linux_setup.sh` | ✅ Done — also fixed 3 Chrome audio bugs in `LinuxAdapter` (no-sandbox, env= override, PipeWire). Voice clear. |
 | 7.3 | TTS provider benchmark — evaluate ElevenLabs vs OpenAI TTS vs Piper on voice quality through WebRTC, latency, cost, and vendor count. Make final provider decision. | ✅ Done — kokoro_heart default; full 3-tier architecture in pipeline/tts.py + config.yaml |
-| 7.4 | Latency masking — tune filler phrase silence threshold (too aggressive = collides with speaker; too conservative = awkward silence) | ⬜ |
+| 7.4 | Latency masking — speculative processing + filler clip pipeline | ✅ Done — mechanics wired; clips pending async generation session |
 | 7.5 | TTS reliability — improve error handling and retry logic in `pipeline/tts.py` for chosen provider (skip if Piper chosen — local, no API failures) | ⬜ |
 | 7.6 | STT accuracy — review `WHISPER_HALLUCINATIONS` filter; evaluate `small` model vs `base` for accuracy/latency trade-off | ⬜ |
 
