@@ -21,7 +21,6 @@ import threading
 import time
 
 import config
-from elevenlabs.client import ElevenLabs
 from openai import OpenAI
 
 from pipeline.audio import AudioProcessor, WHISPER_HALLUCINATIONS
@@ -83,8 +82,7 @@ class AgentRunner:
         log.info("AgentRunner: connecting to APIs...")
         openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
         self.llm = LLMClient(openai_client)
-        eleven_client = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
-        self.tts = TTSClient(eleven_client, self._tts_output_device)
+        self.tts = TTSClient(self._tts_output_device)
 
         self.conv = ConversationState(on_state_change=self._on_state_change)
 

@@ -87,7 +87,7 @@ class OperatorApp(rumps.App):
         missing = []
         if not config.OPENAI_API_KEY:
             missing.append("OPENAI_API_KEY")
-        if not config.ELEVENLABS_API_KEY:
+        if config.TTS_PROVIDER == "elevenlabs" and not config.ELEVENLABS_API_KEY:
             missing.append("ELEVENLABS_API_KEY")
         if missing:
             return f"Missing API keys: {', '.join(missing)}. Add them to your .env file."

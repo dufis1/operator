@@ -19,9 +19,12 @@ LLM_PROVIDER = _config["llm"]["provider"]
 LLM_MODEL    = _config["llm"]["model"]
 
 # TTS
-TTS_PROVIDER = _config["tts"]["provider"]
-TTS_VOICE_ID = _config["tts"]["voice_id"]
-TTS_MODEL    = _config["tts"]["model"]
+TTS_PROVIDER     = _config["tts"]["provider"]
+TTS_LOCAL_VOICE  = _config["tts"].get("local_voice", "kokoro_heart")
+TTS_OPENAI_MODEL = _config["tts"].get("openai_model", "gpt-4o-mini-tts")
+TTS_OPENAI_VOICE = _config["tts"].get("openai_voice", "nova")
+TTS_VOICE_ID     = _config["tts"].get("voice_id", "")
+TTS_MODEL        = _config["tts"].get("model", "")
 
 # STT
 STT_MODEL        = _config["stt"]["model"]
@@ -38,4 +41,4 @@ CALDAV_BOT_GMAIL = _config["caldav"]["bot_gmail"]
 
 # Secrets from .env
 OPENAI_API_KEY     = os.environ["OPENAI_API_KEY"]
-ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")

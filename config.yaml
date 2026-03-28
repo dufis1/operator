@@ -22,7 +22,13 @@ llm:
   model: "gpt-4.1-mini"
 
 tts:
-  provider: "elevenlabs"
+  provider: "local"             # local | openai | elevenlabs
+  # local provider settings
+  local_voice: "kokoro_heart"   # kokoro_heart | kokoro_sky | kokoro_isabella | kokoro_emma | macos_say | piper_lessac | piper_amy
+  # openai provider settings
+  openai_model: "gpt-4o-mini-tts"
+  openai_voice: "nova"
+  # elevenlabs provider settings
   voice_id: "JBFqnCBsd6RMkjVDRZzb"
   model: "eleven_flash_v2_5"
 

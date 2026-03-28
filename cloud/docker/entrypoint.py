@@ -7,8 +7,10 @@ container is stopped (SIGINT / SIGTERM).
 
 Required env vars:
     OPENAI_API_KEY
-    ELEVENLABS_API_KEY
     MEETING_URL          Google Meet link to join on startup
+
+Optional env vars (in addition to below):
+    ELEVENLABS_API_KEY   Required only when tts.provider = elevenlabs
 
 Optional env vars:
     BROWSER_PROFILE_DIR  Path for persistent Chromium profile (default: /tmp/operator_browser_profile)
@@ -22,7 +24,6 @@ import threading
 import time
 
 from dotenv import load_dotenv
-from elevenlabs.client import ElevenLabs
 from openai import OpenAI
 
 # Entrypoint lives at /app/docker/entrypoint.py — one level up is the repo root.
@@ -93,8 +94,7 @@ class DockerOperator:
         log.info("DockerOperator: connecting to APIs...")
         openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
         self.llm = LLMClient(openai_client)
-        eleven_client = ElevenLabs(api_key=os.environ["ELEVENLABS_API_KEY"])
-        self.tts = TTSClient(eleven_client, PULSE_OUTPUT_DEVICE)
+        self.tts = TTSClient(PULSE_OUTPUT_DEVICE)
 
         auth_state_file = os.environ.get("AUTH_STATE_FILE")
         self.connector = DockerAdapter(user_data_dir=browser_profile, auth_state_file=auth_state_file)
@@ -296,10 +296,11 @@ class DockerOperator:
 
     @staticmethod
     def _check_env_or_exit():
-        missing = [
-            k for k in ("OPENAI_API_KEY", "ELEVENLABS_API_KEY", "MEETING_URL")
-            if not os.environ.get(k)
-        ]
+        required = ["OPENAI_API_KEY", "MEETING_URL"]
+        import config as _cfg
+        if _cfg.TTS_PROVIDER == "elevenlabs":
+            required.append("ELEVENLABS_API_KEY")
+        missing = [k for k in required if not os.environ.get(k)]
         if missing:
             log.error(f"Missing required env vars: {', '.join(missing)}")
             sys.exit(1)
