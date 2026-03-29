@@ -18,8 +18,14 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Recovery ladder fully tested.
-**Next action:** Live meeting test for filler phrases, then decide between Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Recovery ladder fully tested. Google session revocation diagnosed and recovery ladder planned.
+**Next action:** Implement session recovery ladder (plan in `.claude/plans/cosmic-swinging-fairy.md`), then live meeting test for filler phrases, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+
+**Google session revocation (March 28, 2026):**
+- Root cause: Google revoked `.google.com` session cookies (SID/HSID/SSID) from the browser profile while Chrome was running in `--headless=new` mode and couldn't complete a re-auth challenge. `.youtube.com` cookies survived (separate domain).
+- Symptom: "You can't join this video call" — join button not found, browser thread exits silently, runner continues blind.
+- Not related to SingletonLock fix or TCC hardening changes.
+- Plan: session recovery ladder in `connectors/session.py` — detect logged-out state post-navigation, auto-inject cookies from `auth_state.json`, `JoinStatus` threading primitive for browser→runner communication, in-meeting health checks. Follows TCC recovery ladder pattern.
 
 **TCC recovery ladder tests (March 28, 2026):**
 - `tests/test_recovery_ladder.py`: 10 tests using stub shell scripts — no macOS hardware needed.

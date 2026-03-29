@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + recovery ladder tests written.** STT benchmarked: mlx-whisper base (110ms) vs faster-whisper base (420ms) vs whisper-small (1.1s) vs distil-large-v3 (3.9s). Switched to mlx-whisper — 4x latency improvement. Hardened audio capture shutdown (SIGTERM handlers, finally blocks, SingletonLock cleanup) and TCC permission recovery (signature verification, split exit codes, automatic tccutil reset + retry). Recovery ladder fully tested (10 tests: signature checks, exit codes, tccutil retry, full recovery). Next: live meeting test for filler phrases, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + recovery ladder tests written.** Diagnosed Google session revocation in browser profile (`.google.com` SID/HSID/SSID cookies removed server-side while headless Chrome couldn't complete re-auth challenge). Planned session recovery ladder: detect logged-out state post-navigation, auto-inject cookies from `auth_state.json`, signal join status to runner via `JoinStatus` threading primitive, add in-meeting health checks. Plan written, ready for implementation. Next: implement session recovery ladder, then live meeting test for filler phrases.
 
 ---
 
