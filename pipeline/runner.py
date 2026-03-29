@@ -119,6 +119,8 @@ class AgentRunner:
                     log.error(f"STARTUP join failed: {reason}")
                     if "session_expired" in reason:
                         log.error("Re-export session: python scripts/auth_export.py")
+                        print("\n❌ Not authenticated — run this to sign in:\n")
+                        print("   python scripts/auth_export.py\n")
                         self._on_state_change(
                             "error",
                             "Session expired — re-authenticate with scripts/auth_export.py",

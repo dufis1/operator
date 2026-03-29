@@ -50,7 +50,22 @@ def detect_page_state(page):
     try:
         cant_join = page.locator("text=You can't join this video call")
         if cant_join.count() > 0:
-            log.info("session: detected 'can't join' state")
+            # Distinguish auth failure from host controls
+            # by checking if browser has Google session cookies
+            try:
+                cookies = page.context.cookies()
+                has_session = any(
+                    c.get("name") == "SID" and ".google.com" in c.get("domain", "")
+                    for c in cookies
+                )
+            except Exception:
+                has_session = False
+
+            if not has_session:
+                log.info("session: 'can't join' but no Google session cookie — treating as logged_out")
+                return "logged_out"
+
+            log.info("session: detected 'can't join' state (authenticated — likely host controls)")
             return "cant_join"
     except Exception:
         pass

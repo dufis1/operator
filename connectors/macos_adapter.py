@@ -123,6 +123,9 @@ class MacOSAdapter(MeetingConnector):
                 page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(8000)
 
+                # Snapshot what the browser sees after initial load
+                save_debug(page, "initial_load")
+
                 # --- Session recovery ladder ---
                 state = detect_page_state(page)
                 recovered = False
@@ -175,6 +178,9 @@ class MacOSAdapter(MeetingConnector):
                     log.debug("MacOSAdapter: camera turned off")
                 except Exception:
                     log.debug("MacOSAdapter: camera button not found or already off")
+
+                # Snapshot pre-join screen for debugging
+                save_debug(page, "pre_join")
 
                 # Click join button
                 joined = False

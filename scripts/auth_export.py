@@ -1,34 +1,45 @@
 """
 One-time auth helper — runs on macOS with the local venv.
 
-Opens a headed Chromium browser, navigates to accounts.google.com,
-and waits for you to log in as the Operator Google account.
-Once logged in, saves the session to auth_state.json so the Docker
-container can reuse it without repeating the login.
+Opens Chrome using the same persistent browser profile that Operator uses
+for meetings, navigates to accounts.google.com, and waits for you to log in.
+Once logged in, cookies are stored in the browser profile (so the macOS
+adapter is authenticated on next launch) AND exported to auth_state.json
+(so Linux/Docker can reuse the session).
 
 Usage:
     source venv/bin/activate
     python3 scripts/auth_export.py
 """
+import os
 import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import config
 from playwright.sync_api import sync_playwright
 
+BROWSER_PROFILE = os.path.join(os.path.dirname(__file__), "..", config.BROWSER_PROFILE_DIR)
 OUTPUT = "auth_state.json"
 
 print("Opening browser — log in as the Operator Google account.")
 print("Press Enter here once you are fully logged in.")
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(headless=False)
-    ctx = browser.new_context()
-    page = ctx.new_page()
+    browser = p.chromium.launch_persistent_context(
+        user_data_dir=BROWSER_PROFILE,
+        headless=False,
+        executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        args=["--use-fake-ui-for-media-stream"],
+    )
+    page = browser.pages[0] if browser.pages else browser.new_page()
     page.goto("https://accounts.google.com")
 
     input("\n>>> Press Enter once you have finished logging in... ")
 
-    ctx.storage_state(path=OUTPUT)
+    browser.storage_state(path=OUTPUT)
     browser.close()
 
 print(f"\nAuth state saved to {OUTPUT}")
-print("You can now run the Docker container with:")
-print(f'  docker run --rm --env-file .env -e MEETING_URL="..." -v $(pwd)/auth_state.json:/app/auth_state.json -e AUTH_STATE_FILE=/app/auth_state.json operator')
+print("Browser profile updated — Operator will use these cookies on next launch.")
+print("Docker/Linux backup also saved to auth_state.json.")
