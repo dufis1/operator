@@ -18,8 +18,16 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done.
-**Next action:** Live meeting test for recovery ladder + filler phrases (browser profile needs re-auth first: `python scripts/auth_export.py`), then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done. Auth pipeline and page state detection fixed and live-tested.
+**Next action:** Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+
+**Auth/detection fixes (March 29, 2026):**
+- `scripts/auth_export.py` rewritten: now uses `launch_persistent_context(user_data_dir=BROWSER_PROFILE)` so Chrome stores session cookies directly in the profile the bot uses. Previously used a throwaway context that only saved to `auth_state.json`. `auth_state.json` still exported as Linux/Docker backup.
+- `connectors/session.py` `detect_page_state()`: when "can't join" text is detected, now checks `page.context.cookies()` for a Google SID cookie. No SID = auth failure → returns `logged_out` (recovery ladder fires). Has SID = genuine host controls → returns `cant_join`. Previously always returned `cant_join`, meaning unauthenticated bots never triggered recovery.
+- `connectors/macos_adapter.py`: added `save_debug(page, "initial_load")` after 8s page load (before state detection) and `save_debug(page, "pre_join")` before join button click.
+- `pipeline/runner.py`: added prominent `print()` to stdout when auth fails, showing exact command to fix (`python scripts/auth_export.py`).
+- `scripts/check_auth.py` (new): diagnostic script that opens browser profile to Gmail, takes screenshot to `debug/auth_check.png`.
+- **Demo strategy decided:** Invite-based, not link-paste. Google Meet blocks headless/unauthenticated bots even with open host controls. Users provide bot's Google account email, invite it to their meeting (same model as Otter.ai/Fireflies).
 
 **Session recovery ladder (March 28–29, 2026):**
 - Root cause: Google revoked `.google.com` session cookies (SID/HSID/SSID) from the browser profile while Chrome was running in `--headless=new` mode and couldn't complete a re-auth challenge.
@@ -877,6 +885,7 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 
 - **Meeting detection:** CalDAV polling (1 min interval). App password stored in system keychain. No OAuth, no Cloud Console, no credentials.json. Implemented in Phase 9.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only. Existing connector join logic is unchanged.
+- **Demo strategy:** Invite-based, not link-paste. Users cannot just paste an instant meeting link to try the product — Google Meet blocks headless/unauthenticated bots. Instead, we provide the bot's Google account email and the user invites it to their meeting. This is the same model as Otter.ai/Fireflies. A pre-configured "demo bot" account must be running and ready for people to invite.
 - **Platform scope:** Google Meet only for v1. Zoom and Teams are v2.
 
 ---

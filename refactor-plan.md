@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented + edge case audit done.** Session recovery ladder fully implemented and audited. Edge case fix: Linux adapter now checks `os.path.isfile()` before using `auth_state.json` with Playwright's `storage_state=`, preventing crash when file doesn't exist and making the guest code path reachable. Next: live meeting test for recovery ladder + filler phrases (browser profile needs re-auth first), then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented + edge case audit done + auth/detection fixes live-tested.** Auth pipeline fixed: `auth_export.py` now authenticates the persistent browser profile directly, `detect_page_state()` distinguishes auth failure from host controls via cookie check. Both verified end-to-end in live meeting. Next: Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
 ---
 
@@ -209,6 +209,7 @@
 - **LLM:** GPT-4.1-mini
 - **TTS:** Three-tier architecture — `tts.provider: local | openai | elevenlabs`. Default: `local/kokoro_heart` (af_heart, 4/5, free). OpenAI tier: `gpt-4o-mini-tts` (5/5, ~0.87s TTFAB). ElevenLabs tier: `eleven_flash_v2_5` (5/5, ~0.39s TTFAB). Kokoro requires Python 3.10–3.12; falls back to `macos_say` gracefully if unavailable.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only.
+- **Demo strategy:** Invite-based. Users can't paste an instant meeting link to try the product (Google blocks headless bots). We provide the bot's email; user invites it. Same model as Otter.ai/Fireflies. A pre-configured demo bot must be running and ready.
 - **Meeting detection:** CalDAV polling (1 min interval), app password stored in system keychain. No OAuth, no credentials.json.
 - **Licensing:** MIT (decided)
 - **Python target:** 3.11
