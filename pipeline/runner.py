@@ -30,6 +30,7 @@ from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline import fillers
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
 from pipeline.tts import TTSClient
+from pipeline.sanitize import sanitize_for_speech
 from pipeline.wake import detect_wake_phrase
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -328,6 +329,9 @@ class AgentRunner:
                     log.info("TIMING llm_request_sent")
                     reply = self.llm.ask(full_prompt)
                     log.info(f"TIMING llm_response_received ({time.time() - t0:.1f}s) \"{reply}\"")
+
+            # --- Sanitize for TTS ---
+            reply = sanitize_for_speech(reply)
 
             # --- TTS synthesis in background, fillers in foreground ---
             self.conv.set_speaking()
