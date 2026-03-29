@@ -41,7 +41,7 @@ stt:
 connector:
   type: "auto"                   # auto | macos | linux | docker
   browser_profile_dir: "./browser_profile"
-  auth_state_file: null          # path to auth_state.json, or null for guest join
+  auth_state_file: "./auth_state.json"  # path to auth_state.json for session recovery
 
 caldav:
   bot_gmail: null                # bot's Gmail address, e.g. "yourname.operator@gmail.com"

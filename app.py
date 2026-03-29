@@ -37,6 +37,7 @@ STATE_ICONS = {
     "listening": "🔴",
     "thinking":  "🟡",
     "speaking":  "🟢",
+    "error":     "⚠️",
 }
 
 AUDIO_CAPTURE_HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "audio_capture")
@@ -77,7 +78,9 @@ class OperatorApp(rumps.App):
 
     def _on_conv_state_change(self, state, label):
         """Translate a pipeline conversation state into a menu bar icon update."""
-        self._set_state(STATE_ICONS[state], label)
+        self._set_state(STATE_ICONS.get(state, "⚪"), label)
+        if state == "error":
+            rumps.notification("Operator", "Error", label)
 
     # ------------------------------------------------------------------
     # Startup

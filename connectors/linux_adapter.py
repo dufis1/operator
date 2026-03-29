@@ -18,6 +18,7 @@ from playwright.sync_api import sync_playwright
 import config
 
 from .base import MeetingConnector
+from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ class LinuxAdapter(MeetingConnector):
     """MeetingConnector for headless local Linux using PulseAudio + Playwright Chromium."""
 
     def __init__(self, user_data_dir=None, auth_state_file=None):
+        super().__init__()
         if user_data_dir is None:
             user_data_dir = config.BROWSER_PROFILE_DIR
         if auth_state_file is None:
@@ -63,6 +65,7 @@ class LinuxAdapter(MeetingConnector):
         """Start a headless browser session and join the meeting.
         Returns immediately; browser runs in a background thread until leave()."""
         self._leave_event.clear()
+        self.join_status = JoinStatus()
         threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
@@ -153,6 +156,7 @@ class LinuxAdapter(MeetingConnector):
     def _browser_session(self, meeting_url):
         """Run headless Playwright/Chromium session. Blocks until leave() is called."""
         os.makedirs(self._user_data_dir, exist_ok=True)
+        js = self.join_status
         try:
             with sync_playwright() as p:
                 # Re-add --no-sandbox here if running as root (e.g. in a container).
@@ -198,6 +202,52 @@ class LinuxAdapter(MeetingConnector):
 
                 page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(8000)
+
+                # --- Session recovery ladder (authenticated path only) ---
+                recovered = False
+                if self._auth_state_file:
+                    state = detect_page_state(page)
+
+                    if state == "logged_out":
+                        log.warning("LinuxAdapter: session expired — attempting cookie recovery")
+                        auth = validate_auth_state(self._auth_state_file)
+                        if auth and inject_cookies(browser, auth):
+                            page.reload(wait_until="domcontentloaded", timeout=30000)
+                            page.wait_for_timeout(8000)
+                            state = detect_page_state(page)
+                            if state == "pre_join":
+                                log.info("LinuxAdapter: session recovered via cookie injection")
+                                recovered = True
+                            else:
+                                log.error(f"LinuxAdapter: recovery failed — page state: {state}")
+                                save_debug(page, "recovery_fail")
+                                js.signal_failure("session_expired")
+                                self._page = None
+                                browser.close()
+                                if hasattr(browser, "_raw_browser"):
+                                    browser._raw_browser.close()
+                                return
+                        else:
+                            log.error("LinuxAdapter: no valid auth_state for recovery")
+                            save_debug(page, "no_auth_state")
+                            js.signal_failure("session_expired")
+                            self._page = None
+                            browser.close()
+                            if hasattr(browser, "_raw_browser"):
+                                browser._raw_browser.close()
+                            return
+
+                    if state == "cant_join":
+                        log.error("LinuxAdapter: 'can't join this video call'")
+                        save_debug(page, "cant_join")
+                        js.signal_failure("cant_join")
+                        self._page = None
+                        browser.close()
+                        if hasattr(browser, "_raw_browser"):
+                            browser._raw_browser.close()
+                        return
+
+                # --- Pre-join screen actions ---
 
                 # Dismiss notifications popup if present
                 try:
@@ -256,13 +306,17 @@ class LinuxAdapter(MeetingConnector):
                         continue
 
                 if not joined:
+                    save_debug(page, "join_fail")
                     log.warning("LinuxAdapter: could not find join button")
+                    js.signal_failure("no_join_button")
+                    self._page = None
                     browser.close()
                     if hasattr(browser, "_raw_browser"):
                         browser._raw_browser.close()
                     return
 
                 log.info("LinuxAdapter: joined meeting successfully")
+                js.signal_success(recovered=recovered)
 
                 # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
                 page.wait_for_timeout(5000)
@@ -285,8 +339,18 @@ class LinuxAdapter(MeetingConnector):
 
                 # Hold until leave() signals or 4-hour hard cap
                 deadline = time.time() + 4 * 3600
+                last_health = time.time()
                 while not self._leave_event.is_set() and time.time() < deadline:
                     time.sleep(5)
+                    # In-meeting health check every 5 minutes
+                    if time.time() - last_health >= 300:
+                        last_health = time.time()
+                        try:
+                            current_url = page.url
+                            if "meet.google.com" not in current_url:
+                                log.warning(f"LinuxAdapter: health check — unexpected URL: {current_url}")
+                        except Exception:
+                            log.warning("LinuxAdapter: health check — page not accessible")
 
                 # Click Leave call before closing to avoid ghost session
                 try:
@@ -306,4 +370,6 @@ class LinuxAdapter(MeetingConnector):
 
         except Exception as e:
             log.error(f"LinuxAdapter: browser session error: {e}")
+            if not js.ready.is_set():
+                js.signal_failure(f"exception: {e}")
             self._page = None

@@ -16,6 +16,7 @@ from playwright.sync_api import sync_playwright
 import config
 
 from .base import MeetingConnector
+from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,11 @@ BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 class MacOSAdapter(MeetingConnector):
     """MeetingConnector for macOS using ScreenCaptureKit + real Chrome."""
 
-    def __init__(self):
+    def __init__(self, auth_state_file=None):
+        super().__init__()
+        if auth_state_file is None:
+            auth_state_file = config.AUTH_STATE_FILE
+        self._auth_state_file = auth_state_file
         self._leave_event = threading.Event()
         self._capture_proc = None
 
@@ -41,6 +46,7 @@ class MacOSAdapter(MeetingConnector):
         """Start a browser session and join the meeting. Returns immediately;
         browser runs in a background thread until leave() is called."""
         self._leave_event.clear()
+        self.join_status = JoinStatus()
         threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
@@ -102,6 +108,7 @@ class MacOSAdapter(MeetingConnector):
             os.remove(singleton_lock)
             log.info("MacOSAdapter: removed stale SingletonLock")
 
+        js = self.join_status
         browser = None
         try:
             with sync_playwright() as p:
@@ -115,6 +122,39 @@ class MacOSAdapter(MeetingConnector):
 
                 page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(8000)
+
+                # --- Session recovery ladder ---
+                state = detect_page_state(page)
+                recovered = False
+
+                if state == "logged_out":
+                    log.warning("MacOSAdapter: session expired — attempting cookie recovery")
+                    auth = validate_auth_state(self._auth_state_file)
+                    if auth and inject_cookies(browser, auth):
+                        page.reload(wait_until="domcontentloaded", timeout=30000)
+                        page.wait_for_timeout(8000)
+                        state = detect_page_state(page)
+                        if state == "pre_join":
+                            log.info("MacOSAdapter: session recovered via cookie injection")
+                            recovered = True
+                        else:
+                            log.error(f"MacOSAdapter: recovery failed — page state: {state}")
+                            save_debug(page, "recovery_fail")
+                            js.signal_failure("session_expired")
+                            return
+                    else:
+                        log.error("MacOSAdapter: no valid auth_state for recovery")
+                        save_debug(page, "no_auth_state")
+                        js.signal_failure("session_expired")
+                        return
+
+                if state == "cant_join":
+                    log.error("MacOSAdapter: 'can't join this video call'")
+                    save_debug(page, "cant_join")
+                    js.signal_failure("cant_join")
+                    return
+
+                # --- Pre-join screen actions ---
 
                 # Dismiss notifications popup if present
                 try:
@@ -150,25 +190,13 @@ class MacOSAdapter(MeetingConnector):
                         continue
 
                 if not joined:
-                    # Debug: capture page state for diagnosis
-                    debug_dir = os.path.join(_BASE, "debug")
-                    os.makedirs(debug_dir, exist_ok=True)
-                    try:
-                        page.screenshot(path=os.path.join(debug_dir, "join_fail.png"), full_page=True)
-                        log.warning(f"MacOSAdapter: screenshot saved to debug/join_fail.png")
-                    except Exception as e:
-                        log.warning(f"MacOSAdapter: screenshot failed: {e}")
-                    try:
-                        with open(os.path.join(debug_dir, "join_fail.html"), "w") as f:
-                            f.write(page.content())
-                        log.warning(f"MacOSAdapter: page HTML saved to debug/join_fail.html")
-                    except Exception as e:
-                        log.warning(f"MacOSAdapter: HTML dump failed: {e}")
-                    log.warning(f"MacOSAdapter: page URL = {page.url}")
+                    save_debug(page, "join_fail")
                     log.warning("MacOSAdapter: could not find join button")
+                    js.signal_failure("no_join_button")
                     return
 
                 log.info("MacOSAdapter: joined meeting successfully")
+                js.signal_success(recovered=recovered)
 
                 # Ensure mic is unmuted after join
                 page.wait_for_timeout(3000)
@@ -184,11 +212,23 @@ class MacOSAdapter(MeetingConnector):
 
                 # Hold until leave() signals or 4-hour hard cap
                 deadline = time.time() + 4 * 3600
+                last_health = time.time()
                 while not self._leave_event.is_set() and time.time() < deadline:
                     time.sleep(5)
+                    # In-meeting health check every 5 minutes
+                    if time.time() - last_health >= 300:
+                        last_health = time.time()
+                        try:
+                            current_url = page.url
+                            if "meet.google.com" not in current_url:
+                                log.warning(f"MacOSAdapter: health check — unexpected URL: {current_url}")
+                        except Exception:
+                            log.warning("MacOSAdapter: health check — page not accessible")
 
         except Exception as e:
             log.error(f"MacOSAdapter: browser session error: {e}")
+            if not js.ready.is_set():
+                js.signal_failure(f"exception: {e}")
         finally:
             if browser:
                 try:

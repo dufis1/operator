@@ -1,4 +1,7 @@
 class MeetingConnector:
+    def __init__(self):
+        self.join_status = None  # Set by join(); see session.JoinStatus
+
     def join(self, meeting_url):
         raise NotImplementedError
 

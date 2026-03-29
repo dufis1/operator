@@ -106,8 +106,32 @@ class AgentRunner:
         if meeting_url:
             log.info(f"STARTUP joining meeting {meeting_url}")
             self.connector.join(meeting_url)
-            # Browser is non-blocking — give it time to reach the pre-join screen.
-            time.sleep(12)
+            # Wait for browser thread to signal join result
+            join_status = self.connector.join_status
+            if join_status:
+                if not join_status.ready.wait(timeout=60):
+                    log.error("STARTUP join timed out (60s)")
+                    self._on_state_change("error", "Join timed out")
+                    self.connector.leave()
+                    return
+                if not join_status.success:
+                    reason = join_status.failure_reason or "unknown"
+                    log.error(f"STARTUP join failed: {reason}")
+                    if "session_expired" in reason:
+                        log.error("Re-export session: python scripts/auth_export.py")
+                        self._on_state_change(
+                            "error",
+                            "Session expired — re-authenticate with scripts/auth_export.py",
+                        )
+                    else:
+                        self._on_state_change("error", f"Join failed: {reason}")
+                    self.connector.leave()
+                    return
+                if join_status.session_recovered:
+                    log.warning("STARTUP session recovered via cookie injection — "
+                                "consider re-running scripts/auth_export.py")
+            else:
+                time.sleep(12)  # fallback for connectors without join_status
 
         log.info("STARTUP starting audio capture...")
         self._start_capture()
