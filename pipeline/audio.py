@@ -70,6 +70,7 @@ class AudioProcessor:
         first_silence_fired = False
         utterance_audio = b""
         speech_start_time = None
+        silence_start_time = None
         capture_start = time.time()
         label = "prompt" if is_prompt else "ambient"
         log.info(f"TIMING {label}_capture_start")
@@ -92,16 +93,19 @@ class AudioProcessor:
                         speech_start_time = time.time()
                         log.info(f"TIMING {label}_speech_first rms={rms:.4f}")
                     silence_count = 0
+                    silence_start_time = None
                     utterance_audio += raw
                 elif speech_detected:
                     utterance_audio += raw
                     silence_count += 1
                     if silence_count == 1:
-                        log.debug(f"Utterance silence started (rms={rms:.4f})")
+                        silence_start_time = time.time()
+                        log.info(f"TIMING {label}_silence_detected rms={rms:.4f}")
             elif speech_detected:
                 silence_count += 1
                 if silence_count == 1:
-                    log.debug("Utterance silence started (no audio)")
+                    silence_start_time = time.time()
+                    log.info(f"TIMING {label}_silence_detected (no audio)")
 
             # Fire speculative callback on the first silence chunk
             if (speech_detected
@@ -114,8 +118,10 @@ class AudioProcessor:
 
             if speech_detected:
                 if silence_count >= UTTERANCE_SILENCE_THRESHOLD:
-                    speech_duration = time.time() - speech_start_time
-                    log.info(f"TIMING {label}_utterance_done silence {speech_duration:.1f}s")
+                    now = time.time()
+                    speech_dur = silence_start_time - speech_start_time
+                    silence_dur = now - silence_start_time
+                    log.info(f"TIMING {label}_utterance_done speech={speech_dur:.2f}s silence={silence_dur:.2f}s")
                     break
                 if time.time() - speech_start_time > UTTERANCE_MAX_DURATION:
                     log.info(f"TIMING {label}_utterance_done max_duration")
