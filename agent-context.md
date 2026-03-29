@@ -18,8 +18,15 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done.
-**Next action:** Write tests for the TCC recovery ladder (plan in session handoff), then live meeting test, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Recovery ladder fully tested.
+**Next action:** Live meeting test for filler phrases, then decide between Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+
+**TCC recovery ladder tests (March 28, 2026):**
+- `tests/test_recovery_ladder.py`: 10 tests using stub shell scripts — no macOS hardware needed.
+- Group 1 (4 tests): Signature verification — correct identity, wrong identity, no signature, missing binary. Patches `subprocess.run` for fake `codesign -d` output and `_BASE` for temp dirs.
+- Group 2 (5 tests): Exit code handling — codes 0, 1, 3, 4 (first attempt with tccutil retry), 4 (second attempt with escalation). Uses stub scripts that exit with specific codes.
+- Group 3 (1 test): Full recovery ladder — stub uses sentinel file (exit 4 first call, write PCM + exit 0 second call). Verifies tccutil was called, `_start_capture` recursed, and `feed_audio` received data.
+- Run: `python tests/test_recovery_ladder.py`
 
 **STT benchmark + mlx-whisper switch (March 28, 2026):**
 - Recorded 6 benchmark clips from mic (`benchmark_clips/`) covering wake phrases, names, numbers, technical jargon.
