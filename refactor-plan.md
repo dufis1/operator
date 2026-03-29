@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.4 complete.** Latency benchmarked with precise TIMING logs (speech vs silence split). Silence wait is 0.50s — tight. Whisper ~450ms, LLM 0.9–1.6s, Kokoro 0.6–1.7s. Speculative processing confirmed working. Next: evaluate Parakeet (NVIDIA NeMo) as STT alternative to faster-whisper (Step 7.6).
+> **Current status: Phase 7 in progress — Step 7.6 complete.** STT benchmarked: mlx-whisper base (110ms) vs faster-whisper base (420ms) vs whisper-small (1.1s) vs distil-large-v3 (3.9s). Switched to mlx-whisper — 4x latency improvement. Parakeet ruled out (600M params, no lightweight install, CPU-only too slow). Next: Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
 ---
 
@@ -143,7 +143,7 @@
 | 7.3 | TTS provider benchmark — evaluate ElevenLabs vs OpenAI TTS vs Piper on voice quality through WebRTC, latency, cost, and vendor count. Make final provider decision. | ✅ Done — kokoro_heart default; full 3-tier architecture in pipeline/tts.py + config.yaml |
 | 7.4 | Latency masking — speculative processing + filler clip pipeline | ✅ Done — mechanics wired; clips pending async generation session |
 | 7.5 | TTS reliability — improve error handling and retry logic in `pipeline/tts.py` for chosen provider (skip if Piper chosen — local, no API failures) | ⬜ |
-| 7.6 | STT accuracy — review `WHISPER_HALLUCINATIONS` filter; evaluate `small` model vs `base` for accuracy/latency trade-off | ⬜ |
+| 7.6 | STT accuracy — benchmark STT alternatives; switch to mlx-whisper for 4x latency win | ✅ Done — mlx-whisper base at 110ms vs faster-whisper base at 420ms |
 
 ---
 
@@ -205,7 +205,7 @@
 - **Architecture:** Three-layer separation (pipeline / connector / shell) — locked in, proven
 - **Primary platform:** Local machine (macOS + Linux), not cloud. Cloud is upgrade path.
 - **Wake word:** Whisper-based inline detection — Porcupine removed
-- **STT:** faster-whisper (benchmarked)
+- **STT:** mlx-whisper base on macOS (110ms, Apple Silicon accelerated); faster-whisper base on Linux/Docker (420ms, CPU int8). Config-switchable via `stt.provider`.
 - **LLM:** GPT-4.1-mini
 - **TTS:** Three-tier architecture — `tts.provider: local | openai | elevenlabs`. Default: `local/kokoro_heart` (af_heart, 4/5, free). OpenAI tier: `gpt-4o-mini-tts` (5/5, ~0.87s TTFAB). ElevenLabs tier: `eleven_flash_v2_5` (5/5, ~0.39s TTFAB). Kokoro requires Python 3.10–3.12; falls back to `macos_say` gracefully if unavailable.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only.

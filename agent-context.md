@@ -18,10 +18,19 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Latency benchmarked with precise TIMING logs.
-**Next action:** Evaluate Parakeet (NVIDIA NeMo) as STT alternative to faster-whisper base (Step 7.6). Set up benchmark using existing `benchmark_stt.py` scaffolding and clips. Parakeet was never tested — Speechmatics, Deepgram, AssemblyAI, and multiple Whisper variants were (see README "STT provider benchmark" section).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper.
+**Next action:** Step 7.5 (TTS reliability) or skip to Phase 8 (open-source packaging). Live meeting test with mlx-whisper not yet done — first priority next session.
 
-**Latency benchmark results (March 28, 2026):**
+**STT benchmark + mlx-whisper switch (March 28, 2026):**
+- Recorded 6 benchmark clips from mic (`benchmark_clips/`) covering wake phrases, names, numbers, technical jargon.
+- Benchmarked 4 engines against clips: faster-whisper base (420ms avg), faster-whisper small (1.1s), distil-large-v3 (3.9s), mlx-whisper base (110ms). WER comparable across all except distil on short clips.
+- Parakeet (NVIDIA NeMo) ruled out without install: 600M params minimum, full NeMo toolkit required (~2-3 GB), CPU inference estimated 3-10x slower, no streaming API, macOS not first-class.
+- Switched to mlx-whisper base as default STT on macOS. Config: `stt.provider: mlx | faster-whisper`. MLX path passes numpy arrays directly (no temp file). faster-whisper codepath preserved for Linux/Docker.
+- `config.yaml`: added `stt.provider` field. `config.py`: exposes `STT_PROVIDER`. `pipeline/audio.py`: `AudioProcessor.__init__` and `transcribe()` dispatch on provider. MLX model warm-up on init.
+- Benchmark tooling: `benchmark_record.py` (mic capture + silence-based splitting), `benchmark_stt.py` (multi-engine benchmark with WER + RTF).
+- STARTUP log line changed: `STARTUP STT provider=mlx model=base` (was `STARTUP Whisper model=base device=cpu`).
+
+**Latency benchmark results (earlier March 28, 2026):**
 - TIMING logs updated: `utterance_done` now reports `speech=N.NNs silence=N.NNs` separately. `silence_detected` promoted to INFO.
 - Silence wait: consistently 0.50s (one check interval — tight).
 - Whisper: ~450ms (higher than old ~120ms baseline — likely due to longer utterances / meeting audio quality).
