@@ -18,8 +18,13 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Logging infrastructure overhauled.
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Logging infrastructure overhauled. TTS text sanitization added.
 **Next action:** Benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s). Run live meeting test, grep TIMING lines from `/tmp/operator.log`, compare perceived responsiveness with fillers masking the synthesis wait.
+
+**TTS text sanitization (March 28, 2026):**
+- `pipeline/sanitize.py`: `sanitize_for_speech(text)` cleans LLM output before TTS. Handles arrows (→ "then"), math operators (→ spoken words), markdown stripping, code symbols (underscores/brackets/backslashes → spaces), em dashes/semicolons → commas, ampersands → "and". Zero-latency regex pass.
+- Wired into `pipeline/runner.py` in `_finalize_prompt()` — runs after LLM reply resolved, before TTS synthesis starts. Catches all paths (normal + speculative).
+- `tests/test_sanitize.py`: 27 test cases. Run with `python tests/test_sanitize.py`.
 
 **Voice/TTS design decisions (March 28, 2026):**
 - Local TTS trimmed to Kokoro-only. Piper and macos_say removed as shipped options. `af_heart` is the default.

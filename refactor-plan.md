@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.4 complete.** Filler classification refined: short-query gate (≤8 words → neutral), empathetic intensifiers added, ambiguous keywords removed. All filler clips shortened to <1s with silence trimming. Logging infrastructure overhauled. Next: benchmark latency delta vs baseline (Step 7.4 follow-up).
+> **Current status: Phase 7 in progress — Step 7.4 complete.** Filler classification refined: short-query gate (≤8 words → neutral), empathetic intensifiers added, ambiguous keywords removed. All filler clips shortened to <1s with silence trimming. Logging infrastructure overhauled. TTS text sanitization added (`pipeline/sanitize.py`). Next: benchmark latency delta vs baseline (Step 7.4 follow-up).
 
 ---
 
