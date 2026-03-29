@@ -18,14 +18,17 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Recovery ladder fully tested. Google session revocation diagnosed and recovery ladder planned.
-**Next action:** Implement session recovery ladder (plan in `.claude/plans/cosmic-swinging-fairy.md`), then live meeting test for filler phrases, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented.
+**Next action:** Live meeting test for recovery ladder + filler phrases (browser profile needs re-auth first: `python scripts/auth_export.py`), then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
-**Google session revocation (March 28, 2026):**
-- Root cause: Google revoked `.google.com` session cookies (SID/HSID/SSID) from the browser profile while Chrome was running in `--headless=new` mode and couldn't complete a re-auth challenge. `.youtube.com` cookies survived (separate domain).
-- Symptom: "You can't join this video call" — join button not found, browser thread exits silently, runner continues blind.
-- Not related to SingletonLock fix or TCC hardening changes.
-- Plan: session recovery ladder in `connectors/session.py` — detect logged-out state post-navigation, auto-inject cookies from `auth_state.json`, `JoinStatus` threading primitive for browser→runner communication, in-meeting health checks. Follows TCC recovery ladder pattern.
+**Session recovery ladder (March 28–29, 2026):**
+- Root cause: Google revoked `.google.com` session cookies (SID/HSID/SSID) from the browser profile while Chrome was running in `--headless=new` mode and couldn't complete a re-auth challenge.
+- Implemented `connectors/session.py`: `JoinStatus` (threading.Event-based browser→runner signalling), `detect_page_state()` (classifies pre_join/logged_out/cant_join/unknown), `validate_auth_state()` (loads auth_state.json, checks SID cookie exists), `inject_cookies()` (add_cookies on Playwright context), `save_debug()` (screenshot + HTML dump).
+- Both adapters: recovery ladder after 8s page load — detect state, attempt cookie injection if logged out, reload, re-detect. JoinStatus wired in join(). 5-minute in-meeting health checks in hold loop.
+- `pipeline/runner.py`: `time.sleep(12)` replaced with `join_status.ready.wait(timeout=60)`. On failure, fires `on_state_change("error", reason)`.
+- `app.py`: `STATE_ICONS` includes `"error": "⚠️"`. `_on_conv_state_change` fires `rumps.notification()` on error state — user gets macOS notification + persistent menu bar icon.
+- `config.yaml`: `auth_state_file` changed from `null` to `"./auth_state.json"`.
+- Unit-tested: imports, instantiation, JoinStatus signalling, validate_auth_state edge cases, runner error callback wiring. Full browser→join flow needs live meeting test.
 
 **TCC recovery ladder tests (March 28, 2026):**
 - `tests/test_recovery_ladder.py`: 10 tests using stub shell scripts — no macOS hardware needed.

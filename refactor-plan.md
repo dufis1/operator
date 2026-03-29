@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + recovery ladder tests written.** Diagnosed Google session revocation in browser profile (`.google.com` SID/HSID/SSID cookies removed server-side while headless Chrome couldn't complete re-auth challenge). Planned session recovery ladder: detect logged-out state post-navigation, auto-inject cookies from `auth_state.json`, signal join status to runner via `JoinStatus` threading primitive, add in-meeting health checks. Plan written, ready for implementation. Next: implement session recovery ladder, then live meeting test for filler phrases.
+> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented.** Session recovery ladder fully implemented: `connectors/session.py` (detect/validate/inject/save_debug), `JoinStatus` threading primitive replaces blind `time.sleep(12)`, cookie injection from `auth_state.json`, in-meeting health checks every 5 min, error state surfaced via `on_state_change("error")` + macOS notification. Needs live meeting testing. Next: live meeting test for recovery ladder + filler phrases, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
 ---
 
