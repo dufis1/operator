@@ -27,6 +27,7 @@ TTS_VOICE_ID     = _config["tts"].get("voice_id", "")
 TTS_MODEL        = _config["tts"].get("model", "")
 
 # STT
+STT_PROVIDER     = _config["stt"].get("provider", "faster-whisper")
 STT_MODEL        = _config["stt"]["model"]
 STT_DEVICE       = _config["stt"]["device"]
 STT_COMPUTE_TYPE = _config["stt"]["compute_type"]

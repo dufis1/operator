@@ -12,7 +12,6 @@ import threading
 import logging
 import numpy as np
 import soundfile as sf
-from faster_whisper import WhisperModel
 import config
 
 log = logging.getLogger(__name__)
@@ -29,13 +28,29 @@ WHISPER_HALLUCINATIONS = {
     "the end", "i'm sorry", "sorry",
 }
 
+# MLX model repo mapping
+_MLX_REPOS = {
+    "tiny":  "mlx-community/whisper-tiny-mlx",
+    "base":  "mlx-community/whisper-base-mlx",
+    "small": "mlx-community/whisper-small-mlx",
+}
+
 
 class AudioProcessor:
     """Manages the audio buffer, silence detection, utterance capture, and Whisper STT."""
 
     def __init__(self):
-        log.info(f"STARTUP Whisper model={config.STT_MODEL} device={config.STT_DEVICE}")
-        self.whisper = WhisperModel(config.STT_MODEL, device=config.STT_DEVICE, compute_type=config.STT_COMPUTE_TYPE)
+        self._stt_provider = config.STT_PROVIDER
+        log.info(f"STARTUP STT provider={self._stt_provider} model={config.STT_MODEL}")
+        if self._stt_provider == "mlx":
+            import mlx_whisper
+            self._mlx_whisper = mlx_whisper
+            self._mlx_repo = _MLX_REPOS.get(config.STT_MODEL, _MLX_REPOS["base"])
+            # Warm up: first call downloads + compiles the model
+            mlx_whisper.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), path_or_hf_repo=self._mlx_repo, language="en")
+        else:
+            from faster_whisper import WhisperModel
+            self.whisper = WhisperModel(config.STT_MODEL, device=config.STT_DEVICE, compute_type=config.STT_COMPUTE_TYPE)
         log.info("STARTUP Whisper model loaded")
         self._audio_buffer = b""
         self._audio_lock = threading.Lock()
@@ -143,6 +158,13 @@ class AudioProcessor:
         """
         silence_pad = np.zeros(int(SAMPLE_RATE * 0.5), dtype=np.float32)
         audio = np.concatenate([silence_pad, audio])
+
+        if self._stt_provider == "mlx":
+            result = self._mlx_whisper.transcribe(
+                audio, path_or_hf_repo=self._mlx_repo, language="en",
+            )
+            return result["text"].strip()
+
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             sf.write(f.name, audio, SAMPLE_RATE)
             tmp_path = f.name

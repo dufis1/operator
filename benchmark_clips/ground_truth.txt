@@ -1,0 +1,6 @@
+clip_01.wav|Operator, what time is the standup tomorrow?
+clip_02.wav|Can you summarize the Q3 revenue numbers?
+clip_03.wav|Shopify's API rate limit is 40 requests per second.
+clip_04.wav|Schedule a follow-up with Priya for next Thursday at 2:30.
+clip_05.wav|Operator. What were the action items from last week?
+clip_06.wav|The latency p99 dropped from 450 milliseconds to 210 after the Redis migration.

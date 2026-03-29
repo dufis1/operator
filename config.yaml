@@ -33,9 +33,10 @@ tts:
   model: "eleven_flash_v2_5"
 
 stt:
-  model: "base"                  # faster-whisper model size: tiny | base | small | medium
-  device: "cpu"
-  compute_type: "int8"
+  provider: "mlx"               # mlx | faster-whisper
+  model: "base"                  # model size: tiny | base | small | medium
+  device: "cpu"                  # faster-whisper only
+  compute_type: "int8"           # faster-whisper only
 
 connector:
   type: "auto"                   # auto | macos | linux | docker
