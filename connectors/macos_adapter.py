@@ -102,6 +102,7 @@ class MacOSAdapter(MeetingConnector):
             os.remove(singleton_lock)
             log.info("MacOSAdapter: removed stale SingletonLock")
 
+        browser = None
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch_persistent_context(
@@ -150,7 +151,6 @@ class MacOSAdapter(MeetingConnector):
 
                 if not joined:
                     log.warning("MacOSAdapter: could not find join button")
-                    browser.close()
                     return
 
                 log.info("MacOSAdapter: joined meeting successfully")
@@ -172,8 +172,12 @@ class MacOSAdapter(MeetingConnector):
                 while not self._leave_event.is_set() and time.time() < deadline:
                     time.sleep(5)
 
-                browser.close()
-                log.info("MacOSAdapter: browser closed")
-
         except Exception as e:
             log.error(f"MacOSAdapter: browser session error: {e}")
+        finally:
+            if browser:
+                try:
+                    browser.close()
+                    log.info("MacOSAdapter: browser closed")
+                except Exception:
+                    log.debug("MacOSAdapter: browser already closed")

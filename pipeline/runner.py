@@ -134,15 +134,16 @@ class AgentRunner:
     # Audio capture
     # ------------------------------------------------------------------
 
-    def _start_capture(self, stderr_tag="capture", _retried=False):
+    def _start_capture(self, stderr_tag="capture", _tcc_retried=False):
         """Launch the audio stream via the connector and spin up read loops."""
+        self._verify_audio_capture_signature()
+        self._tcc_retried = _tcc_retried
         try:
             self._capture_proc = self.connector.get_audio_stream()
         except Exception as e:
             log.error(f"AgentRunner: get_audio_stream failed: {e}")
             return
         self.audio.capturing = True
-        self._capture_retried = _retried
         threading.Thread(
             target=self._read_capture_stderr, args=(stderr_tag,), daemon=True
         ).start()
@@ -160,19 +161,33 @@ class AgentRunner:
             if not chunk:
                 self.audio.capturing = False
                 rc = self._capture_proc.wait()
-                if rc == 3 and not self._capture_retried:
-                    log.warning(
-                        "AgentRunner: audio capture permission failed — "
-                        "re-signing binary and retrying..."
-                    )
-                    self._resign_audio_capture()
-                    self._start_capture(_retried=True)
-                    return
-                elif rc == 3:
+                if rc == 3:
                     log.error(
-                        "AgentRunner: audio capture failed after re-sign — "
-                        "Screen Recording permission not granted. Check "
+                        "AgentRunner: Screen Recording permission denied. "
+                        "Grant permission to your terminal app in "
                         "System Settings > Privacy & Security > Screen Recording."
+                    )
+                elif rc == 4 and not self._tcc_retried:
+                    log.warning(
+                        "AgentRunner: audio capture hung (exit 4) — "
+                        "resetting TCC cache and retrying..."
+                    )
+                    try:
+                        subprocess.run(
+                            ["tccutil", "reset", "ScreenCapture"],
+                            capture_output=True, timeout=5,
+                        )
+                        log.info("AgentRunner: TCC ScreenCapture cache reset")
+                    except Exception as e:
+                        log.warning(f"AgentRunner: tccutil reset failed: {e}")
+                    self._start_capture(_tcc_retried=True)
+                    return
+                elif rc == 4:
+                    log.error(
+                        "AgentRunner: audio capture hung after TCC reset "
+                        "(exit 4). macOS Screen Recording permission cache "
+                        "is stuck. Please restart Operator. If that doesn't "
+                        "work, restart your Mac."
                     )
                 elif rc != 0:
                     log.error(f"AgentRunner: audio capture exited with code {rc}")
@@ -183,18 +198,36 @@ class AgentRunner:
         log.info("AgentRunner: audio read loop ended")
 
     @staticmethod
-    def _resign_audio_capture():
-        """Re-sign the audio_capture binary with a fresh ad-hoc identity."""
+    def _verify_audio_capture_signature():
+        """Check audio_capture binary exists and has the expected codesign identity."""
         binary = os.path.join(_BASE, "audio_capture")
+        if not os.path.exists(binary):
+            log.warning("AgentRunner: audio_capture binary not found — skipping signature check")
+            return
         try:
-            subprocess.run(
-                ["codesign", "--force", "--sign", "-",
-                 "--identifier", "com.operator.audio-capture", binary],
-                capture_output=True, timeout=10,
+            result = subprocess.run(
+                ["codesign", "-d", "--verbose=1", binary],
+                capture_output=True, text=True, timeout=5,
             )
-            log.info(f"AgentRunner: re-signed {binary}")
+            # codesign -d outputs to stderr
+            output = result.stderr.strip()
+            if result.returncode != 0:
+                log.warning(
+                    f"AgentRunner: audio_capture has no valid signature ({output}). "
+                    "Run: codesign --force --sign - --identifier "
+                    "com.operator.audio-capture audio_capture"
+                )
+            elif "com.operator.audio-capture" not in output:
+                log.warning(
+                    f"AgentRunner: audio_capture has unexpected identity: {output}. "
+                    "Screen Recording permission may not work. "
+                    "Run: codesign --force --sign - --identifier "
+                    "com.operator.audio-capture audio_capture"
+                )
+            else:
+                log.debug(f"AgentRunner: audio_capture signature OK — {output}")
         except Exception as e:
-            log.error(f"AgentRunner: re-sign failed: {e}")
+            log.debug(f"AgentRunner: codesign check skipped: {e}")
 
     def _stop_capture(self):
         if self.audio:

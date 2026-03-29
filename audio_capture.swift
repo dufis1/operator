@@ -8,6 +8,17 @@ setbuf(stdout, nil)
 
 fputs("audio_capture: starting\n", stderr)
 
+// Log parent process for permission diagnostics
+let parentPID = getppid()
+if let parentApp = NSRunningApplication.init(processIdentifier: parentPID) {
+    let name = parentApp.localizedName ?? "unknown"
+    let bundle = parentApp.bundleIdentifier ?? "no-bundle-id"
+    fputs("audio_capture: parent process: \(name) (\(bundle), pid=\(parentPID))\n", stderr)
+} else {
+    // Walk up the process tree to find the terminal app
+    fputs("audio_capture: parent pid=\(parentPID) (not an NSRunningApplication — likely a shell)\n", stderr)
+}
+
 // Stream delegate to catch async errors
 class StreamDelegate: NSObject, SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -133,12 +144,10 @@ SCShareableContent.getWithCompletionHandler { content, error in
     // Watchdog: if startCapture hasn't completed in 10 seconds, something is wrong
     DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
         if captureStarted { return }  // capture succeeded — watchdog no longer needed
-        fputs("audio_capture: FATAL — startCapture completion handler not called after 10s\n", stderr)
-        fputs("audio_capture: This usually means Screen Recording permission is not granted.\n", stderr)
-        fputs("audio_capture: Check System Settings > Privacy & Security > Screen Recording\n", stderr)
-        fputs("audio_capture: The responsible app (Terminal, VS Code, etc.) needs permission.\n", stderr)
-        fputs("audio_capture: Try: codesign --force --sign - --identifier com.operator.audio-capture audio_capture\n", stderr)
-        exit(3)
+        fputs("audio_capture: FATAL — startCapture hung for 10s.\n", stderr)
+        fputs("audio_capture: CGPreflightScreenCaptureAccess() passed but startCapture did not complete.\n", stderr)
+        fputs("audio_capture: This is likely a stale macOS permission cache (TCC daemon).\n", stderr)
+        exit(4)
     }
 }
 

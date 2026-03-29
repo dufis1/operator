@@ -52,6 +52,7 @@ def _run_macos():
 def _run_macos_headless(meeting_url):
     """Join a specific meeting directly on macOS, no menu bar."""
     import logging
+    import signal
 
     logging.basicConfig(
         filename="/tmp/operator.log",
@@ -79,18 +80,27 @@ def _run_macos_headless(meeting_url):
         tts_output_device=BLACKHOLE_DEVICE,
     )
 
+    def _shutdown(signum=None, frame=None):
+        if signum:
+            log.info(f"Received signal {signum} — shutting down")
+        runner.stop()
+        connector.leave()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+
     try:
         runner.run(meeting_url)
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
-        runner.stop()
-        connector.leave()
+    finally:
+        _shutdown()
 
 
 def _run_linux(meeting_url):
     """Run preflight checks then start the agent on Linux."""
     import logging
     import os
+    import signal
     import subprocess
 
     logging.basicConfig(
@@ -152,12 +162,20 @@ def _run_linux(meeting_url):
         tts_output_device="pulse/MeetingOutput",
     )
 
+    def _shutdown(signum=None, frame=None):
+        if signum:
+            log.info(f"Received signal {signum} — shutting down")
+        runner.stop()
+        connector.leave()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+
     try:
         runner.run(meeting_url)
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
-        runner.stop()
-        connector.leave()
+    finally:
+        _shutdown()
 
 
 if __name__ == "__main__":
