@@ -21,6 +21,14 @@
 **Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Logging infrastructure overhauled.
 **Next action:** Benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s). Run live meeting test, grep TIMING lines from `/tmp/operator.log`, compare perceived responsiveness with fillers masking the synthesis wait.
 
+**Voice/TTS design decisions (March 28, 2026):**
+- Local TTS trimmed to Kokoro-only. Piper and macos_say removed as shipped options. `af_heart` is the default.
+- Setup wizard (Phase 9) redesigned with re-runnable subcommands: `operator setup voice`, `setup keys`, `setup calendar`, `setup agent`. Each subcommand detects existing config, shows current values as defaults, only overwrites what the user changes. Same command for onboarding and post-onboarding settings changes.
+- Voice selection fetches voice lists live from provider APIs (Kokoro HuggingFace repo, ElevenLabs `/voices`, OpenAI static list) — no hardcoded voice lists in our code.
+- Preview links printed during voice selection so users can listen before choosing.
+- One active voice at a time — no multi-voice support.
+- Startup validation: if config references a broken voice/provider, tell user to run `operator setup voice`.
+
 **Logging overhaul (March 28, 2026):**
 - Standardized log format to `%(asctime)s %(levelname)s %(name)s — %(message)s` across all entry points (was missing module name on macOS).
 - Added `STARTUP` prefix markers to all initialization steps in runner.py, audio.py, tts.py — `grep STARTUP /tmp/operator.log` shows full init sequence.

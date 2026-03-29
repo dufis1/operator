@@ -56,7 +56,7 @@ Five areas:
 
 1. **Audio quality** — Root cause confirmed (March 2026): PulseAudio virtual sinks default to 44100Hz; Chrome WebRTC runs at 48000Hz. Real-time sample rate conversion causes audible artifacts. Fix: set sinks to 48000Hz in `linux_setup.sh`. QEMU ruled out — tested on native AMD64 droplet.
 
-2. **TTS provider** — ElevenLabs was chosen without a systematic evaluation. Benchmark three providers — ElevenLabs, OpenAI TTS (same API key already in use), and Piper (local, open source, zero cost) — on voice quality through WebRTC, latency, cost, and vendor count. Make a final decision before investing further in TTS reliability work.
+2. **TTS provider** — Trim local TTS to Kokoro-only (remove Piper and macos_say as shipped options). Kokoro is the local default. For cloud providers, benchmark ElevenLabs and OpenAI TTS on voice quality through WebRTC, latency, cost, and vendor count. Make a final decision before investing further in TTS reliability work.
 
 3. **Latency masking** — Tune the filler phrase silence threshold. Too aggressive: filler collides with the speaker still talking. Too conservative: awkward silence. This is the main dial that hasn't been fully set.
 
@@ -88,15 +88,53 @@ Four pieces:
 
 ### Phase 9 — Setup Wizard
 
-**Goal:** `python -m operator.setup` walks a new developer from zero to a working agent in five minutes. By this point the CalDAV poller is already in place (Phase 8); the wizard's job is to get the credentials configured.
+**Goal:** `operator setup` walks a new developer from zero to a working agent in five minutes. By this point the CalDAV poller is already in place (Phase 8); the wizard's job is to get the credentials configured.
 
-The wizard prompts for: OpenAI API key (validates), TTS provider credentials (provider chosen in Phase 7 Step 7.3 benchmark — ElevenLabs API key, OpenAI API key already collected, or Piper model download), agent name, voice selection (with preview), wake phrase, interaction mode. OS is auto-detected silently. On macOS: silent `brew install blackhole-2ch`. On Linux: runs `linux_setup.sh` to create PulseAudio virtual sinks.
+#### Re-runnable subcommands
+
+The wizard is both the onboarding path and the change path. The full wizard runs on first install, but each section is independently re-runnable:
+
+```
+operator setup              # full onboarding (first run, or re-run everything)
+operator setup voice        # change TTS provider + voice selection
+operator setup keys         # update API keys
+operator setup calendar     # reconfigure CalDAV credentials
+operator setup agent        # change agent name, wake phrase, system prompt
+```
+
+Each subcommand detects existing config, shows current values as defaults, and only overwrites what the user changes. This eliminates the "wizard ran once, now I'm stuck editing YAML" problem — the same tool that set things up is the tool that changes them.
+
+#### Full wizard flow
+
+The full `operator setup` prompts for: OpenAI API key (validates), TTS provider and voice (see voice selection below), agent name, wake phrase, interaction mode. OS is auto-detected silently. On macOS: silent `brew install blackhole-2ch`. On Linux: runs `linux_setup.sh` to create PulseAudio virtual sinks.
+
+#### Voice selection (`operator setup voice`)
+
+The voice setup flow:
+
+1. **Local or cloud?** — User picks `local` or a cloud provider (OpenAI, ElevenLabs).
+2. **If local (Kokoro):**
+   - Print link to Kokoro's HuggingFace Space so user can preview voices.
+   - Fetch available voice list from the Kokoro HuggingFace repo (not hardcoded — stays current without code changes).
+   - User selects a voice. Default: `af_heart`.
+3. **If cloud provider:**
+   - Prompt for API key if not already configured (validate it).
+   - Fetch available voices from the provider's API at setup time (ElevenLabs `/voices` endpoint; OpenAI's list is small/stable but maintained as a queryable array).
+   - Print link to provider's voice preview page (ElevenLabs voice library, OpenAI platform docs).
+   - User selects a voice from the live list.
+4. **Write selection** to `config.yaml`. One active voice at a time — no multi-voice support for now.
+
+Key design principle: voice lists are fetched live from provider APIs, not maintained as static lists in our code. This avoids staleness without requiring us to ship updates when providers add voices.
+
+#### CalDAV credential flow
 
 The wizard handles the CalDAV credential flow: prompts for the bot's Gmail address; opens myaccount.google.com/apppasswords in the browser automatically; displays inline step-by-step instructions for generating the 16-character app password; prompts the user to paste it back; validates the CalDAV connection before proceeding; stores the credential in the system keychain (macOS Keychain or Linux Secret Service — never in `.env`).
 
+#### Completion
+
 Writes `.env` and `config.yaml` at completion. The user is told: "Accept meeting invites sent to [bot Gmail] and Operator will join automatically."
 
-This is the "set the table once" flow from the product strategy. Until it exists, setup requires reading `agent-context.md` — which is fine for us, not fine for new developers.
+This is the "set the table once" flow from the product strategy. Until it exists, setup requires reading `agent-context.md` — which is fine for us, not fine for new developers. The re-runnable subcommands ensure it remains the go-to tool for changes, not just initial setup.
 
 ---
 

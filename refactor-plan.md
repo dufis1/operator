@@ -161,13 +161,18 @@
 
 ## Phase 9: Setup Wizard
 
-*Goal: `python -m operator.setup` walks a new developer from zero to a working agent in five minutes.*
+*Goal: `operator setup` walks a new developer from zero to a working agent in five minutes. Re-runnable subcommands (`operator setup voice`, `setup keys`, etc.) serve as the settings UI for post-onboarding changes.*
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 9.1 | Create `scripts/setup_wizard.py` — API key prompts + validation, agent name, voice selection with preview, interaction mode, OS-aware audio driver install. Add CalDAV credential flow: prompt for bot's Gmail address; open myaccount.google.com/apppasswords in browser automatically; display inline step-by-step instructions for generating the app password; prompt user to paste the 16-character app password; validate CalDAV connection before proceeding; store credential in system keychain. | ⬜ |
-| 9.2 | Wizard writes `.env` and `config.yaml` at completion | ⬜ |
-| 9.3 | Test from scratch with no `.env` — follow prompts, confirm working on first meeting | ⬜ |
+| 9.1 | Scaffold `operator setup` CLI with subcommand routing — `setup` (full), `setup voice`, `setup keys`, `setup calendar`, `setup agent`. Each detects existing config and shows current values as defaults. | ⬜ |
+| 9.2 | Implement `setup keys` — prompt for OpenAI API key (validate), ElevenLabs key (optional, validate if provided). Write to `.env`. | ⬜ |
+| 9.3 | Implement `setup voice` — local vs cloud selection. Local: Kokoro-only, fetch voice list from HuggingFace repo, print preview link. Cloud: prompt for provider (OpenAI/ElevenLabs), fetch voices from provider API, print preview link. Write to `config.yaml`. | ⬜ |
+| 9.4 | Implement `setup agent` — agent name, wake phrase, system prompt, interaction mode. Write to `config.yaml`. | ⬜ |
+| 9.5 | Implement `setup calendar` — CalDAV credential flow: prompt for bot Gmail, open apppasswords URL, inline instructions, validate CalDAV connection, store in system keychain. | ⬜ |
+| 9.6 | Implement full `operator setup` — chains all subcommands in sequence. OS-aware audio driver install (macOS: BlackHole, Linux: PulseAudio sinks). | ⬜ |
+| 9.7 | Startup validation — on `operator run`, check config for broken/missing voice/provider and print "run `operator setup voice` to fix". | ⬜ |
+| 9.8 | Test from scratch with no `.env` — follow prompts, confirm working on first meeting | ⬜ |
 
 ---
 
