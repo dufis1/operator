@@ -167,7 +167,10 @@ class LinuxAdapter(MeetingConnector):
                     "--no-sandbox",  # required when running as root (droplet/server)
                     "--disable-features=WebRTCPipeWireCapturer",  # force PulseAudio for WebRTC; PipeWire not installed
                 ]
-                if self._auth_state_file:
+                _use_auth = self._auth_state_file and os.path.isfile(self._auth_state_file)
+                if not _use_auth and self._auth_state_file:
+                    log.info(f"LinuxAdapter: {self._auth_state_file} not found — using guest mode")
+                if _use_auth:
                     # Authenticated path: launch + new_context with saved session.
                     # headless=False + DISPLAY (Xvfb) enables audio rendering —
                     # headless Chrome suppresses audio output entirely.
@@ -205,7 +208,7 @@ class LinuxAdapter(MeetingConnector):
 
                 # --- Session recovery ladder (authenticated path only) ---
                 recovered = False
-                if self._auth_state_file:
+                if _use_auth:
                     state = detect_page_state(page)
 
                     if state == "logged_out":
