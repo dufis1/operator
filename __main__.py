@@ -113,9 +113,9 @@ def _run_linux(meeting_url):
     if not meeting_url:
         meeting_url = os.environ.get("MEETING_URL")
     if not meeting_url:
-        print("Linux: a meeting URL is required.")
-        print("  python __main__.py <meet-url>")
-        print("  MEETING_URL=<url> python __main__.py")
+        print("\n❌ A meeting URL is required on Linux:\n")
+        print("   python __main__.py <meet-url>")
+        print("   MEETING_URL=<url> python __main__.py\n")
         sys.exit(1)
 
     # Check $DISPLAY (required for headless Chrome audio rendering)
@@ -126,6 +126,9 @@ def _run_linux(meeting_url):
             "  Xvfb :99 -screen 0 1920x1080x24 &\n"
             "  export DISPLAY=:99"
         )
+        print("\n❌ DISPLAY is not set — start Xvfb first:\n")
+        print("   Xvfb :99 -screen 0 1920x1080x24 &")
+        print("   export DISPLAY=:99\n")
         sys.exit(1)
     log.info(f"DISPLAY={display}")
 
@@ -139,6 +142,8 @@ def _run_linux(meeting_url):
         )
     except FileNotFoundError:
         log.error("pactl not found — is PulseAudio installed?")
+        print("\n❌ pactl not found — install PulseAudio:\n")
+        print("   apt install pulseaudio\n")
         sys.exit(1)
 
     missing = [s for s in ("MeetingOutput", "MeetingInput") if s not in result.stdout]
@@ -148,6 +153,8 @@ def _run_linux(meeting_url):
             "Run scripts/linux_setup.sh first:\n"
             "  bash scripts/linux_setup.sh"
         )
+        print("\n❌ Missing PulseAudio sinks — run the setup script:\n")
+        print("   bash scripts/linux_setup.sh\n")
         sys.exit(1)
     log.info("PulseAudio sinks: MeetingOutput and MeetingInput found")
 

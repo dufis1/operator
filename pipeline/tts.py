@@ -75,6 +75,8 @@ class TTSClient:
                 "Kokoro not installed (requires Python 3.10–3.12 and: pip install kokoro soundfile). "
                 "Falling back to macos_say."
             )
+            print("\n⚠️  Kokoro not installed — falling back to macOS say. To install:\n")
+            print("   pip install kokoro soundfile\n")
             # Runtime fallback — mutate config so speak() routes correctly
             config.TTS_LOCAL_VOICE = "macos_say"
 
@@ -171,6 +173,8 @@ class TTSClient:
                 "No macOS voice available — download one in "
                 "System Settings → Accessibility → Spoken Content"
             )
+            print("\n❌ No macOS voice installed — download one here:\n")
+            print("   System Settings > Accessibility > Spoken Content\n")
             return b""
         with tempfile.NamedTemporaryFile(suffix=".aiff", delete=False) as tf:
             tmp_path = tf.name

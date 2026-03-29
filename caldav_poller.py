@@ -67,6 +67,8 @@ class CalDAVPoller:
                 "Store it with: "
                 f"python -c \"import keyring; keyring.set_password('operator', '{bot_gmail}', 'APP_PASSWORD')\""
             )
+            print(f"\n⚠️  No keychain credential for '{bot_gmail}' — store it with:\n")
+            print(f"   python -c \"import keyring; keyring.set_password('operator', '{bot_gmail}', 'APP_PASSWORD')\"\n")
             return
 
         self._bot_gmail = bot_gmail

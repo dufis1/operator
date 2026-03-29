@@ -139,6 +139,7 @@ class AgentRunner:
         self._start_capture()
         if not self.audio.capturing:
             log.error("STARTUP audio capture failed — aborting")
+            print("\n❌ Audio capture failed to start — check logs at /tmp/operator.log\n")
             self.connector.leave()
             return
 
@@ -193,6 +194,8 @@ class AgentRunner:
                         "Grant permission to your terminal app in "
                         "System Settings > Privacy & Security > Screen Recording."
                     )
+                    print("\n❌ Screen Recording permission denied — grant it here:\n")
+                    print("   System Settings > Privacy & Security > Screen Recording\n")
                 elif rc == 4 and not self._tcc_retried:
                     log.warning(
                         "AgentRunner: audio capture hung (exit 4) — "
@@ -215,6 +218,7 @@ class AgentRunner:
                         "is stuck. Please restart Operator. If that doesn't "
                         "work, restart your Mac."
                     )
+                    print("\n❌ Audio capture is stuck — restart Operator or restart your Mac\n")
                 elif rc != 0:
                     log.error(f"AgentRunner: audio capture exited with code {rc}")
                 else:
@@ -243,6 +247,8 @@ class AgentRunner:
                     "Run: codesign --force --sign - --identifier "
                     "com.operator.audio-capture audio_capture"
                 )
+                print("\n⚠️  audio_capture needs re-signing — run this:\n")
+                print("   codesign --force --sign - --identifier com.operator.audio-capture audio_capture\n")
             elif "com.operator.audio-capture" not in output:
                 log.warning(
                     f"AgentRunner: audio_capture has unexpected identity: {output}. "
@@ -250,6 +256,8 @@ class AgentRunner:
                     "Run: codesign --force --sign - --identifier "
                     "com.operator.audio-capture audio_capture"
                 )
+                print("\n⚠️  audio_capture needs re-signing — run this:\n")
+                print("   codesign --force --sign - --identifier com.operator.audio-capture audio_capture\n")
             else:
                 log.debug(f"AgentRunner: audio_capture signature OK — {output}")
         except Exception as e:
