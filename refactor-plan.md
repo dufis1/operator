@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete.** STT benchmarked: mlx-whisper base (110ms) vs faster-whisper base (420ms) vs whisper-small (1.1s) vs distil-large-v3 (3.9s). Switched to mlx-whisper — 4x latency improvement. Parakeet ruled out (600M params, no lightweight install, CPU-only too slow). Next: Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done.** STT benchmarked: mlx-whisper base (110ms) vs faster-whisper base (420ms) vs whisper-small (1.1s) vs distil-large-v3 (3.9s). Switched to mlx-whisper — 4x latency improvement. Hardened audio capture shutdown (SIGTERM handlers, finally blocks, SingletonLock cleanup) and TCC permission recovery (signature verification, split exit codes, automatic tccutil reset + retry). Next: write tests for recovery ladder, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
 ---
 
