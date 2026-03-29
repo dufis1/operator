@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented.** Session recovery ladder fully implemented: `connectors/session.py` (detect/validate/inject/save_debug), `JoinStatus` threading primitive replaces blind `time.sleep(12)`, cookie injection from `auth_state.json`, in-meeting health checks every 5 min, error state surfaced via `on_state_change("error")` + macOS notification. Needs live meeting testing. Next: live meeting test for recovery ladder + filler phrases, then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented + edge case audit done.** Session recovery ladder fully implemented and audited. Edge case fix: Linux adapter now checks `os.path.isfile()` before using `auth_state.json` with Playwright's `storage_state=`, preventing crash when file doesn't exist and making the guest code path reachable. Next: live meeting test for recovery ladder + filler phrases (browser profile needs re-auth first), then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
 ---
 

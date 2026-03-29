@@ -18,7 +18,7 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented.
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done.
 **Next action:** Live meeting test for recovery ladder + filler phrases (browser profile needs re-auth first: `python scripts/auth_export.py`), then Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
 
 **Session recovery ladder (March 28–29, 2026):**
@@ -29,6 +29,11 @@
 - `app.py`: `STATE_ICONS` includes `"error": "⚠️"`. `_on_conv_state_change` fires `rumps.notification()` on error state — user gets macOS notification + persistent menu bar icon.
 - `config.yaml`: `auth_state_file` changed from `null` to `"./auth_state.json"`.
 - Unit-tested: imports, instantiation, JoinStatus signalling, validate_auth_state edge cases, runner error callback wiring. Full browser→join flow needs live meeting test.
+
+**Session recovery edge case audit (March 29, 2026):**
+- Reviewed 4 flagged edge cases from implementation session. Found 1 real bug, 3 non-issues.
+- **Bug fixed:** `linux_adapter.py` crashed when `auth_state.json` doesn't exist. `config.yaml` always sets `auth_state_file` to `"./auth_state.json"` (non-empty string), so `if self._auth_state_file:` was always truthy → Playwright's `storage_state=` threw FileNotFoundError → browser thread crashed. Guest code path was unreachable. Fix: replaced truthiness check with `os.path.isfile()` at both the path-selection branch (line 170) and the recovery ladder guard (line 208). Added log line when configured file is missing.
+- **No action needed:** (1) macOS `add_cookies()` on persistent context works fine — Playwright supports it on any context type. (2) `validate_auth_state` can't detect server-side revocation — by design, documented at `session.py:84`, ladder re-checks after injection. (3) Linux guest path now reachable after the `isfile()` fix.
 
 **TCC recovery ladder tests (March 28, 2026):**
 - `tests/test_recovery_ladder.py`: 10 tests using stub shell scripts — no macOS hardware needed.
