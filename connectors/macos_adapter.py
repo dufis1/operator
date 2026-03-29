@@ -150,6 +150,21 @@ class MacOSAdapter(MeetingConnector):
                         continue
 
                 if not joined:
+                    # Debug: capture page state for diagnosis
+                    debug_dir = os.path.join(_BASE, "debug")
+                    os.makedirs(debug_dir, exist_ok=True)
+                    try:
+                        page.screenshot(path=os.path.join(debug_dir, "join_fail.png"), full_page=True)
+                        log.warning(f"MacOSAdapter: screenshot saved to debug/join_fail.png")
+                    except Exception as e:
+                        log.warning(f"MacOSAdapter: screenshot failed: {e}")
+                    try:
+                        with open(os.path.join(debug_dir, "join_fail.html"), "w") as f:
+                            f.write(page.content())
+                        log.warning(f"MacOSAdapter: page HTML saved to debug/join_fail.html")
+                    except Exception as e:
+                        log.warning(f"MacOSAdapter: HTML dump failed: {e}")
+                    log.warning(f"MacOSAdapter: page URL = {page.url}")
                     log.warning("MacOSAdapter: could not find join button")
                     return
 
