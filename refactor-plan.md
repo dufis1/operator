@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.4 complete.** Filler classification refined: short-query gate (≤8 words → neutral), empathetic intensifiers added, ambiguous keywords removed. All filler clips shortened to <1s with silence trimming. Logging infrastructure overhauled. TTS text sanitization added (`pipeline/sanitize.py`). Next: benchmark latency delta vs baseline (Step 7.4 follow-up).
+> **Current status: Phase 7 in progress — Step 7.4 complete.** Latency benchmarked with precise TIMING logs (speech vs silence split). Silence wait is 0.50s — tight. Whisper ~450ms, LLM 0.9–1.6s, Kokoro 0.6–1.7s. Speculative processing confirmed working. Next: evaluate Parakeet (NVIDIA NeMo) as STT alternative to faster-whisper (Step 7.6).
 
 ---
 

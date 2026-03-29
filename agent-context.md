@@ -18,8 +18,17 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Logging infrastructure overhauled. TTS text sanitization added.
-**Next action:** Benchmark latency delta vs baseline (LLM avg ~1.2s, synthesis ~1.23s, total ~3–4s). Run live meeting test, grep TIMING lines from `/tmp/operator.log`, compare perceived responsiveness with fillers masking the synthesis wait.
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 mechanics complete. Latency benchmarked with precise TIMING logs.
+**Next action:** Evaluate Parakeet (NVIDIA NeMo) as STT alternative to faster-whisper base (Step 7.6). Set up benchmark using existing `benchmark_stt.py` scaffolding and clips. Parakeet was never tested — Speechmatics, Deepgram, AssemblyAI, and multiple Whisper variants were (see README "STT provider benchmark" section).
+
+**Latency benchmark results (March 28, 2026):**
+- TIMING logs updated: `utterance_done` now reports `speech=N.NNs silence=N.NNs` separately. `silence_detected` promoted to INFO.
+- Silence wait: consistently 0.50s (one check interval — tight).
+- Whisper: ~450ms (higher than old ~120ms baseline — likely due to longer utterances / meeting audio quality).
+- LLM (GPT-4.1-mini): 0.9–1.6s, consistent with prior baseline.
+- Kokoro TTS: 0.6–1.7s, scaling with response length.
+- Speculative processing: confirmed working — saved ~1s LLM time on 2 of 5 interactions.
+- Model log (`docs/model-log.md`) updated with new TIMING format and baselines table.
 
 **TTS text sanitization (March 28, 2026):**
 - `pipeline/sanitize.py`: `sanitize_for_speech(text)` cleans LLM output before TTS. Handles arrows (→ "then"), math operators (→ spoken words), markdown stripping, code symbols (underscores/brackets/backslashes → spaces), em dashes/semicolons → commas, ampersands → "and". Zero-latency regex pass.
