@@ -18,8 +18,14 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done. Auth pipeline and page state detection fixed and live-tested.
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done. Auth pipeline and page state detection fixed and live-tested. Error signposting standardized across all actionable failure points.
 **Next action:** Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+
+**Error signposting standardization (March 29, 2026):**
+- Audited all error/warning messages across the codebase. Identified 11 actionable failure points where users need to take specific action but messages were only in logs or lacked visual prominence.
+- Added prominent `print()` signposting (emoji prefix, newline spacing, indented fix commands) to match the auth failure pattern established in `pipeline/runner.py:122-123`.
+- Files changed: `pipeline/runner.py` (4: Screen Recording denied, TCC stuck, codesign needed, capture failed), `pipeline/tts.py` (2: no macOS voice, Kokoro fallback), `__main__.py` (4: missing URL, DISPLAY, pactl, PulseAudio sinks), `caldav_poller.py` (1: missing keychain credential).
+- Pattern: `❌` for errors requiring action, `⚠️` for warnings with automatic fallback. Existing `log.error()`/`log.warning()` preserved for diagnostics.
 
 **Auth/detection fixes (March 29, 2026):**
 - `scripts/auth_export.py` rewritten: now uses `launch_persistent_context(user_data_dir=BROWSER_PROFILE)` so Chrome stores session cookies directly in the profile the bot uses. Previously used a throwaway context that only saved to `auth_state.json`. `auth_state.json` still exported as Linux/Docker backup.
