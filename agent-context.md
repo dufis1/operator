@@ -18,8 +18,16 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done. Auth pipeline and page state detection fixed and live-tested. Error signposting standardized across all actionable failure points.
-**Next action:** Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done. Auth pipeline and page state detection fixed and live-tested. Error signposting standardized across all actionable failure points. Echo prevention hardened.
+**Next action:** Investigate ScreenCaptureKit app-specific audio filtering (Chrome bundle ID not matching), or Step 7.5 (TTS reliability), or Phase 8 (open-source packaging).
+
+**Echo prevention hardening (March 29, 2026):**
+- Diagnosed audio feedback loop via `OPERATOR_DUMP_AUDIO=1` debug dump. ScreenCaptureKit captures all system audio (music, notifications, TTS echo from BlackHole → Meet → speakers → recapture). User confirmed hearing: crisp system join sound, echo of join sound, echo of surroundings, and TTS response with echo.
+- Added `ECHO_GUARD_SECONDS` (default 1.0s) — post-TTS delay before resuming audio ingestion. Absorbs network-delayed echo that arrives after playback ends. Ack clip guard increased from 0.2s → 0.5s.
+- Added `_is_repetition_hallucination()` filter — rejects Whisper output where any unigram or bigram accounts for >50% of words (with >10 words total). Catches "I know I know..." ×112 and "p p p..." ×223 patterns observed in logs.
+- Attempted app-specific ScreenCaptureKit filtering (`SCContentFilter(display:including:[chrome])`) to capture only Chrome audio. Result: zero audio captured. Chrome's web audio rendering may not be attributed to `com.google.Chrome` bundle at the ScreenCaptureKit level. Reverted to display-wide capture. Next step: log all apps visible to ScreenCaptureKit during a live session to identify Chrome's actual identity.
+- Debug dump mode (`OPERATOR_DUMP_AUDIO=1` env var) writes all captured audio to `/tmp/operator_audio_dump.wav` for diagnosis. Left in place for future debugging.
+- Files changed: `pipeline/audio.py` (repetition filter + debug dump), `pipeline/runner.py` (echo guard delay), `config.yaml` + `config.py` (`echo_guard_seconds` setting).
 
 **Error signposting standardization (March 29, 2026):**
 - Audited all error/warning messages across the codebase. Identified 11 actionable failure points where users need to take specific action but messages were only in logs or lacked visual prominence.

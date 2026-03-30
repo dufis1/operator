@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented + edge case audit done + auth/detection fixes live-tested + error signposting standardized.** All 11 actionable error points now show prominent terminal messages (emoji + spacing + fix commands) so users don't need to dig through logs. Next: Step 7.5 (TTS reliability) or Phase 8 (open-source packaging).
+> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented + edge case audit done + auth/detection fixes live-tested + error signposting standardized + echo prevention hardened.** Echo guard (1s post-TTS delay) and Whisper repetition filter added to prevent hallucinations from audio feedback loops. App-specific ScreenCaptureKit filtering attempted but Chrome's audio not attributed correctly — reverted to display-wide capture. Next: investigate ScreenCaptureKit app filtering (log app list during capture) or move to Step 7.5 (TTS reliability) / Phase 8 (open-source packaging).
 
 ---
 
