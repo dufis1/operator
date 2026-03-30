@@ -444,6 +444,7 @@ class AgentRunner:
         except Exception as e:
             log.error(f"Pipeline error: {e}")
         finally:
+            time.sleep(config.ECHO_GUARD_SECONDS)
             self.audio.drain_audio_buffer()
             self.audio.is_speaking = False
             log.info("Echo prevention: resumed audio ingestion")
@@ -491,7 +492,7 @@ class AgentRunner:
         self.audio.is_speaking = True
         self.audio.drain_audio_buffer()
         self.tts.play_clip(clip)
-        time.sleep(0.2)
+        time.sleep(0.5)
         self.audio.drain_audio_buffer()
         self.audio.is_speaking = False
         log.info("TIMING ack_done")

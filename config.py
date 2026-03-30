@@ -13,6 +13,7 @@ WAKE_PHRASE          = _config["agent"]["wake_phrase"]
 SYSTEM_PROMPT        = _config["agent"]["system_prompt"]
 INTERACTION_MODE     = _config["agent"]["interaction_mode"]
 CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
+ECHO_GUARD_SECONDS   = _config["agent"].get("echo_guard_seconds", 1.0)
 
 # LLM
 LLM_PROVIDER = _config["llm"]["provider"]

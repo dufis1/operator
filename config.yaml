@@ -16,6 +16,7 @@ agent:
     context to infer the intended words.
   interaction_mode: "voice"      # voice | chat | both
   conversation_timeout: 20       # seconds in listening mode after a response
+  echo_guard_seconds: 1.0        # delay after TTS before resuming audio capture (absorbs echo)
 
 llm:
   provider: "openai"

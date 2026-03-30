@@ -56,9 +56,20 @@ class AudioProcessor:
         self._audio_lock = threading.Lock()
         self.capturing = False
         self.is_speaking = False  # Set True by TTS layer to prevent echo
+        # Debug: dump all captured audio (including echo) to WAV
+        self._debug_dump = os.environ.get("OPERATOR_DUMP_AUDIO") == "1"
+        self._debug_wav = None
+        if self._debug_dump:
+            dump_path = "/tmp/operator_audio_dump.wav"
+            self._debug_wav = sf.SoundFile(dump_path, mode="w", samplerate=SAMPLE_RATE, channels=1, subtype="FLOAT")
+            log.info(f"DEBUG audio dump enabled → {dump_path}")
 
     def feed_audio(self, chunk):
         """Add raw PCM bytes to the buffer. Called by the connector's read loop."""
+        # Debug: write ALL audio before the is_speaking gate
+        if self._debug_wav is not None:
+            samples = np.frombuffer(chunk, dtype=np.float32)
+            self._debug_wav.write(samples)
         if not self.is_speaking:
             with self._audio_lock:
                 self._audio_buffer += chunk
@@ -149,7 +160,29 @@ class AudioProcessor:
         log.info(f"TIMING {label}_whisper_start")
         text = self.transcribe(audio)
         log.info(f"TIMING {label}_whisper_done \"{text}\"")
+        if self._is_repetition_hallucination(text):
+            log.info(f"TIMING {label}_whisper_rejected_repetition")
+            return ""
         return text
+
+    @staticmethod
+    def _is_repetition_hallucination(text):
+        """Detect Whisper hallucinations that repeat a word/phrase many times."""
+        words = text.lower().split()
+        if len(words) <= 10:
+            return False
+        from collections import Counter
+        # Check unigrams
+        counts = Counter(words)
+        if counts.most_common(1)[0][1] / len(words) > 0.5:
+            return True
+        # Check bigrams (catches "I know I know I know...")
+        bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words) - 1)]
+        if bigrams:
+            bcounts = Counter(bigrams)
+            if bcounts.most_common(1)[0][1] / len(bigrams) > 0.5:
+                return True
+        return False
 
     def transcribe(self, audio):
         """Transcribe a numpy float32 audio array. Returns text string.
