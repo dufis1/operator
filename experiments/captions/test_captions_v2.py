@@ -40,13 +40,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("test_captions_v2")
 
 
+_log_file_path = None
+
 def _setup_log_file(phase):
     """Add a phase-specific file handler so each experiment gets its own log."""
-    log_file = os.path.join(_LOG_DIR, f"{phase}_{time.strftime('%Y%m%d_%H%M%S')}.log")
-    handler = logging.FileHandler(log_file)
+    global _log_file_path
+    _log_file_path = os.path.join(_LOG_DIR, f"{phase}_{time.strftime('%Y%m%d_%H%M%S')}.log")
+    handler = logging.FileHandler(_log_file_path)
     handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     logging.getLogger().addHandler(handler)
-    log.info(f"Log file: {log_file}")
+    log.info(f"Log file: {_log_file_path}")
 
 BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 
@@ -347,10 +350,16 @@ class CaptionCollector:
         self.last_node_id = node_id
 
     def print_report(self, phase_name):
-        log.info("")
-        log.info("=" * 70)
-        log.info(f"REPORT: {phase_name}")
-        log.info("=" * 70)
+        lines = []
+
+        def emit(msg=""):
+            log.info(msg)
+            lines.append(msg)
+
+        emit("")
+        emit("=" * 70)
+        emit(f"REPORT: {phase_name}")
+        emit("=" * 70)
 
         # Per-node summary
         for nid in sorted(self.nodes.keys()):
@@ -360,43 +369,50 @@ class CaptionCollector:
             duration = updates[-1][0] - updates[0][0] if len(updates) > 1 else 0
             max_len = self.max_text_lengths.get(nid, 0)
 
-            log.info(f"")
-            log.info(f"  Node #{nid} -- speaker: {n['speaker']}")
-            log.info(f"    updates: {len(updates)}")
-            log.info(f"    duration: {duration:.1f}s")
-            log.info(f"    max text length: {max_len} chars")
-            log.info(f"    final text ({len(final_text)} chars): \"{final_text[-100:]}\"")
+            emit("")
+            emit(f"  Node #{nid} -- speaker: {n['speaker']}")
+            emit(f"    updates: {len(updates)}")
+            emit(f"    duration: {duration:.1f}s")
+            emit(f"    max text length: {max_len} chars")
+            emit(f"    final text ({len(final_text)} chars): \"{final_text[-100:]}\"")
 
             if len(updates) > 1:
                 intervals = [updates[i][0] - updates[i-1][0] for i in range(1, len(updates))]
-                log.info(f"    avg interval: {sum(intervals)/len(intervals):.2f}s")
+                emit(f"    avg interval: {sum(intervals)/len(intervals):.2f}s")
 
         # Speaker transitions
-        log.info(f"")
-        log.info(f"  -- Speaker transitions: {len(self.speaker_transitions)} --")
+        emit("")
+        emit(f"  -- Speaker transitions: {len(self.speaker_transitions)} --")
         for t, frm, to in self.speaker_transitions:
-            log.info(f"    {frm} -> {to}")
+            emit(f"    {frm} -> {to}")
 
         # Unique speakers
         speakers = set(n["speaker"] for n in self.nodes.values())
-        log.info(f"  Unique speakers: {speakers}")
+        emit(f"  Unique speakers: {speakers}")
 
         # Corrections
-        log.info(f"")
-        log.info(f"  -- ASR corrections: {len(self.corrections)} --")
+        emit("")
+        emit(f"  -- ASR corrections: {len(self.corrections)} --")
         if self.corrections:
             chars_back_values = [c[4] for c in self.corrections]
-            log.info(f"    avg chars back: {sum(chars_back_values)/len(chars_back_values):.0f}")
-            log.info(f"    max chars back: {max(chars_back_values)}")
-            log.info(f"    min chars back: {min(chars_back_values)}")
+            emit(f"    avg chars back: {sum(chars_back_values)/len(chars_back_values):.0f}")
+            emit(f"    max chars back: {max(chars_back_values)}")
+            emit(f"    min chars back: {min(chars_back_values)}")
 
         # Text length tracking
-        log.info(f"")
-        log.info(f"  -- Max text lengths per node --")
+        emit("")
+        emit(f"  -- Max text lengths per node --")
         for nid in sorted(self.max_text_lengths.keys()):
-            log.info(f"    node #{nid}: {self.max_text_lengths[nid]} chars")
+            emit(f"    node #{nid}: {self.max_text_lengths[nid]} chars")
 
-        log.info("=" * 70)
+        emit("=" * 70)
+
+        # Write standalone summary file alongside the full log
+        if _log_file_path:
+            summary_path = _log_file_path.replace(".log", "_summary.txt")
+            with open(summary_path, "w") as f:
+                f.write("\n".join(lines) + "\n")
+            log.info(f"Summary written to: {summary_path}")
 
 
 # ── Experiment phases ───────────────────────────────────────────────
