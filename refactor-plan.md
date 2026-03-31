@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Audio architecture rethink in progress.** Decided to replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's built-in live captions. Caption experiment validated (results in `docs/caption-timing-findings.md`). Three validation gaps remain before coding the refactor: (1) multi-speaker node behavior, (2) node text length cap on long sessions, (3) ASR correction window depth. See `handoff.md` for full context.
+> **Current status: Audio architecture rethink — validation experiments ready.** Decided to replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's built-in live captions. Initial caption experiment validated (results in `docs/caption-timing-findings.md`). Built `tests/test_captions_v2.py` — three-phase experiment script to close all 7 remaining validation gaps (multi-speaker nodes, text length cap, ASR corrections, technical terms, free Gmail captions, late enable, overlapping speech). Next: run the experiments and document findings before coding the refactor.
 
 ---
 
