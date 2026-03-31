@@ -22,6 +22,9 @@ venv/
 # macOS
 .DS_Store
 
+# Experiment logs (generated at runtime)
+experiments/*/logs/
+
 # Screenshots from test probes
 /tmp/probe_*.png
 

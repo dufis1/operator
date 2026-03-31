@@ -3,7 +3,7 @@ Caption timing experiment — measures Google Meet's caption DOM behavior.
 
 Usage:
     source venv/bin/activate
-    python tests/test_captions.py https://meet.google.com/xxx-yyyy-zzz
+    python experiments/captions/test_captions.py https://meet.google.com/xxx-yyyy-zzz
 
 What it measures:
     - Time between mutations within a single caption node (update cadence)
@@ -22,14 +22,26 @@ import logging
 
 from playwright.sync_api import sync_playwright
 
-_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, _BASE)
 
 import config
 from connectors.session import detect_page_state, validate_auth_state, inject_cookies, save_debug
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+_LOG_FILE = os.path.join(_LOG_DIR, f"captions_v1_{time.strftime('%Y%m%d_%H%M%S')}.log")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(_LOG_FILE),
+    ],
+)
 log = logging.getLogger("test_captions")
+log.info(f"Log file: {_LOG_FILE}")
 
 BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 LISTEN_SECONDS = 180
@@ -246,7 +258,7 @@ def enable_captions(page):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python tests/test_captions.py <meet-url>")
+        print("Usage: python experiments/captions/test_captions.py <meet-url>")
         sys.exit(1)
 
     meeting_url = sys.argv[1]

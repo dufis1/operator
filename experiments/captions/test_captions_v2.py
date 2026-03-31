@@ -5,12 +5,12 @@ Usage:
     source venv/bin/activate
 
     # Run a specific experiment phase:
-    python tests/test_captions_v2.py <meet-url> --phase multi-speaker
-    python tests/test_captions_v2.py <meet-url> --phase endurance
-    python tests/test_captions_v2.py <meet-url> --phase availability
+    python experiments/captions/test_captions_v2.py <meet-url> --phase multi-speaker
+    python experiments/captions/test_captions_v2.py <meet-url> --phase endurance
+    python experiments/captions/test_captions_v2.py <meet-url> --phase availability
 
     # Run with late caption enable (for Gap 5 — captions-on timing):
-    python tests/test_captions_v2.py <meet-url> --phase availability --late-enable 15
+    python experiments/captions/test_captions_v2.py <meet-url> --phase availability --late-enable 15
 
 Experiments:
     multi-speaker  — Gaps 1 & 6: multi-speaker nodes, overlapping speech (~5 min)
@@ -27,26 +27,57 @@ import logging
 
 from playwright.sync_api import sync_playwright
 
-_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, _BASE)
 
 import config
 from connectors.session import detect_page_state, validate_auth_state, inject_cookies, save_debug
 
+_LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("test_captions_v2")
+
+
+def _setup_log_file(phase):
+    """Add a phase-specific file handler so each experiment gets its own log."""
+    log_file = os.path.join(_LOG_DIR, f"{phase}_{time.strftime('%Y%m%d_%H%M%S')}.log")
+    handler = logging.FileHandler(log_file)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    logging.getLogger().addHandler(handler)
+    log.info(f"Log file: {log_file}")
 
 BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 
 # ── Spoken prompt helper ────────────────────────────────────────────
 
-def announce(msg):
-    """Print to terminal AND speak aloud via macOS say (blocking so announcement
-    finishes before the next listening window opens)."""
+def announce(msg, page=None):
+    """Print to terminal AND speak aloud via macOS say.
+    If page is provided, mutes meeting mic during speech to avoid caption pollution."""
     log.info(f">>> {msg}")
-    # Remove commas for say command
+
+    # Mute meeting mic so say doesn't leak into captions
+    if page:
+        try:
+            page.keyboard.press("KeyD", modifiers=["Meta"])
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
+
     clean = msg.replace(",", "")
-    subprocess.run(["say", clean], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        subprocess.run(["say", clean], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+    except subprocess.TimeoutExpired:
+        log.warning("say command timed out — killing it")
+
+    # Unmute meeting mic
+    if page:
+        try:
+            page.keyboard.press("KeyD", modifiers=["Meta"])
+            page.wait_for_timeout(300)
+        except Exception:
+            pass
 
 
 # ── Enhanced Caption Observer JS ────────────────────────────────────
@@ -373,46 +404,46 @@ class CaptionCollector:
 def phase_multi_speaker(page, collector):
     """Experiment 1: Multi-speaker nodes + overlapping speech (Gaps 1, 6)."""
 
-    announce("Experiment 1. Multi-speaker and overlapping speech.")
+    announce("Experiment 1. Multi-speaker and overlapping speech.", page)
     time.sleep(2)
 
-    announce("Step 1. Please speak alone for 10 seconds. Starting now.")
+    announce("Step 1. Please speak alone for 10 seconds. Starting now.", page)
     wait_listening(page, 12)
 
-    announce("Step 2. Now stay silent. Tell Rober to speak for 10 seconds.")
+    announce("Step 2. Now stay silent. Tell Rober to speak for 10 seconds.", page)
     wait_listening(page, 15)
 
-    announce("Step 3. Everyone stay silent for 5 seconds.")
+    announce("Step 3. Everyone stay silent for 5 seconds.", page)
     wait_listening(page, 7)
 
-    announce("Step 4. Please speak again for 10 seconds. Testing returning speaker.")
+    announce("Step 4. Please speak again for 10 seconds. Testing returning speaker.", page)
     wait_listening(page, 12)
 
-    announce("Step 5. Alternating turns. You say one sentence then Rober says one. Repeat 3 times with short pauses. Tell Rober now.")
+    announce("Step 5. Alternating turns. You say one sentence then Rober says one. Repeat 3 times with short pauses. Tell Rober now.", page)
     wait_listening(page, 30)
 
-    announce("Step 6. Simultaneous speech. Both you and Rober speak at the same time for 10 seconds. Repeat twice. Tell Rober now.")
+    announce("Step 6. Simultaneous speech. Both you and Rober speak at the same time for 10 seconds. Repeat twice. Tell Rober now.", page)
     wait_listening(page, 30)
 
-    announce("Experiment 1 complete.")
+    announce("Experiment 1 complete.", page)
     collector.print_report("Multi-Speaker + Overlapping Speech (Gaps 1, 6)")
 
 
 def phase_endurance(page, collector):
     """Experiment 2: Endurance + ASR corrections + technical terms (Gaps 2, 3, 7)."""
 
-    announce("Experiment 2. Endurance and ASR corrections and technical terms.")
+    announce("Experiment 2. Endurance and ASR corrections and technical terms.", page)
     time.sleep(2)
 
     # Phase A: ASR corrections
-    announce("Phase A. ASR correction window. Say a phrase then pause 1 second then continue. Repeat 5 times.")
+    announce("Phase A. ASR correction window. Say a phrase then pause 1 second then continue. Repeat 5 times.", page)
     wait_listening(page, 40)
 
-    announce("Now say the word operator then pause 2 seconds then ask a question.")
+    announce("Now say the word operator then pause 2 seconds then ask a question.", page)
     wait_listening(page, 15)
 
     # Phase B: Technical terms
-    announce("Phase B. Technical terms. Please read aloud the following terms.")
+    announce("Phase B. Technical terms. Please read aloud the following terms.", page)
     time.sleep(1)
     terms = [
         "API endpoint",
@@ -427,11 +458,11 @@ def phase_endurance(page, collector):
         "git rebase dash dash interactive",
     ]
     for term in terms:
-        announce(f"Say: {term}")
+        announce(f"Say: {term}", page)
         wait_listening(page, 5)
 
     # Phase C: Endurance
-    announce("Phase C. Endurance test. Tell Rober to start the say loop now. Will listen for 10 minutes.")
+    announce("Phase C. Endurance test. Tell Rober to start the say loop now. Will listen for 10 minutes.", page)
     log.info("")
     log.info("  Rober should paste this in his terminal:")
     log.info("  for i in $(seq 1 120); do say -v Samantha \"Sentence $i of the endurance test for caption validation.\"; sleep 1; done")
@@ -450,22 +481,22 @@ def phase_endurance(page, collector):
             for nid, max_len in sorted(collector.max_text_lengths.items()):
                 log.info(f"  [{elapsed:.0f}s] node #{nid} max text length: {max_len} chars")
 
-    announce("Experiment 2 complete.")
+    announce("Experiment 2 complete.", page)
     collector.print_report("Endurance + ASR Corrections + Technical Terms (Gaps 2, 3, 7)")
 
 
 def phase_availability(page, collector, late_enable_seconds=0):
     """Experiment 3: Caption availability + late enable (Gaps 4, 5)."""
 
-    announce("Experiment 3. Caption availability and late enable.")
+    announce("Experiment 3. Caption availability and late enable.", page)
     time.sleep(2)
 
     if late_enable_seconds > 0:
         # Late enable mode: captions are NOT enabled yet
-        announce(f"Late enable mode. Please start speaking now. Captions will be enabled in {late_enable_seconds} seconds.")
+        announce(f"Late enable mode. Please start speaking now. Captions will be enabled in {late_enable_seconds} seconds.", page)
         wait_listening(page, late_enable_seconds)
 
-        announce("Enabling captions now.")
+        announce("Enabling captions now.", page)
         if not enable_captions(page):
             log.error("Failed to enable captions for late-enable test")
             return
@@ -474,35 +505,35 @@ def phase_availability(page, collector, late_enable_seconds=0):
         page.evaluate(CAPTION_OBSERVER_JS)
         log.info("Observer injected after late caption enable")
 
-        announce("Continue speaking for 15 more seconds.")
+        announce("Continue speaking for 15 more seconds.", page)
         wait_listening(page, 17)
 
-        announce("Check the log. Any text from before captions were enabled means retroactive capture works.")
+        announce("Check the log. Any text from before captions were enabled means retroactive capture works.", page)
     else:
         # Normal mode: captions already enabled before this point
-        announce("Phase A. Testing caption availability. Please speak for 30 seconds.")
+        announce("Phase A. Testing caption availability. Please speak for 30 seconds.", page)
         wait_listening(page, 35)
 
-        announce("Phase B. Late enable test. We will now disable and re-enable captions.")
+        announce("Phase B. Late enable test. We will now disable and re-enable captions.", page)
         log.info("Toggling captions off...")
         page.keyboard.down("Shift")
         page.keyboard.press("c")
         page.keyboard.up("Shift")
         page.wait_for_timeout(2000)
 
-        announce("Captions are off. Please speak for 15 seconds.")
+        announce("Captions are off. Please speak for 15 seconds.", page)
         wait_listening(page, 17)
 
-        announce("Re-enabling captions now.")
+        announce("Re-enabling captions now.", page)
         page.keyboard.down("Shift")
         page.keyboard.press("c")
         page.keyboard.up("Shift")
         page.wait_for_timeout(2000)
 
-        announce("Continue speaking for 15 seconds.")
+        announce("Continue speaking for 15 seconds.", page)
         wait_listening(page, 17)
 
-    announce("Experiment 3 complete.")
+    announce("Experiment 3 complete.", page)
     collector.print_report("Caption Availability + Late Enable (Gaps 4, 5)")
 
 
@@ -517,6 +548,7 @@ def main():
     parser.add_argument("--late-enable", type=int, default=0,
                         help="For availability phase: seconds to wait before enabling captions (0 = normal mode)")
     args = parser.parse_args()
+    _setup_log_file(args.phase)
 
     collector = CaptionCollector()
 

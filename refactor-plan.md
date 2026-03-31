@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Audio architecture rethink — validation experiments ready to run.** Decided to replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's built-in live captions. Initial caption experiment validated (results in `docs/caption-timing-findings.md`). Built `tests/test_captions_v2.py` — three-phase experiment script to close all 7 remaining validation gaps. Updated for two-person remote setup: host laptop runs script with mic ON (Speaker A), Rober joins from another room (Speaker B). Next: run the experiments and document findings before coding the refactor.
+> **Current status: Audio architecture rethink — validation experiments ready to run.** Decided to replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's built-in live captions. Initial caption experiment validated (results in `experiments/captions/caption-timing-findings.md`). Built `experiments/captions/test_captions_v2.py` — three-phase experiment script to close all 7 remaining validation gaps. Updated for two-person remote setup: host laptop runs script with mic ON (Speaker A), Rober joins from another room (Speaker B). Next: run the experiments and document findings before coding the refactor.
 
 ---
 
