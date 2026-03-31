@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Audio architecture rethink — caption validation experiments ready to run.
-**Next action:** Run `experiments/captions/test_captions_v2.py` three phases (multi-speaker, endurance, availability) to close all 7 validation gaps documented in `experiments/captions/caption-timing-findings.md`. Two-person setup: host laptop runs script with mic ON (Speaker A), Rober joins from another room with mic on (Speaker B). Then document findings in `experiments/captions/caption-validation-results.md` and proceed with the refactor.
+**Phase:** Audio architecture rethink — experiment 3 complete, experiments 1 & 2 remain.
+**Next action:** Run experiments 1 (multi-speaker, needs Rober) and 2 (endurance + ASR + technical terms). Document findings in `experiments/captions/caption-validation-results.md`. Script now writes `_summary.txt` files alongside full logs for easier review. Once all 7 gaps are closed, proceed with the refactor.
 
 **Audio architecture rethink (March 30, 2026):**
 - Fundamental reassessment: ScreenCaptureKit captures all system audio (privacy violation, captures host's music/notifications, dies if host leaves meeting, causes echo). After evaluating all options (ScreenCaptureKit app filtering, PulseAudio on macOS, WebRTC monkey-patching, Chrome tabCapture extension, Google Meet Media API, DOM caption scraping), decided to replace audio capture entirely with **DOM caption scraping** from Google Meet's built-in live captions.
@@ -37,6 +37,7 @@
   - `--phase endurance`: Gaps 2, 3, 7 (text length cap, ASR correction window, technical terms). Rober runs `say` loop for 10 min.
   - `--phase availability`: Gaps 4 & 5 (free Gmail captions, late enable). Use `--late-enable 15` for late-enable test.
 - Files: `experiments/captions/test_captions.py`, `experiments/captions/test_captions_v2.py`, `experiments/captions/caption-timing-findings.md`.
+- **Experiment 3 results (March 30, 2026):** Gaps 4 & 5 both GO. Captions work on free Gmail (91 updates over 40s, reliable speaker labels). Late enable loses all speech during off period and triggers ~440 spurious DOM nodes (language menus, settings UI). Decision: enable captions once at join and never toggle. Meet ASR also transcribed "Phase B late enable test" as "Faith be late and able test" — relevant to Gap 7 (technical terms). Full results in `experiments/captions/caption-validation-results.md`.
 
 **Echo prevention hardening (March 29, 2026):**
 - Diagnosed audio feedback loop via `OPERATOR_DUMP_AUDIO=1` debug dump. ScreenCaptureKit captures all system audio (music, notifications, TTS echo from BlackHole → Meet → speakers → recapture). User confirmed hearing: crisp system join sound, echo of join sound, echo of surroundings, and TTS response with echo.
