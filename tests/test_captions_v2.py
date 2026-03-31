@@ -41,11 +41,12 @@ BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 # ── Spoken prompt helper ────────────────────────────────────────────
 
 def announce(msg):
-    """Print to terminal AND speak aloud via macOS say (non-blocking)."""
+    """Print to terminal AND speak aloud via macOS say (blocking so announcement
+    finishes before the next listening window opens)."""
     log.info(f">>> {msg}")
     # Remove commas for say command
     clean = msg.replace(",", "")
-    subprocess.Popen(["say", clean], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["say", clean], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 # ── Enhanced Caption Observer JS ────────────────────────────────────
@@ -141,7 +142,7 @@ def click_if_visible(page, selector, timeout=3000):
 def join_meeting(page):
     click_if_visible(page, 'button:has-text("Not now")', timeout=3000)
     click_if_visible(page, 'button:has-text("Got it")', timeout=2000)
-    click_if_visible(page, 'button[aria-label*="Turn off microphone"]', timeout=3000)
+    # Leave mic ON so this laptop acts as Speaker A
     click_if_visible(page, 'button[aria-label*="Turn off camera"]', timeout=3000)
     click_if_visible(page, 'button:has-text("Continue without microphone and camera")', timeout=3000)
 
@@ -378,19 +379,19 @@ def phase_multi_speaker(page, collector):
     announce("Step 1. Please speak alone for 10 seconds. Starting now.")
     wait_listening(page, 12)
 
-    announce("Step 2. Now stay silent. Have the second laptop speak using the say command for 10 seconds.")
+    announce("Step 2. Now stay silent. Tell Rober to speak for 10 seconds.")
     wait_listening(page, 15)
 
-    announce("Step 3. Silence for 5 seconds.")
+    announce("Step 3. Everyone stay silent for 5 seconds.")
     wait_listening(page, 7)
 
     announce("Step 4. Please speak again for 10 seconds. Testing returning speaker.")
     wait_listening(page, 12)
 
-    announce("Step 5. Alternating turns. You say one sentence then the second laptop says one. Repeat 3 times with short pauses.")
+    announce("Step 5. Alternating turns. You say one sentence then Rober says one. Repeat 3 times with short pauses. Tell Rober now.")
     wait_listening(page, 30)
 
-    announce("Step 6. Simultaneous speech. Speak at the same time as the second laptop for 10 seconds. Repeat twice.")
+    announce("Step 6. Simultaneous speech. Both you and Rober speak at the same time for 10 seconds. Repeat twice. Tell Rober now.")
     wait_listening(page, 30)
 
     announce("Experiment 1 complete.")
@@ -430,9 +431,9 @@ def phase_endurance(page, collector):
         wait_listening(page, 5)
 
     # Phase C: Endurance
-    announce("Phase C. Endurance test. Start the say loop on the second laptop now. Will listen for 10 minutes.")
+    announce("Phase C. Endurance test. Tell Rober to start the say loop now. Will listen for 10 minutes.")
     log.info("")
-    log.info("  Paste this on the second laptop:")
+    log.info("  Rober should paste this in his terminal:")
     log.info("  for i in $(seq 1 120); do say -v Samantha \"Sentence $i of the endurance test for caption validation.\"; sleep 1; done")
     log.info("")
 
