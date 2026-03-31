@@ -18,8 +18,21 @@
 
 ## Current Status
 
-**Phase:** Phase 7 in progress. Steps 7.1–7.4 + 7.6 complete. STT switched to mlx-whisper. TCC/shutdown hardening done. Session recovery ladder implemented + edge case audit done. Auth pipeline and page state detection fixed and live-tested. Error signposting standardized across all actionable failure points. Echo prevention hardened.
-**Next action:** Investigate ScreenCaptureKit app-specific audio filtering (Chrome bundle ID not matching), or Step 7.5 (TTS reliability), or Phase 8 (open-source packaging).
+**Phase:** Audio architecture rethink — replacing ScreenCaptureKit + Whisper with DOM caption scraping. Caption experiment validated; three validation gaps remain before coding.
+**Next action:** Run three remaining caption validation experiments (multi-speaker nodes, text length cap, ASR correction window), then refactor `MacOSAdapter` to use captions instead of ScreenCaptureKit. See `docs/caption-timing-findings.md` for experiment results and `handoff.md` for full session context.
+
+**Audio architecture rethink (March 30, 2026):**
+- Fundamental reassessment: ScreenCaptureKit captures all system audio (privacy violation, captures host's music/notifications, dies if host leaves meeting, causes echo). After evaluating all options (ScreenCaptureKit app filtering, PulseAudio on macOS, WebRTC monkey-patching, Chrome tabCapture extension, Google Meet Media API, DOM caption scraping), decided to replace audio capture entirely with **DOM caption scraping** from Google Meet's built-in live captions.
+- This eliminates: ScreenCaptureKit, Whisper/MLX STT, all input audio routing, and the echo problem. TTS output path (BlackHole/mpv) unchanged.
+- Built and ran `tests/test_captions.py` — validates caption scraping via Playwright MutationObserver. Key findings:
+  - One DOM node per speaker (not per utterance). Even 20s silence doesn't create new node for same speaker.
+  - Update cadence ~330ms (~3/sec while speaking). Silence visible as gaps between updates.
+  - Meet does ASR corrections mid-stream (rewrites recent words). Full text not strictly append-only.
+  - No phantom captions during silence. Speaker labels reliable (single-speaker tested).
+  - Post-meeting UI elements leak through body-wide observer — need to scope to captions region.
+- Utterance boundary strategy: detect silence via update-gap timing (no update for ~2.5s = speaker stopped). Wake phrase detection via text matching on accumulated caption text.
+- Three must-test gaps before coding: (1) multi-speaker node behavior, (2) node text length cap on long sessions, (3) ASR correction window depth. See `docs/caption-timing-findings.md`.
+- Files added: `tests/test_captions.py`, `docs/caption-timing-findings.md`.
 
 **Echo prevention hardening (March 29, 2026):**
 - Diagnosed audio feedback loop via `OPERATOR_DUMP_AUDIO=1` debug dump. ScreenCaptureKit captures all system audio (music, notifications, TTS echo from BlackHole → Meet → speakers → recapture). User confirmed hearing: crisp system join sound, echo of join sound, echo of surroundings, and TTS response with echo.

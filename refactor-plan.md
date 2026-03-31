@@ -4,7 +4,7 @@
 
 *Last updated: March 28, 2026*
 
-> **Current status: Phase 7 in progress — Step 7.6 complete + TCC hardening done + session recovery ladder implemented + edge case audit done + auth/detection fixes live-tested + error signposting standardized + echo prevention hardened.** Echo guard (1s post-TTS delay) and Whisper repetition filter added to prevent hallucinations from audio feedback loops. App-specific ScreenCaptureKit filtering attempted but Chrome's audio not attributed correctly — reverted to display-wide capture. Next: investigate ScreenCaptureKit app filtering (log app list during capture) or move to Step 7.5 (TTS reliability) / Phase 8 (open-source packaging).
+> **Current status: Audio architecture rethink in progress.** Decided to replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's built-in live captions. Caption experiment validated (results in `docs/caption-timing-findings.md`). Three validation gaps remain before coding the refactor: (1) multi-speaker node behavior, (2) node text length cap on long sessions, (3) ASR correction window depth. See `handoff.md` for full context.
 
 ---
 
