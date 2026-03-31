@@ -19,7 +19,7 @@
 ## Current Status
 
 **Phase:** Audio architecture rethink — caption validation experiments ready to run.
-**Next action:** Run `tests/test_captions_v2.py` three phases (multi-speaker, endurance, availability) to close all 7 validation gaps documented in `docs/caption-timing-findings.md`. Then document findings in `docs/caption-validation-results.md` and proceed with the refactor. See `handoff.md` for setup instructions.
+**Next action:** Run `tests/test_captions_v2.py` three phases (multi-speaker, endurance, availability) to close all 7 validation gaps documented in `docs/caption-timing-findings.md`. Two-person setup: host laptop runs script with mic ON (Speaker A), Rober joins from another room with mic on (Speaker B). Then document findings in `docs/caption-validation-results.md` and proceed with the refactor.
 
 **Audio architecture rethink (March 30, 2026):**
 - Fundamental reassessment: ScreenCaptureKit captures all system audio (privacy violation, captures host's music/notifications, dies if host leaves meeting, causes echo). After evaluating all options (ScreenCaptureKit app filtering, PulseAudio on macOS, WebRTC monkey-patching, Chrome tabCapture extension, Google Meet Media API, DOM caption scraping), decided to replace audio capture entirely with **DOM caption scraping** from Google Meet's built-in live captions.
@@ -33,8 +33,8 @@
 - Utterance boundary strategy: detect silence via update-gap timing (no update for ~2.5s = speaker stopped). Wake phrase detection via text matching on accumulated caption text.
 - Seven validation gaps identified (3 must-test, 4 nice-to-have). See `docs/caption-timing-findings.md` lines 88-107.
 - Built `tests/test_captions_v2.py` — three-phase experiment script to close all 7 gaps:
-  - `--phase multi-speaker`: Gaps 1 & 6 (multi-speaker nodes, overlapping speech). Needs second laptop + phone in same meeting.
-  - `--phase endurance`: Gaps 2, 3, 7 (text length cap, ASR correction window, technical terms). Second laptop runs `say` loop for 10 min.
+  - `--phase multi-speaker`: Gaps 1 & 6 (multi-speaker nodes, overlapping speech). Host laptop mic ON (Speaker A) + Rober in another room (Speaker B).
+  - `--phase endurance`: Gaps 2, 3, 7 (text length cap, ASR correction window, technical terms). Rober runs `say` loop for 10 min.
   - `--phase availability`: Gaps 4 & 5 (free Gmail captions, late enable). Use `--late-enable 15` for late-enable test.
 - Files added: `tests/test_captions.py`, `tests/test_captions_v2.py`, `docs/caption-timing-findings.md`.
 
