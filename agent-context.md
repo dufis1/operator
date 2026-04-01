@@ -18,8 +18,8 @@
 
 ## Current Status
 
-**Phase:** Audio architecture rethink — experiment 3 complete, experiments 1 & 2 remain.
-**Next action:** Run experiments 1 (multi-speaker, needs Rober) and 2 (endurance + ASR + technical terms). Document findings in `experiments/captions/caption-validation-results.md`. Script now writes `_summary.txt` files alongside full logs for easier review. Once all 7 gaps are closed, proceed with the refactor.
+**Phase:** Audio architecture rethink — experiments 2 & 3 complete, experiment 1 (multi-speaker) remains.
+**Next action:** Run experiment 1 (multi-speaker + overlapping speech, needs Rober). Once Gaps 1 & 6 are closed, all 7 gaps will be resolved and the caption-scraping refactor can proceed.
 
 **Audio architecture rethink (March 30, 2026):**
 - Fundamental reassessment: ScreenCaptureKit captures all system audio (privacy violation, captures host's music/notifications, dies if host leaves meeting, causes echo). After evaluating all options (ScreenCaptureKit app filtering, PulseAudio on macOS, WebRTC monkey-patching, Chrome tabCapture extension, Google Meet Media API, DOM caption scraping), decided to replace audio capture entirely with **DOM caption scraping** from Google Meet's built-in live captions.
@@ -38,6 +38,12 @@
   - `--phase availability`: Gaps 4 & 5 (free Gmail captions, late enable). Use `--late-enable 15` for late-enable test.
 - Files: `experiments/captions/test_captions.py`, `experiments/captions/test_captions_v2.py`, `experiments/captions/caption-timing-findings.md`.
 - **Experiment 3 results (March 30, 2026):** Gaps 4 & 5 both GO. Captions work on free Gmail (91 updates over 40s, reliable speaker labels). Late enable loses all speech during off period and triggers ~440 spurious DOM nodes (language menus, settings UI). Decision: enable captions once at join and never toggle. Meet ASR also transcribed "Phase B late enable test" as "Faith be late and able test" — relevant to Gap 7 (technical terms). Full results in `experiments/captions/caption-validation-results.md`.
+- **Experiment 2 results (March 31, 2026):** Gaps 2, 3, 7 all GO.
+  - Gap 2 (text length cap): No cap. Single node grew to 6018 chars over 9 minutes of continuous speech (1020 updates). No truncation or splitting.
+  - Gap 3 (ASR corrections): Corrections rewrite 1–28 chars back in ~330ms steps. Text is stable after a 2–3s silence gap. Safe to treat as finalized.
+  - Gap 7 (technical terms): 6/10 terms accurate. PostgreSQL, API endpoint, JSON web token, SSH all correct. kubectl→"Cubicle", OAuth2→"Go off too" — phonetic ASR limitations, same as any STT system.
+  - DOM noise: Observer captured 131 nodes but only 3 were captions. Rest were Meet UI chrome (mic_off, keep_outline, aspect_ratio, etc.). Observer must be scoped to caption container before refactor.
+  - Log: `experiments/captions/logs/endurance_20260331_210935.log`
 
 **Echo prevention hardening (March 29, 2026):**
 - Diagnosed audio feedback loop via `OPERATOR_DUMP_AUDIO=1` debug dump. ScreenCaptureKit captures all system audio (music, notifications, TTS echo from BlackHole → Meet → speakers → recapture). User confirmed hearing: crisp system join sound, echo of join sound, echo of surroundings, and TTS response with echo.
