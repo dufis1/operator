@@ -18,8 +18,10 @@
 
 ## Current Status
 
-**Phase:** Audio architecture rethink — experiments 2 & 3 complete, experiment 1 (multi-speaker) remains.
-**Next action:** Run experiment 1 (multi-speaker + overlapping speech, needs Rober). Once Gaps 1 & 6 are closed, all 7 gaps will be resolved and the caption-scraping refactor can proceed.
+**Phase:** Audio architecture rethink — all 7 caption validation gaps closed. Ready for caption-scraping refactor.
+**Next action:** Begin the caption-scraping refactor — replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's live captions.
+
+- **Experiment 1 results (March 31, 2026):** Gaps 1 & 6 both GO. Multi-speaker: Meet creates new DOM node on every speaker change (56 nodes, 23 transitions, 2 speakers). Speaker labels reliable. Overlapping speech: Meet interleaves short fragments per speaker with correct attribution — no text lost or merged. Duplicate "seed" nodes observed (short node immediately superseded by accumulation node). Max text 255 chars (short turns by design). 138 ASR corrections, avg 12 chars back, max 76. Log: `experiments/captions/logs/multi-speaker_20260331_220941.log`.
 
 **Audio architecture rethink (March 30, 2026):**
 - Fundamental reassessment: ScreenCaptureKit captures all system audio (privacy violation, captures host's music/notifications, dies if host leaves meeting, causes echo). After evaluating all options (ScreenCaptureKit app filtering, PulseAudio on macOS, WebRTC monkey-patching, Chrome tabCapture extension, Google Meet Media API, DOM caption scraping), decided to replace audio capture entirely with **DOM caption scraping** from Google Meet's built-in live captions.

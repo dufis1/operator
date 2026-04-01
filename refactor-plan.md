@@ -4,7 +4,7 @@
 
 *Last updated: March 31, 2026*
 
-> **Current status: Audio architecture rethink — experiments 2 & 3 done, experiment 1 remains.** Replacing ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping. 5 of 7 validation gaps closed (all GO). Experiment 2 (March 31): no text length cap (6018 chars over 9 min), ASR corrections reach 1–28 chars back in ~330ms steps, technical terms 6/10 accurate (phonetic ASR limits). Experiment 3 (March 30): captions work on free Gmail, late enable moot. Experiment 1 (multi-speaker + overlapping speech) still needs Rober. Results in `experiments/captions/caption-validation-results.md`.
+> **Current status: All 7 caption validation gaps closed — GO for caption-scraping refactor.** Experiment 1 (March 31): multi-speaker confirmed (new node per speaker change, 23 transitions, reliable labels). Overlapping speech interleaves correctly with no text lost. Experiment 2 (March 31): no text length cap (6018 chars), ASR corrections 1–28 chars back in ~330ms, technical terms 6/10 accurate. Experiment 3 (March 30): captions work on free Gmail, late enable moot. Full results in `experiments/captions/caption-validation-results.md`. Next: begin caption-scraping refactor.
 
 ---
 
