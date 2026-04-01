@@ -68,13 +68,28 @@ def _run_macos_headless(meeting_url):
 
     log = logging.getLogger("operator")
 
-    from connectors.macos_adapter import MacOSAdapter
+    import config
     from pipeline.runner import AgentRunner
 
     BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
+    connector_type = config.CONNECTOR_TYPE
 
-    log.info(f"Starting Operator (macOS headless) — joining {meeting_url}")
-    connector = MacOSAdapter()
+    # Resolve "auto" → default to meet-captions on macOS
+    if connector_type == "auto":
+        connector_type = "meet-captions"
+
+    if connector_type == "meet-captions":
+        from connectors.captions_adapter import CaptionsAdapter
+        log.info(f"Starting Operator (captions) — joining {meeting_url}")
+        connector = CaptionsAdapter()
+    elif connector_type == "audio":
+        from connectors.macos_adapter import MacOSAdapter
+        log.info(f"Starting Operator (audio) — joining {meeting_url}")
+        connector = MacOSAdapter()
+    else:
+        log.error(f"Unknown connector type: {connector_type}")
+        sys.exit(1)
+
     runner = AgentRunner(
         connector=connector,
         tts_output_device=BLACKHOLE_DEVICE,

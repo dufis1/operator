@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: March 31, 2026*
+*Last updated: April 1, 2026 (session 2)*
 
-> **Current status: All 7 caption validation gaps closed — GO for caption-scraping refactor.** Experiment 1 (March 31): multi-speaker confirmed (new node per speaker change, 23 transitions, reliable labels). Overlapping speech interleaves correctly with no text lost. Experiment 2 (March 31): no text length cap (6018 chars), ASR corrections 1–28 chars back in ~330ms, technical terms 6/10 accurate. Experiment 3 (March 30): captions work on free Gmail, late enable moot. Full results in `experiments/captions/caption-validation-results.md`. Next: begin caption-scraping refactor.
+> **Current status: Caption refactor Steps 1–5 complete.** Audio pipeline preserved behind `connector.type: audio`. CaptionsAdapter built (Playwright + scoped MutationObserver). CaptionProcessor built (real-time wake detection, speculative LLM at 1.0s, finalization at 1.5s). Runner supports both caption and audio modes. Wake phrase changed to "hey operator" to prevent false triggers. **Next: Step 6 — live end-to-end test in Google Meet.**
 
 ---
 
@@ -200,12 +200,28 @@
 
 ---
 
+## Caption Refactor (replacing ScreenCaptureKit + Whisper with Meet's built-in captions)
+
+*Goal: Replace audio capture + Whisper STT with DOM caption scraping from Google Meet. Eliminates echo problem, privacy issues, and Whisper dependency on macOS.*
+
+| Step | Description | Status |
+|------|-------------|--------|
+| C.1 | Preserve audio pipeline as selectable connector (`connector.type: audio`) | ✅ |
+| C.2 | Build CaptionsAdapter — Playwright + scoped MutationObserver + JS→Python bridge | ✅ |
+| C.3 | Build CaptionProcessor — real-time wake detection, silence via timing gaps, speculative callback | ✅ |
+| C.4 | Wire runner.py for caption mode — caption loop, speculative LLM, echo guard, transcript feeding | ✅ |
+| C.5 | Config wiring — `meet-captions` connector type, `captions.finalization_seconds`, `captions.speculative_seconds` | ✅ |
+| C.6 | Live end-to-end test in Google Meet | ⬜ |
+
+---
+
 ## Key Decisions Made
 
 - **Architecture:** Three-layer separation (pipeline / connector / shell) — locked in, proven
 - **Primary platform:** Local machine (macOS + Linux), not cloud. Cloud is upgrade path.
-- **Wake word:** Whisper-based inline detection — Porcupine removed
-- **STT:** mlx-whisper base on macOS (110ms, Apple Silicon accelerated); faster-whisper base on Linux/Docker (420ms, CPU int8). Config-switchable via `stt.provider`.
+- **Wake phrase:** "hey operator" (changed from "operator" to prevent false triggers from passing mentions). Configurable in `config.yaml`.
+- **Input (macOS Meet):** DOM caption scraping via MutationObserver. No audio capture, no Whisper. Audio pipeline preserved behind `connector.type: audio` for future Zoom/Teams.
+- **STT (audio fallback):** mlx-whisper base on macOS (110ms, Apple Silicon accelerated); faster-whisper base on Linux/Docker (420ms, CPU int8). Config-switchable via `stt.provider`.
 - **LLM:** GPT-4.1-mini
 - **TTS:** Three-tier architecture — `tts.provider: local | openai | elevenlabs`. Default: `local/kokoro_heart` (af_heart, 4/5, free). OpenAI tier: `gpt-4o-mini-tts` (5/5, ~0.87s TTFAB). ElevenLabs tier: `eleven_flash_v2_5` (5/5, ~0.39s TTFAB). Kokoro requires Python 3.10–3.12; falls back to `macos_say` gracefully if unavailable.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only.

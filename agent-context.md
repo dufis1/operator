@@ -18,8 +18,15 @@
 
 ## Current Status
 
-**Phase:** Audio architecture rethink — all 7 caption validation gaps closed. Ready for caption-scraping refactor.
-**Next action:** Begin the caption-scraping refactor — replace ScreenCaptureKit audio capture + Whisper STT with DOM caption scraping from Google Meet's live captions.
+**Phase:** Caption-scraping refactor — Steps 1–5 complete, Step 6 (live test) pending.
+**Next action:** Run a live end-to-end test in Google Meet. Join a meeting with `connector.type: auto` (resolves to `meet-captions`), say "hey operator, what's the weather in New York?", verify: wake detected mid-speech, prompt captured after silence, LLM responds, TTS plays to meeting. Then test conversation follow-up and multi-speaker scenarios.
+
+**What was built this session (April 1, 2026):**
+- `connectors/captions_adapter.py` — Playwright browser join + scoped MutationObserver on `[role="region"][aria-label*="Captions"]`. JS→Python bridge via `expose_function`. Filters junk (material icons, system phrases). TTS playback via mpv→BlackHole (same as audio path).
+- `pipeline/captions.py` — CaptionProcessor: real-time wake detection on every DOM update (~330ms), silence detection via timing gaps (speculative at 1.0s, finalize at 1.5s), ASR correction handling (wake retraction if "hey operator" disappears), echo guard, transcript callback for all meeting speech.
+- `pipeline/runner.py` — Updated to detect caption vs audio mode from connector type. Caption loop uses `capture_next_wake_utterance()` (single call, not two-step). Speculative LLM fires at 1.0s (no Whisper step). All latency tricks preserved: fillers, echo guard, conversation mode, deferred history.
+- `config.yaml` — `connector.type: auto` now defaults to `meet-captions` on macOS. Audio fallback via `connector.type: audio`. Wake phrase changed to "hey operator". New `captions:` section with `finalization_seconds` and `speculative_seconds`.
+- `config.py` — Added `CAPTION_FINALIZATION_SECONDS` and `CAPTION_SPECULATIVE_SECONDS`.
 
 - **Experiment 1 results (March 31, 2026):** Gaps 1 & 6 both GO. Multi-speaker: Meet creates new DOM node on every speaker change (56 nodes, 23 transitions, 2 speakers). Speaker labels reliable. Overlapping speech: Meet interleaves short fragments per speaker with correct attribution — no text lost or merged. Duplicate "seed" nodes observed (short node immediately superseded by accumulation node). Max text 255 chars (short turns by design). 138 ASR corrections, avg 12 chars back, max 76. Log: `experiments/captions/logs/multi-speaker_20260331_220941.log`.
 

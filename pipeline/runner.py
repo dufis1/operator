@@ -25,7 +25,9 @@ import time
 import config
 from openai import OpenAI
 
+from connectors.captions_adapter import CaptionsAdapter
 from pipeline.audio import AudioProcessor, WHISPER_HALLUCINATIONS
+from pipeline.captions import CaptionProcessor
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline import fillers
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
@@ -72,12 +74,14 @@ class AgentRunner:
         self._tts_output_device = tts_output_device
         self._on_state_change = on_state_change or self._log_state_change
         self._stop_event = stop_event or threading.Event()
+        self._caption_mode = isinstance(connector, CaptionsAdapter)
 
         self._transcript_lines = []
         self._transcript_lock = threading.Lock()
         self._capture_proc = None
 
         self.audio = None
+        self.captions = None  # CaptionProcessor, set in run() for caption mode
         self.conv = None
         self.llm = None
         self.tts = None
@@ -87,13 +91,19 @@ class AgentRunner:
     # ------------------------------------------------------------------
 
     def run(self, meeting_url=None):
-        """Initialise pipeline, optionally join a meeting, then run the transcription loop.
+        """Initialise pipeline, optionally join a meeting, then run the main loop.
 
-        Blocks until audio capture stops or stop() is called.
+        Blocks until capture stops or stop() is called.
         """
         log.info("STARTUP begin")
-        log.info("STARTUP loading Whisper model...")
-        self.audio = AudioProcessor()
+
+        if self._caption_mode:
+            log.info("STARTUP mode=captions (DOM-based, no Whisper)")
+            self.captions = CaptionProcessor()
+        else:
+            log.info("STARTUP mode=audio (ScreenCaptureKit + Whisper)")
+            log.info("STARTUP loading Whisper model...")
+            self.audio = AudioProcessor()
 
         log.info("STARTUP connecting to APIs...")
         openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
@@ -105,6 +115,12 @@ class AgentRunner:
 
         if meeting_url:
             log.info(f"STARTUP joining meeting {meeting_url}")
+
+            # For caption mode, wire up the callback before joining
+            if self._caption_mode:
+                self.connector.set_caption_callback(self.captions.on_caption_update)
+                self.captions.set_transcript_callback(self._on_transcript_text)
+
             self.connector.join(meeting_url)
             # Wait for browser thread to signal join result
             join_status = self.connector.join_status
@@ -135,27 +151,39 @@ class AgentRunner:
             else:
                 time.sleep(12)  # fallback for connectors without join_status
 
-        log.info("STARTUP starting audio capture...")
-        self._start_capture()
-        if not self.audio.capturing:
-            log.error("STARTUP audio capture failed — aborting")
-            print("\n❌ Audio capture failed to start — check logs at /tmp/operator.log\n")
-            self.connector.leave()
-            return
+        if self._caption_mode:
+            self.captions.capturing = True
+            log.info("STARTUP caption processing active")
+        else:
+            log.info("STARTUP starting audio capture...")
+            self._start_capture()
+            if not self.audio.capturing:
+                log.error("STARTUP audio capture failed — aborting")
+                print("\n❌ Audio capture failed to start — check logs at /tmp/operator.log\n")
+                self.connector.leave()
+                return
 
         self.conv.set_idle()
         log.info("STARTUP complete — idle, listening for wake phrase")
 
         try:
-            self._transcription_loop()
+            if self._caption_mode:
+                self._caption_loop()
+            else:
+                self._transcription_loop()
         finally:
-            self._stop_capture()
+            if self._caption_mode:
+                self.captions.stop()
+            else:
+                self._stop_capture()
 
     def stop(self):
-        """Signal the transcription loop to exit cleanly."""
+        """Signal the main loop to exit cleanly."""
         self._stop_event.set()
         if self.audio:
             self.audio.capturing = False
+        if self.captions:
+            self.captions.stop()
 
     # ------------------------------------------------------------------
     # Audio capture
@@ -344,10 +372,92 @@ class AgentRunner:
         log.info("AgentRunner: transcription loop ended")
 
     # ------------------------------------------------------------------
+    # Caption-mode loop
+    # ------------------------------------------------------------------
+
+    def _caption_loop(self):
+        """Main loop for caption mode. Blocks until stop() is called."""
+        log.info("AgentRunner: caption loop started")
+
+        while self.captions.capturing and not self._stop_event.is_set():
+            # Single call handles both wake detection (real-time) and prompt capture
+            spec = _SpeculativeResult()
+            speaker, prompt = self.captions.capture_next_wake_utterance(
+                on_speculative=self._make_caption_speculative_callback(spec),
+            )
+
+            if not prompt:
+                continue
+
+            log.info(f"TIMING wake_caption speaker={speaker} prompt=\"{prompt[:60]}\"")
+            self.conv.set_listening("Listening for prompt...")
+            self._finalize_prompt(prompt, speculative=spec, caption_mode=True)
+
+            # Conversation mode: accept follow-ups without re-triggering wake phrase
+            log.info("Entering conversation mode")
+            while self.captions.capturing and not self._stop_event.is_set():
+                self.conv.set_listening("Listening...")
+                spec = _SpeculativeResult()
+                followup_speaker, followup = self.captions.capture_next_wake_utterance(
+                    no_speech_timeout=CONVERSATION_TIMEOUT,
+                    on_speculative=self._make_caption_speculative_callback(spec),
+                )
+                if not followup:
+                    log.info("Conversation mode: no follow-up — returning to idle")
+                    break
+                self._finalize_prompt(followup, speculative=spec, caption_mode=True)
+            self.conv.set_idle()
+
+        log.info("AgentRunner: caption loop ended")
+
+    def _make_caption_speculative_callback(self, spec: _SpeculativeResult):
+        """Return an on_speculative callback for caption mode (no Whisper step)."""
+        def callback(prompt_text: str):
+            threading.Thread(
+                target=self._run_caption_speculative,
+                args=(prompt_text, spec),
+                daemon=True,
+                name="speculative-caption",
+            ).start()
+        return callback
+
+    def _run_caption_speculative(self, prompt_text: str, spec: _SpeculativeResult):
+        """Run speculative LLM on caption prompt text. No Whisper needed."""
+        try:
+            spec.transcript = prompt_text  # For match-checking in _finalize_prompt
+            log.info(f"TIMING caption_speculative_llm_start prompt=\"{prompt_text[:60]}\"")
+
+            with self._transcript_lock:
+                context = "\n".join(self._transcript_lines[-20:])
+            spec.full_prompt = (
+                f"[Meeting transcript so far]\n{context}\n\n"
+                f"[Someone just said to you]\n{prompt_text}"
+            )
+            spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
+            log.info(f"TIMING caption_speculative_llm_done reply=\"{spec.llm_reply[:60]}\"")
+        except Exception as e:
+            log.debug(f"Speculative caption processing error: {e}")
+        finally:
+            spec.ready.set()
+
+    def _on_transcript_text(self, speaker, text):
+        """Callback from CaptionProcessor — feeds ALL caption text into transcript."""
+        with self._transcript_lock:
+            # Use the latest full text for this speaker (not deltas)
+            # Replace the last entry if same speaker, append if new speaker
+            entry = f"{speaker}: {text}"
+            if self._transcript_lines and self._transcript_lines[-1].startswith(f"{speaker}: "):
+                self._transcript_lines[-1] = entry
+            else:
+                self._transcript_lines.append(entry)
+            if len(self._transcript_lines) > MAX_TRANSCRIPT_LINES:
+                self._transcript_lines = self._transcript_lines[-MAX_TRANSCRIPT_LINES:]
+
+    # ------------------------------------------------------------------
     # Prompt handling
     # ------------------------------------------------------------------
 
-    def _finalize_prompt(self, prompt, speculative=None):
+    def _finalize_prompt(self, prompt, speculative=None, caption_mode=False):
         """Resolve the LLM reply and speak it, playing fillers while synthesis runs."""
         if not prompt:
             self.conv.set_idle()
@@ -356,9 +466,14 @@ class AgentRunner:
         log.info(f"TIMING prompt_finalized \"{prompt}\"")
         self.conv.set_thinking()
 
-        self.audio.is_speaking = True
-        self.audio.drain_audio_buffer()
-        log.info("Echo prevention: paused audio ingestion")
+        # Echo guard: pause ingestion so the bot's own speech doesn't re-trigger
+        if caption_mode:
+            self.captions.is_speaking = True
+            log.info("Echo prevention: paused caption processing")
+        else:
+            self.audio.is_speaking = True
+            self.audio.drain_audio_buffer()
+            log.info("Echo prevention: paused audio ingestion")
 
         with self._transcript_lock:
             context = "\n".join(self._transcript_lines[-20:])
@@ -445,9 +560,13 @@ class AgentRunner:
             log.error(f"Pipeline error: {e}")
         finally:
             time.sleep(config.ECHO_GUARD_SECONDS)
-            self.audio.drain_audio_buffer()
-            self.audio.is_speaking = False
-            log.info("Echo prevention: resumed audio ingestion")
+            if caption_mode:
+                self.captions.is_speaking = False
+                log.info("Echo prevention: resumed caption processing")
+            else:
+                self.audio.drain_audio_buffer()
+                self.audio.is_speaking = False
+                log.info("Echo prevention: resumed audio ingestion")
 
         self.conv.set_idle()
 

@@ -38,6 +38,11 @@ CONNECTOR_TYPE      = _config["connector"]["type"]
 BROWSER_PROFILE_DIR = _config["connector"]["browser_profile_dir"]
 AUTH_STATE_FILE     = _config["connector"]["auth_state_file"]
 
+# Captions
+_captions = _config.get("captions", {})
+CAPTION_FINALIZATION_SECONDS = _captions.get("finalization_seconds", 1.5)
+CAPTION_SPECULATIVE_SECONDS  = _captions.get("speculative_seconds", 1.0)
+
 # CalDAV
 CALDAV_BOT_GMAIL = _config["caldav"]["bot_gmail"]
 
