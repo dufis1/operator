@@ -8,14 +8,27 @@
 
 ## Phase 1: Multi-Speaker (Gaps 1, 6)
 
-**Date:**
-**Meeting URL:**
+**Date:** 2026-03-31
+**Meeting URL:** meet.google.com/sym-cpnu-jju
+**Log:** `logs/multi-speaker_20260331_220941.log`
 
 ### Results
 
-*(paste report output here)*
+56 DOM nodes captured across 2 speakers (Jojo Shapiro, rober carrillo) with 23 speaker transitions over ~3 minutes.
+
+**Multi-speaker node behavior (Gap 1):** Meet creates a new DOM node on every speaker change. Each transition follows a consistent pattern: a short "seed" node (1-9 chars) immediately followed by an accumulation node where text grows via ASR updates. Speaker labels are reliably attributed on every node.
+
+**Overlapping speech (Gap 6):** During simultaneous talking (~nodes 33-46), Meet did not merge or drop text. Instead it rapidly alternated between speakers with short fragments, preserving speaker attribution. Nodes are shorter and choppier during overlap but correctly labeled. Example: Jojo "I'm speaking" → Rober "No" → Jojo "I'm you, no see because I'm speaking."
+
+- **Max text length:** 255 chars (node #20) — shorter than experiment 2 because speaker turns were brief by design.
+- **ASR corrections:** 138 total, avg 12 chars back, max 76 chars back — consistent with experiment 2.
+- **Duplicate seed nodes:** Meet occasionally emits a short node that gets immediately superseded (e.g. nodes 3/4 both "I know.", nodes 41/42 both "No."). The refactor should handle this gracefully.
 
 ### Observations
+
+- Speaker attribution is reliable even during rapid back-and-forth and simultaneous speech.
+- The "seed + accumulation" two-node pattern per speaker turn is consistent and predictable.
+- During overlap, no text is lost — Meet favors the louder/clearer speaker and interleaves the other.
 
 ---
 
@@ -109,12 +122,12 @@ Captions were toggled off at 22:07:08. User spoke for ~20 seconds with captions 
 
 | Gap | Question | Result | Verdict |
 |-----|----------|--------|---------|
-| 1 | Multi-speaker: separate DOM nodes per speaker? | | |
+| 1 | Multi-speaker: separate DOM nodes per speaker? | Yes — new node on every speaker change. 23 transitions across 56 nodes, speaker labels reliable | GO |
 | 2 | Text length: does Meet cap node text length? | No — single node grew to 6018 chars over 9 minutes with no truncation | GO |
 | 3 | ASR corrections: how far back do rewrites reach? | 1–28 chars back in ~330ms steps. Avg 12 chars back during sustained speech. Text stable after 2–3s silence gap | GO |
 | 4 | Free Gmail: do captions work without Workspace? | Yes — 91 updates over 40s, reliable speaker labels | GO |
 | 5 | Late enable: can we turn on captions after joining? | Yes, but no retroactive capture + 400-node DOM flood on toggle. Moot if we enable at join. | GO (enable once at join) |
-| 6 | Overlapping speech: what happens to DOM nodes? | | |
+| 6 | Overlapping speech: what happens to DOM nodes? | Meet interleaves short fragments per speaker with correct attribution. No text lost or merged | GO |
 | 7 | Technical terms: how does Meet handle jargon? | 6/10 terms accurate. Failures are phonetic (kubectl→Cubicle, OAuth2→Go off too). Same limitation as any ASR | GO |
 
-**Overall verdict:**
+**Overall verdict: ALL 7 GAPS CLOSED — GO for caption-scraping refactor.**
