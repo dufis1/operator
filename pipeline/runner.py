@@ -41,9 +41,10 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 class _SpeculativeResult:
     """Holds the in-flight result of a speculative Whisper + LLM call."""
     def __init__(self):
-        self.transcript = None   # Whisper result on the first-silence snapshot
-        self.full_prompt = None  # Context-augmented prompt sent to LLM
-        self.llm_reply = None    # LLM reply (None if not yet done or failed)
+        self.transcript = None        # Whisper result on the first-silence snapshot
+        self.full_prompt = None       # Context-augmented prompt sent to LLM
+        self.llm_reply = None         # LLM reply (None if not yet done or failed)
+        self.for_assistant = None     # classifier result (True/False/None=not run)
         self.ready = threading.Event()
 
 
@@ -393,47 +394,72 @@ class AgentRunner:
             self.conv.set_listening("Listening for prompt...")
             self._finalize_prompt(prompt, speculative=spec, caption_mode=True)
 
-            # Conversation mode: accept follow-ups without re-triggering wake phrase
+            # Conversation mode: accept follow-ups without re-triggering wake phrase.
+            # Exit when the LLM classifier (run in parallel with speculative LLM)
+            # decides the speaker has moved on.
             log.info("Entering conversation mode")
             while self.captions.capturing and not self._stop_event.is_set():
                 self.conv.set_listening("Listening...")
                 spec = _SpeculativeResult()
                 followup_speaker, followup = self.captions.capture_next_wake_utterance(
-                    no_speech_timeout=CONVERSATION_TIMEOUT,
-                    on_speculative=self._make_caption_speculative_callback(spec),
+                    require_wake=False,
+                    on_speculative=self._make_caption_speculative_callback(spec, run_classifier=True),
                 )
                 if not followup:
-                    log.info("Conversation mode: no follow-up — returning to idle")
+                    log.info("Conversation mode: capture ended — returning to idle")
+                    break
+                # Wait for speculative thread (classifier result lives inside it)
+                spec.ready.wait()
+                if spec.for_assistant is False:
+                    log.info("Conversation mode: utterance not for assistant — returning to idle")
                     break
                 self._finalize_prompt(followup, speculative=spec, caption_mode=True)
             self.conv.set_idle()
 
         log.info("AgentRunner: caption loop ended")
 
-    def _make_caption_speculative_callback(self, spec: _SpeculativeResult):
+    def _make_caption_speculative_callback(self, spec: _SpeculativeResult, run_classifier: bool = False):
         """Return an on_speculative callback for caption mode (no Whisper step)."""
         def callback(prompt_text: str):
             threading.Thread(
                 target=self._run_caption_speculative,
-                args=(prompt_text, spec),
+                args=(prompt_text, spec, run_classifier),
                 daemon=True,
                 name="speculative-caption",
             ).start()
         return callback
 
-    def _run_caption_speculative(self, prompt_text: str, spec: _SpeculativeResult):
-        """Run speculative LLM on caption prompt text. No Whisper needed."""
+    def _run_caption_speculative(self, prompt_text: str, spec: _SpeculativeResult, run_classifier: bool = False):
+        """Run speculative LLM on caption prompt text. No Whisper needed.
+
+        When run_classifier=True (follow-up mode), appends a PASS instruction
+        so the model doubles as a classifier: it replies "PASS" if not addressed,
+        or a normal response if it is. One call, zero added latency.
+        """
         try:
             spec.transcript = prompt_text  # For match-checking in _finalize_prompt
             log.info(f"TIMING caption_speculative_llm_start prompt=\"{prompt_text[:60]}\"")
 
             with self._transcript_lock:
                 context = "\n".join(self._transcript_lines[-20:])
-            spec.full_prompt = (
-                f"[Meeting transcript so far]\n{context}\n\n"
-                f"[Someone just said to you]\n{prompt_text}"
-            )
-            spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
+
+            if run_classifier:
+                spec.full_prompt = (
+                    f"[Meeting transcript so far]\n{context}\n\n"
+                    f"[Someone just said]\n{prompt_text}\n\n"
+                    f"[Note] This may or may not be addressed to you. "
+                    f"If it is not addressed to you, respond with only the word PASS."
+                )
+                spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
+                spec.for_assistant = not spec.llm_reply.strip().upper().startswith("PASS")
+                log.info(f"TIMING caption_combined_classify for_assistant={spec.for_assistant}")
+            else:
+                spec.full_prompt = (
+                    f"[Meeting transcript so far]\n{context}\n\n"
+                    f"[Someone just said to you]\n{prompt_text}"
+                )
+                spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
+
             log.info(f"TIMING caption_speculative_llm_done reply=\"{spec.llm_reply[:60]}\"")
         except Exception as e:
             log.debug(f"Speculative caption processing error: {e}")
