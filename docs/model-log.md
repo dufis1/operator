@@ -80,6 +80,20 @@ STARTUP join failed: no_join_button                    # pre-join screen but no 
 MacOSAdapter: health check — unexpected URL: ...       # navigated away from meet.google.com
 ```
 
+**Diagnostic lines** (appear during startup in caption mode — normal, not errors):
+```
+CaptionsAdapter: JS diagnostic — observer_attached label=scoped_region    # observer wired to caption region
+CaptionsAdapter: JS diagnostic — observer_attached label=scoped_region_polled  # found after polling (slight delay)
+CaptionsAdapter: JS diagnostic — observer_attached label=body_fallback    # caption region not found — selector mismatch
+CaptionsAdapter: JS diagnostic — mutation_count=10                        # heartbeat: observer is firing
+CaptionsAdapter: DOM poll — caption region: '__empty__'                   # no one speaking (normal)
+CaptionsAdapter: DOM poll — caption region: 'Jojo Shapiro\nHey operator' # someone speaking (good)
+CaptionsAdapter: DOM poll — caption region: '__no_region__'               # caption region missing from DOM
+```
+- `body_fallback` or `__no_region__` → caption region selector needs updating; check `debug/in_meeting.html`
+- No `mutation_count` lines while someone is speaking → MutationObserver not firing; check headless mode
+- `__empty__` while someone is speaking → captions not rendering inside the region (shadow DOM or wrong element)
+
 **What to check if startup fails:**
 - Missing "Whisper model loaded" → model download failed or wrong compute_type
 - Missing "Kokoro TTS ready" → Kokoro not installed, will fall back to macos_say
@@ -248,7 +262,7 @@ happens in real-time on every DOM update (~330ms), not after full utterance tran
 
 ```
 TIMING caption_capture_start (timeout=None require_wake=True)   # initial wake listen
-caption: [Alice] Hey operator what is the plan   # raw caption text (DEBUG level)
+caption: [Alice] Hey operator what is the plan   # raw caption text (INFO level)
 TIMING caption_wake_detected speaker=Alice prompt_so_far="what is the plan"  # wake found mid-speech
 TIMING caption_wake_confirmed — entering silence detection
 TIMING caption_speculative_fire gap=1.04s prompt="what is the plan"  # speculative LLM at 1.0s of silence

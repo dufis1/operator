@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 1, 2026 (session 3)*
+*Last updated: April 1, 2026 (session 4)*
 
-> **Current status: Caption refactor Steps 1–5 complete + conversation follow-up implemented.** Follow-up mode added to CaptionProcessor (`require_wake=False`): no wake phrase needed for follow-up utterances. Combined classify+respond call: PASS instruction appended to follow-up prompts so the model exits conversation mode when the speaker moves on, otherwise responds normally. **Next: Step 6 — live end-to-end test in Google Meet.**
+> **Current status: Caption pipeline confirmed working — captions flow from Meet DOM to Python.** Root cause of caption silence found and fixed: `requestAnimationFrame` is suppressed in `--headless=new` Chrome, replaced with `setTimeout`. Captions now reach Python (confirmed with "zork test" in live meeting). **Next: Full end-to-end test — say "hey operator, what's 2+2?" to verify wake→LLM→TTS chain, then test follow-up mode.**
 
 ---
 
