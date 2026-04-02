@@ -357,20 +357,10 @@ class CaptionsAdapter(MeetingConnector):
                 deadline = time.time() + 4 * 3600
                 last_health = time.time()
                 while not self._leave_event.is_set() and time.time() < deadline:
-                    time.sleep(5)
-                    # DOM poll: read caption region text directly to verify captions
-                    # are being rendered at all (independent of MutationObserver)
-                    try:
-                        caption_text = page.evaluate("""
-                            () => {
-                                const region = document.querySelector('[role="region"][aria-label*="Captions"]');
-                                if (!region) return '__no_region__';
-                                return region.innerText.trim() || '__empty__';
-                            }
-                        """)
-                        log.info(f"CaptionsAdapter: DOM poll — caption region: {caption_text[:120]!r}")
-                    except Exception as e:
-                        log.debug(f"CaptionsAdapter: DOM poll error: {e}")
+                    # Use Playwright's own wait (pumps the CDP event loop) rather than
+                    # time.sleep() which blocks it — expose_function callbacks won't fire
+                    # unless the Playwright event loop is being pumped.
+                    page.wait_for_timeout(5000)
 
                     if time.time() - last_health >= 300:
                         last_health = time.time()
