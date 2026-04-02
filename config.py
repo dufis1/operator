@@ -43,6 +43,10 @@ _captions = _config.get("captions", {})
 CAPTION_FINALIZATION_SECONDS = _captions.get("finalization_seconds", 1.5)
 CAPTION_SPECULATIVE_SECONDS  = _captions.get("speculative_seconds", 1.0)
 
+# Diagnostics
+_diagnostics = _config.get("diagnostics", {})
+LATENCY_PROBE_ENABLED = _diagnostics.get("latency_probe", True)
+
 # CalDAV
 CALDAV_BOT_GMAIL = _config["caldav"]["bot_gmail"]
 

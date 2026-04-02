@@ -107,9 +107,8 @@ class CaptionProcessor:
         firing (~3/sec during speech). Must be fast — no blocking.
         """
         if self.is_speaking:
+            log.debug(f"caption: dropped while speaking [{speaker}] {text[:60]}")
             return
-        if speaker == "You":
-            return  # Operator's own TTS audio reflected back — ignore
 
         with self._lock:
             # Feed transcript callback (all speech, not just wake-triggered)

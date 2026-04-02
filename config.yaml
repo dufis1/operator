@@ -48,6 +48,9 @@ captions:
   finalization_seconds: 1.5      # seconds of no DOM updates before text is considered final
   speculative_seconds: 1.0       # fire speculative LLM after this many seconds of silence
 
+diagnostics:
+  latency_probe: true            # set false to disable mic monitoring (suppresses PortAudio input monitoring feedback)
+
 caldav:
   bot_gmail: null                # bot's Gmail address, e.g. "yourname.operator@gmail.com"
                                  # set this to enable CalDAV calendar polling + auto-join

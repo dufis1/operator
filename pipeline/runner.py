@@ -165,7 +165,10 @@ class AgentRunner:
                 self.connector.leave()
                 return
 
-        self._latency_probe.start()
+        if config.LATENCY_PROBE_ENABLED:
+            self._latency_probe.start()
+        else:
+            log.info("LatencyProbe: disabled via config")
         self.conv.set_idle()
         log.info("STARTUP complete — idle, listening for wake phrase")
 

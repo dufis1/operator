@@ -29,8 +29,8 @@ log = logging.getLogger(__name__)
 # Tune based on "LatencyProbe: speech peak_rms=..." lines in the log.
 _SILENCE_RMS = 0.03
 # How many consecutive 100ms silent blocks before we declare silence.
-# 3 blocks = 300ms hysteresis, prevents chattering on brief between-word dips.
-_SILENCE_HOLD_BLOCKS = 3
+# 6 blocks = 600ms hysteresis — spans natural word-boundary pauses (~200-400ms).
+_SILENCE_HOLD_BLOCKS = 6
 # Ignore speech segments shorter than this (filters noise pops)
 _MIN_SPEECH_DURATION = 0.3
 # Sample rate — low enough to be cheap, high enough for voice envelope
@@ -44,6 +44,7 @@ class LatencyProbe:
         self._thread = None
         self._stop = threading.Event()
         self._active = True  # gated False while bot is filling/speaking
+        self._resume_warmup = 0  # blocks to discard after gate re-opens (absorbs echo)
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True, name="latency-probe")
@@ -59,6 +60,8 @@ class LatencyProbe:
         """Gate logging. Call set_active(False) when bot starts filling or speaking,
         set_active(True) after echo guard clears, to avoid logging speaker bleed."""
         self._active = active
+        if active:
+            self._resume_warmup = 5  # discard 5 × 100ms blocks on resume
 
     def _run(self):
         try:
@@ -100,6 +103,15 @@ class LatencyProbe:
 
                 if not self._active:
                     # Reset state while gated so stale speech doesn't carry over
+                    in_speech = False
+                    speech_start = None
+                    silence_count = 0
+                    self._resume_warmup = 0
+                    continue
+
+                if self._resume_warmup > 0:
+                    # Discard first N blocks after gate re-opens to absorb lingering echo
+                    self._resume_warmup -= 1
                     in_speech = False
                     speech_start = None
                     silence_count = 0
