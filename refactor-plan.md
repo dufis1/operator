@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 1, 2026 (session 6)*
+*Last updated: April 2, 2026 (session 8)*
 
-> **Current status: C.6 complete.** Echo filter, transcript leak fix, punctuation-gated finalization, and Playwright bridge batching all resolved. bridge_lag is now 0–2ms. Dominant latency is silence detection wait (~1.55s). **Next: Phase 7.5 (TTS reliability) or silence threshold tuning.**
+> **Current status: C.6 complete + latency instrumentation.** Speculative LLM path fixed (duplicate call eliminated), filler now concurrent with LLM wait, full TIMING instrumentation added. Verified in live test: 2.79s from last caption to bot audio. Dominant latency is silence detection wait (1.54s hard floor). **Next: perceived latency measurement (mic silence detection + filler/response timestamps) or Phase 7.5 (TTS reliability).**
 
 ---
 

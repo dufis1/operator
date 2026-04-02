@@ -18,8 +18,21 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Full pipeline working end-to-end with 0–2ms bridge_lag.
-**Next action:** Phase 7.5 (TTS reliability improvements) or tune silence detection threshold (`captions.finalization_seconds` in config.yaml) — currently 1.55s is the dominant latency source.
+**Phase:** Caption-scraping refactor — C.6 complete. Perceived latency measurement implemented and tuned. Live-tested and producing data.
+**Next action:** Run `python scripts/parse_latency.py` to read the first perceived latency report. Analyze ASR delay, dead-air-to-filler, and dead-air-to-response numbers. Use results to decide whether to tune `captions.finalization_seconds` further or move to Phase 7.5 (TTS reliability).
+
+**What was built this session (April 2, 2026, session 9):**
+- `pipeline/latency_probe.py` — New `LatencyProbe` class. Background daemon thread reads the system default mic via `sounddevice.InputStream` at 8kHz/100ms blocks. Detects acoustic speech→silence transitions; logs `TIMING perceived_speech_start` and `TIMING perceived_acoustic_silence_end speech_duration=N.NNs peak_rms=N.NNNN`. RMS threshold `_SILENCE_RMS=0.03`, silence hold `_SILENCE_HOLD_BLOCKS=3` (300ms hysteresis). `set_active(False/True)` gate prevents false events from filler/response audio bleeding back through the mic.
+- `pipeline/runner.py` — Wired `LatencyProbe`: instantiated in `__init__`, started in `run()` before the main loop, stopped in both `run()` finally and `stop()` (with 2s join). Probe gated inactive at `filler_play_start` (not just `response_play_start`) and reactivated after echo guard clears.
+- `scripts/parse_latency.py` — New log parser. Groups events into cycles keyed on `perceived_acoustic_silence_end`, prints per-cycle table: ASR delay, dead air to filler, dead air to response; averages at bottom.
+- **Tuning notes:** System default input must be MacBook Pro Microphone (not Display Audio). Threshold 0.03 is correct for this setup (speech peaks at ~0.033 RMS). Three SILENCE_HOLD_BLOCKS prevents between-word chattering. Parse script handles mid-utterance false silence_end via `perceived_speech_start` reset.
+- **Not yet done:** `parse_latency.py` hasn't been run against a full session log yet — deferred to next session.
+
+**What was built this session (April 2, 2026, session 8):**
+- `pipeline/runner.py` — Speculative LLM path fixed: removed `speculative.ready.wait(timeout=0.3)` which expired before the result arrived, causing an unconditional duplicate `llm.ask()` to fire in parallel. Now `speculative.ready.wait()` is unbounded — the speculative call is the only call. Fresh call only fires if speculative failed (llm_reply is None) or transcript mismatched. Filler clip now starts in a daemon thread at finalization entry (not after LLM returns), so it plays concurrently with the LLM wait. New TIMING markers: `filler_play_start/done`, `llm_speculative_hit waited=Ns`, `llm_speculative_miss`, `llm_request_sent/received`, `tts_synthesis_start/done`, `response_play_start/done`, `end_to_end` summary.
+- `pipeline/captions.py` — Added `last_caption_time` read-only property (exposes `_last_update_time` for runner latency logging).
+- `docs/model-log.md` — Section 4 updated to reflect all new TIMING lines.
+- **Live test result (April 2, 2026):** 1.54s silence detection + 0.49s LLM wait (speculative still in-flight) + 0.75s TTS synthesis = 2.79s from last caption to bot audio. Only one LLM call confirmed. Filler played concurrently during LLM wait, covering 493ms of otherwise dead air.
 
 **What was built this session (April 1, 2026, session 7):**
 - `pipeline/captions.py` — Wake phrase detection now uses a regex compiled from `config.WAKE_PHRASE` that tolerates punctuation between words (`_WAKE_RE`). Previously the plain `in` check (`"hey operator" in text`) would fail when Google's ASR inserted a comma mid-phrase ("hey, operator"), causing spurious retraction and re-detection failure. Pattern: `"hey operator"` → `hey[,\s]+operator`. Both the initial detection and the retraction check use `_WAKE_RE.search(text_lower)`. Wake position now taken from `m.end()` (the regex match end) rather than `idx + len(wake_phrase)`.

@@ -31,6 +31,7 @@ from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline import fillers
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
 from pipeline.tts import TTSClient
+from pipeline.latency_probe import LatencyProbe
 from pipeline.sanitize import sanitize_for_speech
 from pipeline.wake import detect_wake_phrase
 
@@ -85,6 +86,7 @@ class AgentRunner:
         self.conv = None
         self.llm = None
         self.tts = None
+        self._latency_probe = LatencyProbe()
 
     # ------------------------------------------------------------------
     # Entry point
@@ -163,6 +165,7 @@ class AgentRunner:
                 self.connector.leave()
                 return
 
+        self._latency_probe.start()
         self.conv.set_idle()
         log.info("STARTUP complete — idle, listening for wake phrase")
 
@@ -172,6 +175,7 @@ class AgentRunner:
             else:
                 self._transcription_loop()
         finally:
+            self._latency_probe.stop()
             if self._caption_mode:
                 self.captions.stop()
             else:
@@ -180,6 +184,7 @@ class AgentRunner:
     def stop(self):
         """Signal the main loop to exit cleanly."""
         self._stop_event.set()
+        self._latency_probe.stop()
         if self.audio:
             self.audio.capturing = False
         if self.captions:
@@ -520,6 +525,7 @@ class AgentRunner:
             if filler_clips:
                 clip = filler_clips[0]
                 log.info(f"TIMING filler_play_start clip={os.path.basename(clip)} bucket={filler_bucket}")
+                self._latency_probe.set_active(False)
                 def _play_filler():
                     self.tts.play_clip(clip)
                     log.info("TIMING filler_play_done")
@@ -588,6 +594,7 @@ class AgentRunner:
             filler_done.wait()  # usually already set; no delay if filler finished first
 
             # --- Step 5: Response plays ---
+            self._latency_probe.set_active(False)
             t_play = time.time()
             log.info("TIMING response_play_start")
             self.tts.play_audio(wav_result[0])
@@ -605,6 +612,7 @@ class AgentRunner:
             log.error(f"Pipeline error: {e}", exc_info=True)
         finally:
             time.sleep(config.ECHO_GUARD_SECONDS)
+            self._latency_probe.set_active(True)
             if caption_mode:
                 self.captions.is_speaking = False
                 log.info("Echo prevention: resumed caption processing")

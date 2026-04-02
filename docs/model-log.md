@@ -46,6 +46,8 @@ CaptionsAdapter: joining <url>                  # caption connector join
 CaptionsAdapter: captions enabled via Shift+C   # or "via button fallback"
 CaptionsAdapter: caption observer injected      # MutationObserver scoped to caption region
 STARTUP caption processing active
+LatencyProbe: input device = 'MacBook Pro Microphone'  # system default mic; must NOT be Display Audio or BlackHole
+LatencyProbe: started
 State → idle (Listening for 'operator'...)
 STARTUP complete — idle, listening for wake phrase
 ```
@@ -193,37 +195,39 @@ Then continues to Section 4 (LLM + TTS).
 After a prompt is finalized, the pipeline calls LLM and synthesizes speech:
 
 ```
-Echo prevention: paused audio ingestion         # audio mode: stop capturing while bot speaks
 Echo prevention: paused caption processing      # caption mode: ignore captions while bot speaks
-TIMING llm_request_sent                         # or llm_speculative_hit if cache matched
-LLM ask model=gpt-4.1-mini history_turns=N utterance="..."  # logged before API call
+TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization
+LLM ask model=gpt-4.1-mini history_turns=N utterance="..."        # logged before API call
 LLM reply="..."                                 # logged on successful response
-TIMING llm_response_received (N.Ns) "<reply>"   # typical: 0.8-1.7s
+TIMING llm_speculative_hit waited=N.NNs reply="..."  # speculative result used (waited=0.00s if already done)
 State → speaking (Speaking...)
-TIMING tts_request_sent
-Filler bucket: <neutral|cerebral|...>           # filler category based on prompt
-Filler clip: filler_NN.mp3                      # played while TTS synthesizes
-TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s
+TIMING tts_synthesis_start
+TIMING filler_play_done                         # filler finishes (concurrent with LLM + TTS)
+TIMING tts_synth_done (N.NNs)                  # typical Kokoro: 0.5-1.5s (logged inside tts.py)
+TIMING tts_synthesis_done elapsed=N.NNs        # logged by runner after synthesis thread signals
+TIMING response_play_start
 TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID  # logged before mpv launch
 TTS play_audio: done                            # logged after mpv exits cleanly
-Pipeline timing — llm: N.Ns, speak: N.Ns, total: N.Ns
-                                                  # 1.0s echo guard delay (configurable)
-Echo prevention: resumed audio ingestion         # audio mode
+TIMING response_play_done elapsed=N.NNs
+TIMING end_to_end — llm_wait: N.NNs | synthesis: N.NNs | speak: N.NNs | total_from_finalized: N.NNs
 Echo prevention: resumed caption processing      # caption mode
 State → idle (Listening for 'operator'...)
 ```
 
-**Speculative processing variants** (instead of llm_request_sent):
-- `TIMING llm_speculative_hit "<reply>"` — first-silence speculation matched final transcript
-- `TIMING llm_speculative_hit (late) "<reply>"` — matched after a brief wait
+**LLM resolution variants** (one of these appears per interaction):
+- `TIMING llm_speculative_hit waited=0.00s reply="..."` — speculative done before finalization, used immediately
+- `TIMING llm_speculative_hit waited=N.NNs reply="..."` — speculative still in-flight at finalization, waited for it
+- `TIMING llm_speculative_miss reason=<transcript_mismatch|no_reply> waited=N.NNs` — speculative failed or mismatched; fresh call follows
+- `TIMING llm_request_sent` + `TIMING llm_response_received elapsed=N.NNs reply="..."` — fresh call (no speculative, or after miss)
 
 **What to check:**
 - `LLM ask` present but no `LLM reply` → API call hung or raised; check for `LLM API call failed` error below it
-- Missing `TTS play_audio:` line → synthesis returned empty bytes; check for `Synthesis error` above
+- Missing `TIMING response_play_start` → synthesis returned empty bytes; check for `Synthesis error` above
 - `TTS play_audio: mpv exited with code N` → mpv failed; likely wrong audio device string or mpv not installed
 - "Synthesis error: ..." → TTS provider failed
-- Very long tts_synth_done (>3s) → TTS provider slow, consider switching
-- Pipeline total >10s → investigate which stage is slow (llm vs speak)
+- Very long tts_synthesis_done (>3s) → TTS provider slow, consider switching
+- `end_to_end total_from_finalized` >5s → investigate which stage is slow (llm_wait vs synthesis vs speak)
+- `Filler: no clips for bucket=...` → filler asset missing for that category; check assets/fillers/
 
 ---
 
@@ -329,6 +333,33 @@ State → idle (Listening for 'operator'...)
 ```
 Conversation mode: capture ended — returning to idle
 ```
+
+---
+
+## Section 5b: Perceived Latency Probe (caption mode only)
+
+Interspersed with caption and pipeline events. These measure the gap between acoustic speech end and pipeline events.
+
+```
+TIMING perceived_speech_start                                   # mic RMS crosses threshold — user started talking
+TIMING perceived_acoustic_silence_end speech_duration=N.NNs peak_rms=N.NNNN  # mic went quiet (sustained 300ms)
+```
+
+**Normal pattern per interaction:**
+- One or two `perceived_speech_start` lines while user speaks (brief between-word dips cause re-trigger)
+- One `perceived_acoustic_silence_end` after user finishes — appears BEFORE `caption_prompt_finalized`
+- No perceived events during filler or response (probe gated off at `filler_play_start`)
+
+**Key derived metrics** (computed by `scripts/parse_latency.py`):
+- ASR delay = `caption_prompt_finalized` − `perceived_acoustic_silence_end` (typically 0.5–1.5s)
+- Dead air to filler = `filler_play_start` − `perceived_acoustic_silence_end`
+- Dead air to response = `response_play_start` − `perceived_acoustic_silence_end`
+
+**What to check:**
+- No `perceived_*` events at all → check `LatencyProbe: input device` — must be real mic, not Display Audio or BlackHole
+- Events fire during bot response → `set_active` gate not working; check runner.py filler/response sections
+- Only `perceived_speech_start`, no `perceived_acoustic_silence_end` → ambient noise above threshold (0.03); may need tuning
+- `peak_rms` near 0.03 → user's voice barely above threshold; consider lowering to 0.025
 
 ---
 
