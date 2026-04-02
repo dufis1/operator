@@ -96,31 +96,55 @@ CAPTION_OBSERVER_JS = """
 
     // Wait for the captions region to appear, then scope the observer.
     const REGION_SEL = '[role="region"][aria-label*="Captions"]';
-    const attachObserver = (root) => {
+    let totalMutations = 0;
+    let lastMutationReport = 0;
+
+    const attachObserver = (root, label) => {
         new MutationObserver((mutations) => {
+            totalMutations += mutations.length;
+
+            // Emit a heartbeat every 10 mutations so Python can see the observer is alive
+            if (totalMutations - lastMutationReport >= 10) {
+                lastMutationReport = totalMutations;
+                window.__onCaption("__operator_diag__", "mutation_count=" + totalMutations, performance.now());
+            }
+
             for (const m of mutations) {
+                // Handle added HTMLElement nodes
                 for (const n of m.addedNodes) {
                     if (n instanceof HTMLElement) pending.add(n);
                 }
+                // Handle text node additions (Meet may wrap text in spans dynamically)
+                for (const n of m.addedNodes) {
+                    if (n.nodeType === Node.TEXT_NODE && n.parentElement instanceof HTMLElement) {
+                        pending.add(n.parentElement);
+                    }
+                }
+                // Handle characterData updates
                 if (m.type === "characterData" && m.target?.parentElement instanceof HTMLElement) {
                     pending.add(m.target.parentElement);
+                }
+                // Handle subtree attribute changes (e.g. aria-label updates carrying text)
+                if (m.type === "attributes" && m.target instanceof HTMLElement) {
+                    pending.add(m.target);
                 }
             }
             if (!rafScheduled && pending.size > 0) {
                 rafScheduled = true;
-                requestAnimationFrame(processPending);
+                setTimeout(processPending, 0);
             }
         }).observe(root, {
             childList: true,
             characterData: true,
+            attributes: true,
             subtree: true,
         });
-        console.log("[operator] caption observer attached to scoped region");
+        window.__onCaption("__operator_diag__", "observer_attached label=" + label, performance.now());
     };
 
     const region = document.querySelector(REGION_SEL);
     if (region) {
-        attachObserver(region);
+        attachObserver(region, "scoped_region");
     } else {
         // Region may not exist yet — poll briefly.
         let attempts = 0;
@@ -128,11 +152,10 @@ CAPTION_OBSERVER_JS = """
             const el = document.querySelector(REGION_SEL);
             if (el) {
                 clearInterval(poll);
-                attachObserver(el);
+                attachObserver(el, "scoped_region_polled");
             } else if (++attempts > 50) {
                 clearInterval(poll);
-                console.warn("[operator] caption region not found after 5s — falling back to body");
-                attachObserver(document.body);
+                attachObserver(document.body, "body_fallback");
             }
         }, 100);
     }
@@ -324,6 +347,7 @@ class CaptionsAdapter(MeetingConnector):
 
                 page.evaluate(CAPTION_OBSERVER_JS)
                 log.info("CaptionsAdapter: caption observer injected")
+                save_debug(page, "in_meeting")
 
                 self._page = page
                 js.signal_success()
@@ -333,6 +357,20 @@ class CaptionsAdapter(MeetingConnector):
                 last_health = time.time()
                 while not self._leave_event.is_set() and time.time() < deadline:
                     time.sleep(5)
+                    # DOM poll: read caption region text directly to verify captions
+                    # are being rendered at all (independent of MutationObserver)
+                    try:
+                        caption_text = page.evaluate("""
+                            () => {
+                                const region = document.querySelector('[role="region"][aria-label*="Captions"]');
+                                if (!region) return '__no_region__';
+                                return region.innerText.trim() || '__empty__';
+                            }
+                        """)
+                        log.info(f"CaptionsAdapter: DOM poll — caption region: {caption_text[:120]!r}")
+                    except Exception as e:
+                        log.debug(f"CaptionsAdapter: DOM poll error: {e}")
+
                     if time.time() - last_health >= 300:
                         last_health = time.time()
                         try:
@@ -412,6 +450,11 @@ class CaptionsAdapter(MeetingConnector):
 
     def _on_caption_from_js(self, speaker, text, js_timestamp):
         """Called by the browser's MutationObserver on every caption update."""
+        # Diagnostic sentinel from observer setup
+        if speaker == "__operator_diag__":
+            log.info(f"CaptionsAdapter: JS diagnostic — {text}")
+            return
+
         # Filter junk
         stripped = text.strip()
         if not stripped:
@@ -425,7 +468,7 @@ class CaptionsAdapter(MeetingConnector):
             return
 
         timestamp = time.time()
-        log.debug(f"caption: [{speaker}] {stripped[:80]}")
+        log.info(f"caption: [{speaker}] {stripped[:80]}")
 
         if self._caption_callback:
             self._caption_callback(speaker, stripped, timestamp)
