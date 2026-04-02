@@ -18,10 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — Steps 1–5 complete, Step 6 (live test) pending.
-**Next action:** Run a live end-to-end test in Google Meet. Join a meeting with `connector.type: auto` (resolves to `meet-captions`), say "hey operator, what's the weather in New York?", verify: wake detected mid-speech, prompt captured after silence, LLM responds, TTS plays to meeting. Then test conversation follow-up and multi-speaker scenarios.
+**Phase:** Caption-scraping refactor — Steps 1–5 complete + conversation follow-up implemented. Step 6 (live test) pending.
+**Next action:** Run a live end-to-end test in Google Meet. Join a meeting with `connector.type: auto` (resolves to `meet-captions`), say "hey operator, what's 2+2?", verify: wake detected, prompt captured, LLM responds, TTS plays. Then say "now triple it" (no wake phrase) within the conversation window — should respond. Then say "great thanks, so anyway..." — should NOT respond (model returns PASS). Check `/tmp/operator.log` for `caption_combined_classify for_assistant=True/False` lines.
 
-**What was built this session (April 1, 2026):**
+**What was built this session (April 1, 2026, session 3):**
+- `pipeline/captions.py` — `capture_next_wake_utterance()` gains `require_wake=False` for follow-up mode: skips wake detection, uses full caption text as prompt, handles speaker-change finalization and silence detection without `_wake_detected`. New `_require_wake` instance flag gates wake detection in `on_caption_update`. `_do_finalize()` gains `prompt_override` parameter.
+- `pipeline/runner.py` — Follow-up loop uses `require_wake=False`. `_make_caption_speculative_callback()` and `_run_caption_speculative()` gain `run_classifier` flag. In follow-up mode, a PASS instruction is appended to `spec.full_prompt`: model returns "PASS" if not addressed, otherwise responds normally. `spec.for_assistant` set from reply. `_SpeculativeResult` gains `for_assistant` field.
+- Combined classify+respond: one LLM call handles both jobs. No separate classifier thread, no added latency.
+
+**What was built this session (April 1, 2026, session 2):**
 - `connectors/captions_adapter.py` — Playwright browser join + scoped MutationObserver on `[role="region"][aria-label*="Captions"]`. JS→Python bridge via `expose_function`. Filters junk (material icons, system phrases). TTS playback via mpv→BlackHole (same as audio path).
 - `pipeline/captions.py` — CaptionProcessor: real-time wake detection on every DOM update (~330ms), silence detection via timing gaps (speculative at 1.0s, finalize at 1.5s), ASR correction handling (wake retraction if "hey operator" disappears), echo guard, transcript callback for all meeting speech.
 - `pipeline/runner.py` — Updated to detect caption vs audio mode from connector type. Caption loop uses `capture_next_wake_utterance()` (single call, not two-step). Speculative LLM fires at 1.0s (no Whisper step). All latency tricks preserved: fillers, echo guard, conversation mode, deferred history.

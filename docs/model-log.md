@@ -247,7 +247,7 @@ In caption mode, Sections 2/3a/3b are replaced by a single flow. Wake detection
 happens in real-time on every DOM update (~330ms), not after full utterance transcription.
 
 ```
-TIMING caption_capture_start (timeout=None)      # listening begins
+TIMING caption_capture_start (timeout=None require_wake=True)   # initial wake listen
 caption: [Alice] Hey operator what is the plan   # raw caption text (DEBUG level)
 TIMING caption_wake_detected speaker=Alice prompt_so_far="what is the plan"  # wake found mid-speech
 TIMING caption_wake_confirmed — entering silence detection
@@ -285,21 +285,33 @@ TIMING caption_finalized reason=speaker_change ...  # previous speaker's prompt 
 
 ## Section 5b: Caption Mode — Conversation Mode
 
-Same as audio conversation mode but uses caption silence detection:
+Follow-up utterances don't require "hey operator". The speculative LLM call doubles
+as a classifier: PASS instruction appended to prompt, model returns "PASS" if not
+addressed, otherwise responds normally.
 
 ```
 Entering conversation mode
 State → listening (Listening...)
-TIMING caption_capture_start (timeout=20.0)      # conversation timeout
-TIMING caption_wake_detected ...                  # follow-up with "hey operator"
-...                                               # same as Section 2b
+TIMING caption_capture_start (timeout=None require_wake=False)   # follow-up capture
+TIMING caption_followup_started — entering silence detection
+TIMING caption_speculative_fire gap=1.03s prompt="now triple it"
+TIMING caption_speculative_llm_start prompt="now triple it"
+TIMING caption_speculative_llm_done reply="That would be 12."
+TIMING caption_combined_classify for_assistant=True              # staying in conversation
+TIMING caption_prompt_finalized speaker=Alice prompt="now triple it"
+...                                                              # responds, loops
 ```
 
-**Conversation timeout** — if no captions within 20 seconds:
+**Conversation ends** — model returns PASS when speaker moves on:
 ```
-TIMING caption_timeout (no captions in 20s)
-Conversation mode: no follow-up — returning to idle
+TIMING caption_combined_classify for_assistant=False
+Conversation mode: utterance not for assistant — returning to idle
 State → idle (Listening for 'operator'...)
+```
+
+**Capture ended** — if connector stops (e.g. meeting left):
+```
+Conversation mode: capture ended — returning to idle
 ```
 
 ---

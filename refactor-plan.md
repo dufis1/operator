@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 1, 2026 (session 2)*
+*Last updated: April 1, 2026 (session 3)*
 
-> **Current status: Caption refactor Steps 1–5 complete.** Audio pipeline preserved behind `connector.type: audio`. CaptionsAdapter built (Playwright + scoped MutationObserver). CaptionProcessor built (real-time wake detection, speculative LLM at 1.0s, finalization at 1.5s). Runner supports both caption and audio modes. Wake phrase changed to "hey operator" to prevent false triggers. **Next: Step 6 — live end-to-end test in Google Meet.**
+> **Current status: Caption refactor Steps 1–5 complete + conversation follow-up implemented.** Follow-up mode added to CaptionProcessor (`require_wake=False`): no wake phrase needed for follow-up utterances. Combined classify+respond call: PASS instruction appended to follow-up prompts so the model exits conversation mode when the speaker moves on, otherwise responds normally. **Next: Step 6 — live end-to-end test in Google Meet.**
 
 ---
 
