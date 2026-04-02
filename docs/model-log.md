@@ -200,12 +200,16 @@ After a prompt is finalized, the pipeline calls LLM and synthesizes speech:
 Echo prevention: paused audio ingestion         # audio mode: stop capturing while bot speaks
 Echo prevention: paused caption processing      # caption mode: ignore captions while bot speaks
 TIMING llm_request_sent                         # or llm_speculative_hit if cache matched
+LLM ask model=gpt-4.1-mini history_turns=N utterance="..."  # logged before API call
+LLM reply="..."                                 # logged on successful response
 TIMING llm_response_received (N.Ns) "<reply>"   # typical: 0.8-1.7s
 State → speaking (Speaking...)
 TIMING tts_request_sent
 Filler bucket: <neutral|cerebral|...>           # filler category based on prompt
 Filler clip: filler_NN.mp3                      # played while TTS synthesizes
 TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s
+TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID  # logged before mpv launch
+TTS play_audio: done                            # logged after mpv exits cleanly
 Pipeline timing — llm: N.Ns, speak: N.Ns, total: N.Ns
                                                   # 1.0s echo guard delay (configurable)
 Echo prevention: resumed audio ingestion         # audio mode
@@ -218,7 +222,9 @@ State → idle (Listening for 'operator'...)
 - `TIMING llm_speculative_hit (late) "<reply>"` — matched after a brief wait
 
 **What to check:**
-- Missing llm_response_received → API timeout or network issue
+- `LLM ask` present but no `LLM reply` → API call hung or raised; check for `LLM API call failed` error below it
+- Missing `TTS play_audio:` line → synthesis returned empty bytes; check for `Synthesis error` above
+- `TTS play_audio: mpv exited with code N` → mpv failed; likely wrong audio device string or mpv not installed
 - "Synthesis error: ..." → TTS provider failed
 - Very long tts_synth_done (>3s) → TTS provider slow, consider switching
 - Pipeline total >10s → investigate which stage is slow (llm vs speak)

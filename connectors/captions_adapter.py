@@ -179,6 +179,7 @@ class CaptionsAdapter(MeetingConnector):
         self._leave_event = threading.Event()
         self._caption_callback = None  # set via set_caption_callback()
         self._page = None              # set once in-meeting (for echo guard)
+        self._js_time_offset = None    # maps performance.now() → wall clock time
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -467,8 +468,13 @@ class CaptionsAdapter(MeetingConnector):
         if stripped.lower() == speaker.lower():
             return
 
-        timestamp = time.time()
-        log.info(f"caption: [{speaker}] {stripped[:80]}")
+        py_now = time.time()
+        # Calibrate JS→wall-clock offset on first caption (performance.now() is ms from page load)
+        if self._js_time_offset is None:
+            self._js_time_offset = py_now - js_timestamp / 1000.0
+        timestamp = self._js_time_offset + js_timestamp / 1000.0
+        bridge_lag = py_now - timestamp
+        log.info(f"caption: [{speaker}] {stripped[:80]}  [bridge_lag={bridge_lag*1000:.0f}ms]")
 
         if self._caption_callback:
             self._caption_callback(speaker, stripped, timestamp)

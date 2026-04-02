@@ -20,6 +20,10 @@ log = logging.getLogger(__name__)
 SPECULATIVE_SECONDS  = config.CAPTION_SPECULATIVE_SECONDS   # default 1.0
 FINALIZATION_SECONDS = config.CAPTION_FINALIZATION_SECONDS   # default 1.5
 
+# If ASR hasn't added terminal punctuation by this time, finalize anyway.
+# Prevents indefinite hold for commands/fragments that ASR never punctuates.
+FINALIZATION_HARD_TIMEOUT = FINALIZATION_SECONDS * 2.5  # default 3.75s
+
 # How often the silence-detection loop checks for gaps
 _POLL_INTERVAL = 0.1  # 100ms — fast enough to catch 1.0s speculative threshold
 
@@ -92,6 +96,8 @@ class CaptionProcessor:
         """
         if self.is_speaking:
             return
+        if speaker == "You":
+            return  # Operator's own TTS audio reflected back — ignore
 
         with self._lock:
             # Feed transcript callback (all speech, not just wake-triggered)
@@ -231,9 +237,15 @@ class CaptionProcessor:
                         except Exception as e:
                             log.error(f"Speculative callback error: {e}")
 
-                # Finalization at FINALIZATION_SECONDS
+                # Finalization at FINALIZATION_SECONDS — but require terminal punctuation
+                # to avoid cutting off mid-sentence when ASR emits words in slow batches.
+                # Hard timeout overrides if ASR never adds punctuation (e.g. bare commands).
                 if gap >= FINALIZATION_SECONDS and active:
-                    self._do_finalize("silence", prompt_override=None if require_wake else current_prompt)
+                    # Check raw caption text (not extracted prompt — that has punctuation stripped)
+                    raw_tail = self._current_text.rstrip()
+                    prompt_complete = bool(raw_tail) and raw_tail[-1] in '.?!'
+                    if prompt_complete or gap >= FINALIZATION_HARD_TIMEOUT:
+                        self._do_finalize("silence", prompt_override=None if require_wake else current_prompt)
 
             # If wake was retracted, restart the wake wait (only in wake-required mode)
             if require_wake and not self._wake_detected and not self._finalized_event.is_set():

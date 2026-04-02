@@ -441,7 +441,8 @@ class AgentRunner:
             log.info(f"TIMING caption_speculative_llm_start prompt=\"{prompt_text[:60]}\"")
 
             with self._transcript_lock:
-                context = "\n".join(self._transcript_lines[-20:])
+                # Exclude the last line (current utterance) — it's already in the prompt section
+                context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
 
             if run_classifier:
                 spec.full_prompt = (
@@ -502,7 +503,8 @@ class AgentRunner:
             log.info("Echo prevention: paused audio ingestion")
 
         with self._transcript_lock:
-            context = "\n".join(self._transcript_lines[-20:])
+            # Exclude the last line (current utterance) — it's already in the prompt section
+            context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
 
         full_prompt = (
             f"[Meeting transcript so far]\n{context}\n\n"
