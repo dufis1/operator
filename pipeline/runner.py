@@ -511,74 +511,94 @@ class AgentRunner:
         )
 
         try:
-            # --- LLM: use speculative result if it matches, else call normally ---
+            t_finalized = time.time()
+
+            # --- Step 3: Start filler immediately, concurrent with LLM wait ---
+            filler_bucket = fillers.classify(prompt)
+            filler_clips = fillers.get_clips(filler_bucket)
+            filler_done = threading.Event()
+            if filler_clips:
+                clip = filler_clips[0]
+                log.info(f"TIMING filler_play_start clip={os.path.basename(clip)} bucket={filler_bucket}")
+                def _play_filler():
+                    self.tts.play_clip(clip)
+                    log.info("TIMING filler_play_done")
+                    filler_done.set()
+                threading.Thread(target=_play_filler, daemon=True, name="filler").start()
+            else:
+                log.info(f"Filler: no clips for bucket={filler_bucket}, skipping")
+                filler_done.set()
+
+            # --- Step 1: Resolve LLM — speculative only, no duplicate call ---
             t0 = time.time()
+            reply = None
+
             if (speculative
                     and speculative.ready.is_set()
                     and speculative.transcript == prompt
                     and speculative.llm_reply):
+                # Already done before we got here
                 reply = speculative.llm_reply
                 self.llm.record_exchange(speculative.full_prompt, reply)
-                log.info(f"TIMING llm_speculative_hit \"{reply}\"")
-            else:
-                # If speculative is still in-flight, wait briefly for it
-                if speculative and not speculative.ready.is_set():
-                    speculative.ready.wait(timeout=0.3)
-                    if (speculative.ready.is_set()
-                            and speculative.transcript == prompt
-                            and speculative.llm_reply):
-                        reply = speculative.llm_reply
-                        self.llm.record_exchange(speculative.full_prompt, reply)
-                        log.info(f"TIMING llm_speculative_hit (late) \"{reply}\"")
-                    else:
-                        log.info("TIMING llm_request_sent")
-                        reply = self.llm.ask(full_prompt)
-                        log.info(f"TIMING llm_response_received ({time.time() - t0:.1f}s) \"{reply}\"")
+                log.info(f"TIMING llm_speculative_hit waited=0.00s reply=\"{reply[:60]}\"")
+            elif speculative and not speculative.ready.is_set():
+                # In-flight — wait for it, however long it takes
+                t_wait_start = time.time()
+                speculative.ready.wait()
+                t_waited = time.time() - t_wait_start
+                if speculative.transcript == prompt and speculative.llm_reply:
+                    reply = speculative.llm_reply
+                    self.llm.record_exchange(speculative.full_prompt, reply)
+                    log.info(f"TIMING llm_speculative_hit waited={t_waited:.2f}s reply=\"{reply[:60]}\"")
                 else:
-                    log.info("TIMING llm_request_sent")
-                    reply = self.llm.ask(full_prompt)
-                    log.info(f"TIMING llm_response_received ({time.time() - t0:.1f}s) \"{reply}\"")
+                    reason = "transcript_mismatch" if speculative.transcript != prompt else "no_reply"
+                    log.info(f"TIMING llm_speculative_miss reason={reason} waited={t_waited:.2f}s")
+
+            if reply is None:
+                # No speculative, or speculative failed/mismatched — fresh call
+                log.info("TIMING llm_request_sent")
+                reply = self.llm.ask(full_prompt)
+                log.info(f"TIMING llm_response_received elapsed={time.time() - t0:.2f}s reply=\"{reply[:60]}\"")
 
             # --- Sanitize for TTS ---
             reply = sanitize_for_speech(reply)
 
-            # --- TTS synthesis in background, fillers in foreground ---
+            # --- Step 2: TTS synthesis kicked off ---
             self.conv.set_speaking()
             t_tts = time.time()
-            log.info("TIMING tts_request_sent")
+            log.info("TIMING tts_synthesis_start")
 
             synthesis_done = threading.Event()
             wav_result = [None]
 
             def _synthesize():
+                t_s = time.time()
                 try:
                     wav_result[0] = self.tts.synthesize(reply)
                 except Exception as exc:
                     log.error(f"Synthesis error: {exc}")
                 finally:
+                    log.info(f"TIMING tts_synthesis_done elapsed={time.time() - t_s:.2f}s")
                     synthesis_done.set()
 
             threading.Thread(target=_synthesize, daemon=True).start()
 
-            # Play one filler clip while synthesis runs, then wait silently
-            filler_bucket = fillers.classify(prompt)
-            log.info(f"Filler bucket: {filler_bucket} (prompt: {prompt!r})")
-            filler_clips = fillers.get_clips(filler_bucket)
-            if filler_clips:
-                clip = filler_clips[0]
-                log.info(f"Filler clip: {os.path.basename(clip)}")
-                self.tts.play_clip(clip)
-
+            # --- Step 4: Wait for synthesis, then filler ---
             synthesis_done.wait()
+            filler_done.wait()  # usually already set; no delay if filler finished first
 
-            # Play the actual response
+            # --- Step 5: Response plays ---
             t_play = time.time()
+            log.info("TIMING response_play_start")
             self.tts.play_audio(wav_result[0])
             t_done = time.time()
+            log.info(f"TIMING response_play_done elapsed={t_done - t_play:.2f}s")
             log.info(
-                f"Pipeline timing — llm: {t_play - t0:.1f}s, "
-                f"speak: {t_done - t_play:.1f}s, "
-                f"total: {t_done - t0:.1f}s"
+                f"TIMING end_to_end — "
+                f"llm_wait: {t_tts - t_finalized:.2f}s | "
+                f"synthesis: {t_play - t_tts:.2f}s | "
+                f"speak: {t_done - t_play:.2f}s | "
+                f"total_from_finalized: {t_done - t_finalized:.2f}s"
             )
 
         except Exception as e:

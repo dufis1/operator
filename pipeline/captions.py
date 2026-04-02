@@ -93,6 +93,11 @@ class CaptionProcessor:
         """
         self._transcript_callback = fn
 
+    @property
+    def last_caption_time(self) -> float:
+        """Wall-clock time of the most recent caption update."""
+        return self._last_update_time
+
     # ── Called by CaptionsAdapter on every DOM update ────────────────
 
     def on_caption_update(self, speaker, text, timestamp):
