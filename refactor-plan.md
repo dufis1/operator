@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 1, 2026 (session 4)*
+*Last updated: April 1, 2026 (session 5)*
 
-> **Current status: Caption pipeline confirmed working — captions flow from Meet DOM to Python.** Root cause of caption silence found and fixed: `requestAnimationFrame` is suppressed in `--headless=new` Chrome, replaced with `setTimeout`. Captions now reach Python (confirmed with "zork test" in live meeting). **Next: Full end-to-end test — say "hey operator, what's 2+2?" to verify wake→LLM→TTS chain, then test follow-up mode.**
+> **Current status: C.6 largely working.** Echo filter applied, transcript leak fixed, punctuation-gated finalization in place. Playwright bridge batching identified as remaining latency source (2–3s delivery delay observed in some runs). **Next: Investigate Playwright `expose_function` bridge batching — why are JS callbacks held for 2–3s before Python receives them?**
 
 ---
 
@@ -211,7 +211,7 @@
 | C.3 | Build CaptionProcessor — real-time wake detection, silence via timing gaps, speculative callback | ✅ |
 | C.4 | Wire runner.py for caption mode — caption loop, speculative LLM, echo guard, transcript feeding | ✅ |
 | C.5 | Config wiring — `meet-captions` connector type, `captions.finalization_seconds`, `captions.speculative_seconds` | ✅ |
-| C.6 | Live end-to-end test in Google Meet | ⬜ |
+| C.6 | Live end-to-end test in Google Meet | 🔄 Wake→LLM→TTS confirmed. Echo/leak/finalization bugs fixed. Playwright bridge latency under investigation. |
 
 ---
 

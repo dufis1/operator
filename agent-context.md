@@ -18,8 +18,13 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — Steps 1–5 complete + conversation follow-up implemented. Step 6 (live test) in progress — captions confirmed flowing, full wake→LLM→TTS chain not yet verified.
-**Next action:** Run a full end-to-end test in Google Meet. Say "hey operator, what's 2+2?" — verify wake detected (`caption_wake_detected`), LLM responds, TTS plays through the meeting. Then say "now triple it" (no wake phrase) — should respond via follow-up mode. Then say "great thanks, so anyway..." — should NOT respond (`caption_combined_classify for_assistant=False`). Check `/tmp/operator.log` for `caption_combined_classify for_assistant=True/False` lines.
+**Phase:** Caption-scraping refactor — Steps 1–6 in progress. Core chain working. Three bugs fixed this session. Playwright bridge batching is the remaining latency source to investigate.
+**Next action:** Investigate Playwright `expose_function` bridge batching. The JS MutationObserver fires captions promptly (performance.now() timestamps are accurate), but Python receives them 2–3s late in some runs. Check whether `page.evaluate()` in the 5s DOM poll loop is blocking the CDP event loop, whether `expose_function` batches under idle conditions, and whether switching to `page.on("console", ...)` or a polling approach would reduce latency. Key file: `connectors/captions_adapter.py`.
+
+**What was built this session (April 1, 2026, session 5):**
+- `pipeline/captions.py` — Filter "You" speaker to block Operator TTS echo. Added punctuation-gated finalization: at 1.5s silence, only finalize if raw caption text ends with `.?!`; hard timeout at 3.75s for unpunctuated fragments. Checks `_current_text.rstrip()[-1]` (not extracted prompt, which has punctuation stripped).
+- `pipeline/runner.py` — Both `_run_caption_speculative` and `_finalize_prompt` now use `_transcript_lines[-20:-1]` to exclude the current utterance from LLM context. Prevents pre-wake speech ("I'm a janitor") from leaking into the meeting transcript section.
+- `connectors/captions_adapter.py` — JS-side `performance.now()` timestamps now used for gap measurement instead of Python `time.time()`. Calibrates offset on first caption. Logs `bridge_lag` on every caption — key diagnostic for Playwright batching investigation.
 
 **What was built this session (April 1, 2026, session 4):**
 - `connectors/captions_adapter.py` — Fixed caption silence bug: `requestAnimationFrame` is throttled/suppressed in `--headless=new` Chrome, so pending mutations never flushed. Replaced with `setTimeout(fn, 0)`. Added diagnostic logging: mutation count heartbeat (every 10 mutations), JS observer-attach sentinel surfaced to Python log, in-meeting DOM snapshot (`debug/in_meeting.html`), 5s DOM poll reading caption region text directly (bypass MutationObserver for verification), text node and attribute mutation handling for defensive coverage. `caption:` log lines promoted from DEBUG → INFO.

@@ -268,7 +268,7 @@ happens in real-time on every DOM update (~330ms), not after full utterance tran
 
 ```
 TIMING caption_capture_start (timeout=None require_wake=True)   # initial wake listen
-caption: [Alice] Hey operator what is the plan   # raw caption text (INFO level)
+caption: [Alice] Hey operator what is the plan  [bridge_lag=Nms]   # raw caption + JS→Python bridge lag
 TIMING caption_wake_detected speaker=Alice prompt_so_far="what is the plan"  # wake found mid-speech
 TIMING caption_wake_confirmed — entering silence detection
 TIMING caption_speculative_fire gap=1.04s prompt="what is the plan"  # speculative LLM at 1.0s of silence
