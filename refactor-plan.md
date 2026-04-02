@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 1, 2026 (session 5)*
+*Last updated: April 1, 2026 (session 6)*
 
-> **Current status: C.6 largely working.** Echo filter applied, transcript leak fixed, punctuation-gated finalization in place. Playwright bridge batching identified as remaining latency source (2–3s delivery delay observed in some runs). **Next: Investigate Playwright `expose_function` bridge batching — why are JS callbacks held for 2–3s before Python receives them?**
+> **Current status: C.6 complete.** Echo filter, transcript leak fix, punctuation-gated finalization, and Playwright bridge batching all resolved. bridge_lag is now 0–2ms. Dominant latency is silence detection wait (~1.55s). **Next: Phase 7.5 (TTS reliability) or silence threshold tuning.**
 
 ---
 
@@ -211,7 +211,7 @@
 | C.3 | Build CaptionProcessor — real-time wake detection, silence via timing gaps, speculative callback | ✅ |
 | C.4 | Wire runner.py for caption mode — caption loop, speculative LLM, echo guard, transcript feeding | ✅ |
 | C.5 | Config wiring — `meet-captions` connector type, `captions.finalization_seconds`, `captions.speculative_seconds` | ✅ |
-| C.6 | Live end-to-end test in Google Meet | 🔄 Wake→LLM→TTS confirmed. Echo/leak/finalization bugs fixed. Playwright bridge latency under investigation. |
+| C.6 | Live end-to-end test in Google Meet | ✅ Wake→LLM→TTS confirmed. Echo/leak/finalization bugs fixed. Playwright bridge lag resolved (0–2ms). |
 
 ---
 

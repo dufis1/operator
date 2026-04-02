@@ -9,12 +9,19 @@ rather than RMS energy. Wake phrase detection happens in real-time on every
 caption update (~330ms cadence during speech).
 """
 import logging
+import re
 import threading
 import time
 
 import config
 
 log = logging.getLogger(__name__)
+
+# Compile wake phrase pattern tolerant of punctuation between words.
+# "hey operator" → r'hey[,\s]+operator' — matches "hey operator", "hey, operator", etc.
+_WAKE_RE = re.compile(
+    r"[,\s]+".join(re.escape(w) for w in config.WAKE_PHRASE.split())
+)
 
 # Configurable thresholds (from config.yaml)
 SPECULATIVE_SECONDS  = config.CAPTION_SPECULATIVE_SECONDS   # default 1.0
@@ -122,12 +129,11 @@ class CaptionProcessor:
 
             # Real-time wake detection on every update (skipped in follow-up mode)
             if self._require_wake:
+                text_lower = text.lower()
                 if not self._wake_detected:
-                    wake_phrase = config.WAKE_PHRASE
-                    text_lower = text.lower()
-                    if wake_phrase in text_lower:
-                        idx = text_lower.find(wake_phrase)
-                        self._wake_position = idx + len(wake_phrase)
+                    m = _WAKE_RE.search(text_lower)
+                    if m:
+                        self._wake_position = m.end()
                         self._wake_detected = True
                         prompt_so_far = text[self._wake_position:].strip().strip(",.:?!")
                         log.info(
@@ -137,8 +143,7 @@ class CaptionProcessor:
                         self._wake_event.set()
                 else:
                     # Wake was detected — check if ASR correction removed it
-                    wake_phrase = config.WAKE_PHRASE
-                    if wake_phrase not in text.lower():
+                    if not _WAKE_RE.search(text_lower):
                         log.info("TIMING caption_wake_retracted (ASR correction removed wake phrase)")
                         self._wake_detected = False
                         self._wake_position = -1

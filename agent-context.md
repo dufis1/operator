@@ -18,8 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — Steps 1–6 in progress. Core chain working. Three bugs fixed this session. Playwright bridge batching is the remaining latency source to investigate.
-**Next action:** Investigate Playwright `expose_function` bridge batching. The JS MutationObserver fires captions promptly (performance.now() timestamps are accurate), but Python receives them 2–3s late in some runs. Check whether `page.evaluate()` in the 5s DOM poll loop is blocking the CDP event loop, whether `expose_function` batches under idle conditions, and whether switching to `page.on("console", ...)` or a polling approach would reduce latency. Key file: `connectors/captions_adapter.py`.
+**Phase:** Caption-scraping refactor — C.6 complete. Full pipeline working end-to-end with 0–2ms bridge_lag.
+**Next action:** Phase 7.5 (TTS reliability improvements) or tune silence detection threshold (`captions.finalization_seconds` in config.yaml) — currently 1.55s is the dominant latency source.
+
+**What was built this session (April 1, 2026, session 7):**
+- `pipeline/captions.py` — Wake phrase detection now uses a regex compiled from `config.WAKE_PHRASE` that tolerates punctuation between words (`_WAKE_RE`). Previously the plain `in` check (`"hey operator" in text`) would fail when Google's ASR inserted a comma mid-phrase ("hey, operator"), causing spurious retraction and re-detection failure. Pattern: `"hey operator"` → `hey[,\s]+operator`. Both the initial detection and the retraction check use `_WAKE_RE.search(text_lower)`. Wake position now taken from `m.end()` (the regex match end) rather than `idx + len(wake_phrase)`.
+- `pipeline/runner.py` — Filler playback capped at one clip per response. Previously the loop cycled through all clips until synthesis finished, causing two (or more) fillers to play back-to-back when synthesis took longer than one clip. Now exactly one clip is selected and played, then the pipeline waits silently. Removed unused `itertools` import.
+
+**What was built this session (April 1, 2026, session 6):**
+- `connectors/captions_adapter.py` — Replaced `time.sleep(5)` with `page.wait_for_timeout(5000)` in the main hold loop. `time.sleep()` blocks the sync_playwright event loop entirely, preventing `expose_function` callbacks from ever being dispatched. The DOM poll (`page.evaluate()` every 5s) was accidentally acting as the only event loop pump — callbacks batched until it fired (2–3s delay). Removing the poll caused zero callbacks; replacing sleep with Playwright's own wait fixed both issues. bridge_lag dropped from 2–3s to 0–2ms. DOM poll log lines removed from `docs/model-log.md` (no longer emitted).
 
 **What was built this session (April 1, 2026, session 5):**
 - `pipeline/captions.py` — Filter "You" speaker to block Operator TTS echo. Added punctuation-gated finalization: at 1.5s silence, only finalize if raw caption text ends with `.?!`; hard timeout at 3.75s for unpunctuated fragments. Checks `_current_text.rstrip()[-1]` (not extracted prompt, which has punctuation stripped).

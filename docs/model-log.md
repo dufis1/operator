@@ -86,13 +86,9 @@ CaptionsAdapter: JS diagnostic — observer_attached label=scoped_region    # ob
 CaptionsAdapter: JS diagnostic — observer_attached label=scoped_region_polled  # found after polling (slight delay)
 CaptionsAdapter: JS diagnostic — observer_attached label=body_fallback    # caption region not found — selector mismatch
 CaptionsAdapter: JS diagnostic — mutation_count=10                        # heartbeat: observer is firing
-CaptionsAdapter: DOM poll — caption region: '__empty__'                   # no one speaking (normal)
-CaptionsAdapter: DOM poll — caption region: 'Jojo Shapiro\nHey operator' # someone speaking (good)
-CaptionsAdapter: DOM poll — caption region: '__no_region__'               # caption region missing from DOM
 ```
-- `body_fallback` or `__no_region__` → caption region selector needs updating; check `debug/in_meeting.html`
+- `body_fallback` → caption region selector needs updating; check `debug/in_meeting.html`
 - No `mutation_count` lines while someone is speaking → MutationObserver not firing; check headless mode
-- `__empty__` while someone is speaking → captions not rendering inside the region (shadow DOM or wrong element)
 
 **What to check if startup fails:**
 - Missing "Whisper model loaded" → model download failed or wrong compute_type

@@ -13,7 +13,6 @@ Usage:
     runner.run()          # macOS: no URL, calendar poller calls connector.join() separately
     runner.run(url)       # Linux: join immediately, then loop
 """
-import itertools
 import logging
 import numpy as np
 import os
@@ -561,16 +560,14 @@ class AgentRunner:
 
             threading.Thread(target=_synthesize, daemon=True).start()
 
-            # Play filler clips until synthesis is ready
+            # Play one filler clip while synthesis runs, then wait silently
             filler_bucket = fillers.classify(prompt)
             log.info(f"Filler bucket: {filler_bucket} (prompt: {prompt!r})")
             filler_clips = fillers.get_clips(filler_bucket)
             if filler_clips:
-                for clip in itertools.cycle(filler_clips):
-                    if synthesis_done.is_set():
-                        break
-                    log.info(f"Filler clip: {os.path.basename(clip)}")
-                    self.tts.play_clip(clip)
+                clip = filler_clips[0]
+                log.info(f"Filler clip: {os.path.basename(clip)}")
+                self.tts.play_clip(clip)
 
             synthesis_done.wait()
 
