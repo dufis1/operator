@@ -103,14 +103,20 @@ class TTSClient:
     def play_audio(self, audio_bytes: bytes):
         """Play raw audio bytes through the output device via mpv."""
         if not audio_bytes:
+            log.warning("TTS play_audio: received empty audio bytes — nothing to play")
             return
+        log.info(f"TTS play_audio: {len(audio_bytes)} bytes → device={self._output_device}")
         proc = subprocess.Popen(
             ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
             stdin=subprocess.PIPE,
         )
         proc.stdin.write(audio_bytes)
         proc.stdin.close()
-        proc.wait()
+        rc = proc.wait()
+        if rc != 0:
+            log.error(f"TTS play_audio: mpv exited with code {rc}")
+        else:
+            log.info("TTS play_audio: done")
 
     def speak(self, text):
         """Synthesize and immediately play. Convenience wrapper for simple callers."""

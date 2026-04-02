@@ -35,12 +35,18 @@ class LLMClient:
             *self._history,
             {"role": "user", "content": utterance},
         ]
-        response = self._client.chat.completions.create(
-            model=config.LLM_MODEL,
-            max_tokens=60,
-            messages=messages,
-        )
+        log.info(f"LLM ask model={config.LLM_MODEL} history_turns={len(self._history)//2} utterance=\"{utterance[:80]}\"")
+        try:
+            response = self._client.chat.completions.create(
+                model=config.LLM_MODEL,
+                max_tokens=60,
+                messages=messages,
+            )
+        except Exception as e:
+            log.error(f"LLM API call failed: {e}", exc_info=True)
+            raise
         reply = response.choices[0].message.content
+        log.info(f"LLM reply=\"{reply[:80]}\"")
         if record:
             self._history.append({"role": "user", "content": utterance})
             self._history.append({"role": "assistant", "content": reply})

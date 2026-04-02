@@ -462,7 +462,7 @@ class AgentRunner:
 
             log.info(f"TIMING caption_speculative_llm_done reply=\"{spec.llm_reply[:60]}\"")
         except Exception as e:
-            log.debug(f"Speculative caption processing error: {e}")
+            log.error(f"Speculative caption LLM error: {e}", exc_info=True)
         finally:
             spec.ready.set()
 
@@ -583,7 +583,7 @@ class AgentRunner:
             )
 
         except Exception as e:
-            log.error(f"Pipeline error: {e}")
+            log.error(f"Pipeline error: {e}", exc_info=True)
         finally:
             time.sleep(config.ECHO_GUARD_SECONDS)
             if caption_mode:
