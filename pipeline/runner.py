@@ -144,6 +144,13 @@ class AgentRunner:
                             "error",
                             "Session expired — re-authenticate with scripts/auth_export.py",
                         )
+                    elif "already_running" in reason:
+                        print("\n⚠️  Another Operator session is already running.")
+                        print("   Stop that session before starting a new one.\n")
+                        self._on_state_change(
+                            "error",
+                            "Already running — stop the other session first",
+                        )
                     else:
                         self._on_state_change("error", f"Join failed: {reason}")
                     self.connector.leave()

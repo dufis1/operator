@@ -34,6 +34,17 @@ class JoinStatus:
         self.ready.set()
 
 
+def _chrome_lock_is_live(lock_path):
+    """Return True if the SingletonLock symlink points to a running process."""
+    try:
+        target = os.readlink(lock_path)   # e.g. "mymac-12345"
+        pid = int(target.rsplit("-", 1)[-1])
+        os.kill(pid, 0)                   # signal 0 = existence check only
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def detect_page_state(page):
     """Classify what Google Meet is showing after navigation.
 

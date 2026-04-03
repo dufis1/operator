@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 import config
 
 from .base import MeetingConnector
-from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug
+from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live
 
 log = logging.getLogger(__name__)
 
@@ -260,7 +260,14 @@ class CaptionsAdapter(MeetingConnector):
 
     def _browser_session(self, meeting_url):
         singleton_lock = os.path.join(BROWSER_PROFILE, "SingletonLock")
-        if os.path.exists(singleton_lock):
+        if os.path.islink(singleton_lock) or os.path.exists(singleton_lock):
+            if _chrome_lock_is_live(singleton_lock):
+                log.error(
+                    "CaptionsAdapter: another Operator session is already running — "
+                    "stop that session before starting a new one"
+                )
+                self.join_status.signal_failure("already_running")
+                return
             os.remove(singleton_lock)
             log.info("CaptionsAdapter: removed stale SingletonLock")
 
