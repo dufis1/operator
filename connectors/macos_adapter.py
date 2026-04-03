@@ -37,6 +37,7 @@ class MacOSAdapter(MeetingConnector):
         self._auth_state_file = auth_state_file
         self._leave_event = threading.Event()
         self._capture_proc = None
+        self._blackhole_rec_proc = None
 
     # ------------------------------------------------------------------
     # MeetingConnector interface
@@ -47,6 +48,8 @@ class MacOSAdapter(MeetingConnector):
         browser runs in a background thread until leave() is called."""
         self._leave_event.clear()
         self.join_status = JoinStatus()
+        if config.DEBUG_AUDIO:
+            self._start_blackhole_recording()
         threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
@@ -85,6 +88,13 @@ class MacOSAdapter(MeetingConnector):
     def leave(self):
         """Signal the browser session to close and stop audio capture."""
         self._leave_event.set()
+        if self._blackhole_rec_proc:
+            self._blackhole_rec_proc.terminate()
+            try:
+                self._blackhole_rec_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._blackhole_rec_proc.kill()
+            self._blackhole_rec_proc = None
         if self._capture_proc:
             try:
                 self._capture_proc.stdin.close()
@@ -100,6 +110,21 @@ class MacOSAdapter(MeetingConnector):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _start_blackhole_recording(self):
+        import datetime
+        os.makedirs(os.path.join(_BASE, "debug"), exist_ok=True)
+        ts = datetime.datetime.now().strftime("%H%M%S")
+        out_path = os.path.join(_BASE, f"debug/blackhole_{ts}.wav")
+        try:
+            self._blackhole_rec_proc = subprocess.Popen(
+                ["sox", "-t", "coreaudio", "BlackHole 2ch", out_path],
+                stderr=subprocess.DEVNULL,
+            )
+            log.info(f"MacOSAdapter: BlackHole recording → {out_path}")
+        except FileNotFoundError:
+            log.warning("MacOSAdapter: sox not found — BlackHole recording skipped (brew install sox)")
+            self._blackhole_rec_proc = None
 
     def _browser_session(self, meeting_url):
         """Run Playwright browser session. Blocks until leave() is called."""

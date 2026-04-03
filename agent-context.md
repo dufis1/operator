@@ -18,8 +18,20 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Perceived latency measurement implemented and tuned. Live-tested and producing data.
-**Next action:** Run `python scripts/parse_latency.py` to read the first perceived latency report. Analyze ASR delay, dead-air-to-filler, and dead-air-to-response numbers. Use results to decide whether to tune `captions.finalization_seconds` further or move to Phase 7.5 (TTS reliability).
+**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Audio debug tooling added.
+**Next action:** Decide whether to reduce `captions.finalization_seconds` below 1.5s (currently the dominant latency floor) or move to Phase 7.5 (TTS reliability). The 1.62s dead-air-to-filler is real and trustworthy — further tuning requires a test to confirm prompts still finalize cleanly at e.g. 1.0s or 1.2s.
+
+**What was built this session (April 2, 2026, session 11):**
+- `connectors/captions_adapter.py` — Added `--mute-audio` to Chrome launch args. Chrome was routing received meeting audio back into BlackHole (its audio output), creating a real AEC feedback loop on every session. WebRTC AEC normally handled it, but occasionally suppressed a word during TTS playback (confirmed via BlackHole recording: meeting audio was present before fix, TTS-only after). `--mute-audio` breaks the loop at the source; bot uses captions not audio so no functionality lost.
+- `connectors/captions_adapter.py` + `connectors/macos_adapter.py` — Added `diagnostics.debug_audio` support: when `true`, starts a `sox` recording of BlackHole at session start (saved to `debug/blackhole_HHMMSS.wav`) and saves each TTS synthesis to `debug/tts_HHMMSS.wav`. Used to isolate whether audio dropouts originate in synthesis, routing, or AEC. Flag defaults to `false`.
+- `config.yaml` + `config.py` — `diagnostics.debug_audio` toggle (default `false`).
+
+**What was built this session (April 2, 2026, session 10):**
+- `pipeline/latency_probe.py` — Hysteresis increased from 300ms to 600ms (`_SILENCE_HOLD_BLOCKS` 3→6): absorbs natural word-boundary pauses, eliminates mid-utterance chattering. Post-gate warmup added: on `set_active(True)`, discards first 5 blocks (500ms) before resuming detection, preventing lingering room echo from triggering probe after gate reopens.
+- `pipeline/captions.py` — Removed `"You"` speaker filter that was silently blocking finalization when Google Meet relabeled user speech as `"You"` (observed: Unknown→You transition mid-utterance). Root cause: not audio routing — likely transient Meet attribution behavior. `is_speaking` gate already covers TTS echo. Added `log.debug` when captions dropped by gate, for future diagnosis.
+- `scripts/parse_latency.py` — Re-anchored cycles on `caption_wake_confirmed` (not any ambient `perceived_acoustic_silence_end`); filters out multi-participant ambient silences. Added speaker + prompt columns. LEAK flag for gate-leak cycles; excluded from averages. Verified against live log: 1.62s dead-air-to-filler, 3.41s to response.
+- `config.yaml` + `config.py` — `diagnostics.latency_probe` toggle (default `true`). Set `false` to skip opening the PortAudio stream, for echo investigation. Concluded the subtle echo heard at meeting start is WebRTC AEC calibration behavior, not probe-related.
+- `docs/model-log.md` — Section 5b updated: 600ms hysteresis noted, `LatencyProbe: disabled via config` line added, dropped-caption DEBUG line documented, LEAK flag documented.
 
 **What was built this session (April 2, 2026, session 9):**
 - `pipeline/latency_probe.py` — New `LatencyProbe` class. Background daemon thread reads the system default mic via `sounddevice.InputStream` at 8kHz/100ms blocks. Detects acoustic speech→silence transitions; logs `TIMING perceived_speech_start` and `TIMING perceived_acoustic_silence_end speech_duration=N.NNs peak_rms=N.NNNN`. RMS threshold `_SILENCE_RMS=0.03`, silence hold `_SILENCE_HOLD_BLOCKS=3` (300ms hysteresis). `set_active(False/True)` gate prevents false events from filler/response audio bleeding back through the mic.

@@ -50,6 +50,7 @@ captions:
 
 diagnostics:
   latency_probe: true            # set false to disable mic monitoring (suppresses PortAudio input monitoring feedback)
+  debug_audio: false             # set true to save TTS WAV + BlackHole recording to debug/ for dropout diagnosis
 
 caldav:
   bot_gmail: null                # bot's Gmail address, e.g. "yourname.operator@gmail.com"

@@ -106,6 +106,14 @@ class TTSClient:
             log.warning("TTS play_audio: received empty audio bytes — nothing to play")
             return
         log.info(f"TTS play_audio: {len(audio_bytes)} bytes → device={self._output_device}")
+        if config.DEBUG_AUDIO:
+            import datetime
+            os.makedirs("debug", exist_ok=True)
+            ts = datetime.datetime.now().strftime("%H%M%S_%f")[:9]
+            debug_path = f"debug/tts_{ts}.wav"
+            with open(debug_path, "wb") as f:
+                f.write(audio_bytes)
+            log.info(f"TTS debug: synthesis saved to {debug_path}")
         proc = subprocess.Popen(
             ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
             stdin=subprocess.PIPE,

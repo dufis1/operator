@@ -180,6 +180,7 @@ class CaptionsAdapter(MeetingConnector):
         self._caption_callback = None  # set via set_caption_callback()
         self._page = None              # set once in-meeting (for echo guard)
         self._js_time_offset = None    # maps performance.now() → wall clock time
+        self._blackhole_rec_proc = None
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -201,6 +202,8 @@ class CaptionsAdapter(MeetingConnector):
     def join(self, meeting_url):
         self._leave_event.clear()
         self.join_status = JoinStatus()
+        if config.DEBUG_AUDIO:
+            self._start_blackhole_recording()
         threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
@@ -229,9 +232,31 @@ class CaptionsAdapter(MeetingConnector):
 
     def leave(self):
         self._leave_event.set()
+        if self._blackhole_rec_proc:
+            self._blackhole_rec_proc.terminate()
+            try:
+                self._blackhole_rec_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self._blackhole_rec_proc.kill()
+            self._blackhole_rec_proc = None
         log.info("CaptionsAdapter: left meeting")
 
     # ── Browser session ──────────────────────────────────────────────
+
+    def _start_blackhole_recording(self):
+        import datetime
+        os.makedirs(os.path.join(os.path.dirname(os.path.dirname(__file__)), "debug"), exist_ok=True)
+        ts = datetime.datetime.now().strftime("%H%M%S")
+        out_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), f"debug/blackhole_{ts}.wav")
+        try:
+            self._blackhole_rec_proc = subprocess.Popen(
+                ["sox", "-t", "coreaudio", "BlackHole 2ch", out_path],
+                stderr=subprocess.DEVNULL,
+            )
+            log.info(f"CaptionsAdapter: BlackHole recording → {out_path}")
+        except FileNotFoundError:
+            log.warning("CaptionsAdapter: sox not found — BlackHole recording skipped (brew install sox)")
+            self._blackhole_rec_proc = None
 
     def _browser_session(self, meeting_url):
         singleton_lock = os.path.join(BROWSER_PROFILE, "SingletonLock")
@@ -247,7 +272,7 @@ class CaptionsAdapter(MeetingConnector):
                     user_data_dir=BROWSER_PROFILE,
                     headless=False,
                     executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                    args=["--use-fake-ui-for-media-stream", "--headless=new"],
+                    args=["--use-fake-ui-for-media-stream", "--headless=new", "--mute-audio"],
                 )
                 page = browser.pages[0] if browser.pages else browser.new_page()
 
