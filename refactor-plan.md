@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 2, 2026 (session 13)*
+*Last updated: April 2, 2026 (session 15)*
 
-> **Current status: Waiting room handling + multi-instance guard implemented.** Operator detects live vs. stale Chrome `SingletonLock` using PID probing — a second instance exits immediately with a clear user-facing message instead of a cryptic Playwright crash. **Next: decide whether to reduce `captions.finalization_seconds` below 1.5s, or move to Phase 7.5 (TTS reliability).**
+> **Current status: System phrase logging added for meeting-exit detection groundwork.** Next session: audit `caldav_poller.py` for compatibility with the caption refactor, test calendar auto-join end-to-end, then run exit-scenario tests to verify which Meet system phrases fire on host-end vs. natural empty-out.
 
 ---
 

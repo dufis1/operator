@@ -96,6 +96,11 @@ CaptionsAdapter: admission wait cancelled (leave called after Ns)               
 
 # In-meeting health check (every 5 min in hold loop)
 MacOSAdapter: health check — unexpected URL: ...       # navigated away from meet.google.com
+
+# Meet system phrases (exit signals — currently logged then filtered, not yet acted on)
+CaptionsAdapter: system phrase detected — 'No one else is in this meeting'  # everyone left naturally
+CaptionsAdapter: system phrase detected — 'Returning to home screen'        # host ended meeting for everyone
+CaptionsAdapter: system phrase detected — 'You left the meeting'            # Operator itself was kicked/left
 ```
 
 **Diagnostic lines** (appear during startup in caption mode — normal, not errors):

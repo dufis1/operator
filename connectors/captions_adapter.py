@@ -572,6 +572,7 @@ class CaptionsAdapter(MeetingConnector):
         if stripped in _ICON_NAMES:
             return
         if any(stripped.startswith(phrase) for phrase in _SYSTEM_PHRASES):
+            log.info(f"CaptionsAdapter: system phrase detected — {stripped!r}")
             return
         # Short fragments that are just the speaker name
         if stripped.lower() == speaker.lower():

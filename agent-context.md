@@ -18,8 +18,21 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Waiting room handling implemented. Multi-instance guard implemented.
-**Next action:** Decide whether to reduce `captions.finalization_seconds` below 1.5s (currently the dominant latency floor) or move to Phase 7.5 (TTS reliability). The 1.62s dead-air-to-filler is real and trustworthy — further tuning requires a test to confirm prompts still finalize cleanly at e.g. 1.0s or 1.2s.
+**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Waiting room handling implemented. Multi-instance guard + `--force` flag implemented.
+**Next action:** Audit `caldav_poller.py` — verify it's still wired correctly to `CaptionsAdapter` + `AgentRunner` after the caption refactor. Test by inviting Operator's Google account to a real meeting. If passing, test meeting-exit system phrases (see session 15 notes below).
+
+**What was built this session (April 2, 2026, session 15):**
+- `connectors/captions_adapter.py:574` — Added `log.info(f"CaptionsAdapter: system phrase detected — {stripped!r}")` before the early return in `_on_caption_from_js`. This surfaces Meet's system messages ("No one else is in this meeting", "Returning to home screen") in the log so we can verify which phrases fire in which exit scenarios before wiring leave logic to them.
+- No functional behavior changed — system phrases still filtered, just now logged.
+
+**Context for next session:** The plan is to make Operator leave when the meeting ends. Meet emits system phrases in the caption DOM on exit events — we'll use these as leave signals. Two phrases are candidates: "Returning to home screen" (host ended for everyone) and "No one else is in this meeting" (everyone left naturally — needs a `_seen_other_participant` witness flag to avoid false-triggering when Operator joins an empty room). But before wiring this, we need to (1) verify `caldav_poller.py` still works so Operator can join before the host (the empty-room case), and (2) run test sessions to confirm exactly which phrases fire in which scenarios. Watch with: `grep "system phrase" /tmp/operator.log`.
+
+**What was built this session (April 2, 2026, session 14):**
+- `__main__.py` — Added `--force` CLI flag. Threads `force=True` into `CaptionsAdapter` and `MacOSAdapter` constructors. `_shutdown()` now reads `browser_profile/.operator.kill_reason` on SIGTERM and prints a user-facing reason if present.
+- `connectors/session.py` — Added `_write_operator_pid(lock_path)`: writes current Python PID to `browser_profile/.operator.pid` at session start. Added `_chrome_kill_and_clear(lock_path)`: (1) reads `.operator.pid`, writes `.operator.kill_reason`, SIGTERMs the Operator Python process (SIGKILL after 3s if still alive); (2) kills Chrome as a fallback via the SingletonLock PID; (3) removes both lock and PID file.
+- `connectors/captions_adapter.py` — `__init__` accepts `force=False`, stored as `self._force`. Lock-check block: if force and lock is live, calls `_chrome_kill_and_clear` instead of signalling `already_running`. Calls `_write_operator_pid` before Chrome launch. Cleans up `.operator.pid` in `finally`. Fixed `_wait_for_admission`: `except Exception` block now checks `page.is_closed()` and returns False immediately if the browser is gone (previously spun for up to 10 min on the ADMISSION_TIMEOUT).
+- `connectors/macos_adapter.py` — Same `force` param, PID write, and finally cleanup as `captions_adapter`.
+- `pipeline/runner.py` — Updated `already_running` error message: now says `Use --force to stop it and start a new one.`
 
 **What was built this session (April 2, 2026, session 13):**
 - `connectors/session.py` — Added `_chrome_lock_is_live(lock_path)`. Chrome's `SingletonLock` is a symlink to `hostname-<pid>`. Reads the symlink, parses the PID, probes with `os.kill(pid, 0)` (no signal, just existence check). Returns `True` if process is alive (live lock), `False` if dead or any error (stale lock).
