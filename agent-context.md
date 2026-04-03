@@ -18,8 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Waiting room handling implemented.
+**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Waiting room handling implemented. Multi-instance guard implemented.
 **Next action:** Decide whether to reduce `captions.finalization_seconds` below 1.5s (currently the dominant latency floor) or move to Phase 7.5 (TTS reliability). The 1.62s dead-air-to-filler is real and trustworthy — further tuning requires a test to confirm prompts still finalize cleanly at e.g. 1.0s or 1.2s.
+
+**What was built this session (April 2, 2026, session 13):**
+- `connectors/session.py` — Added `_chrome_lock_is_live(lock_path)`. Chrome's `SingletonLock` is a symlink to `hostname-<pid>`. Reads the symlink, parses the PID, probes with `os.kill(pid, 0)` (no signal, just existence check). Returns `True` if process is alive (live lock), `False` if dead or any error (stale lock).
+- `connectors/captions_adapter.py` — Replaced unconditional `SingletonLock` removal with live-check: if lock is live, signals `already_running` and returns immediately (no Chrome launch). If stale, removes and proceeds as before. Uses `os.path.islink()` instead of `os.path.exists()` to catch broken symlinks (stale lock pointing to dead PID — `exists()` would return False for broken symlinks).
+- `connectors/macos_adapter.py` — Same fix applied (identical lock-removal pattern).
+- `pipeline/runner.py` — Added `already_running` branch in join-failure handling: prints `⚠️  Another Operator session is already running. / Stop that session before starting a new one.` to stdout, alongside existing `session_expired` special-case.
+- `docs/model-log.md` — Added "Multiple instances / SingletonLock" block to Section 1 join failures.
 
 **What was built this session (April 2, 2026, session 12):**
 - `connectors/captions_adapter.py` — Replaced immediate post-click "joined" assumption with a two-phase waiting room detection. Phase 1: `wait_for_selector(state="visible")` confirms the lobby screen appeared (up to 10s). Phase 2: `wait_for_selector(state="detached")` fires the instant the host clicks "Let in" — event-driven, zero polling lag. Admission signal: `img[alt*="Please wait until a meeting host"]` (confirmed in live DOM captures). If lobby never appears within 10s, proceeds optimistically (handles open meetings or auto-admit flows). Times out with `admission_timeout` after `ADMISSION_TIMEOUT_SECONDS` if never admitted. Heartbeat log every 30s while waiting.

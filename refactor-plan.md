@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 2, 2026 (session 12)*
+*Last updated: April 2, 2026 (session 13)*
 
-> **Current status: Waiting room handling implemented.** Operator now detects the Google Meet lobby and waits patiently (up to 10 min) for the host to admit it, rather than immediately failing. Detection is event-driven (zero lag on admission). Old/expired meeting links are handled the same way — timeout after 10 min with a clear `admission_timeout` error. **Next: decide whether to reduce `captions.finalization_seconds` below 1.5s, or move to Phase 7.5 (TTS reliability).**
+> **Current status: Waiting room handling + multi-instance guard implemented.** Operator detects live vs. stale Chrome `SingletonLock` using PID probing — a second instance exits immediately with a clear user-facing message instead of a cryptic Playwright crash. **Next: decide whether to reduce `captions.finalization_seconds` below 1.5s, or move to Phase 7.5 (TTS reliability).**
 
 ---
 

@@ -79,6 +79,12 @@ STARTUP join failed: cant_join                         # "You can't join this vi
 STARTUP join failed: no_join_button                    # pre-join screen but no button found
 STARTUP join failed: admission_timeout                 # waited in lobby for ADMISSION_TIMEOUT_SECONDS, never admitted
 
+# Multiple instances / SingletonLock
+CaptionsAdapter: removed stale SingletonLock           # previous session crashed; lock was dead — removed automatically
+CaptionsAdapter: another Operator session is already running — stop that session before starting a new one  # live lock detected; second instance exits
+⚠️  Another Operator session is already running.        # printed to stdout for visibility
+   Stop that session before starting a new one.
+
 # Waiting room (when 'Ask to join' is clicked and host approval is required)
 CaptionsAdapter: waiting for lobby screen to appear...                                   # phase 1: confirming lobby loaded
 CaptionsAdapter: lobby confirmed — watching for host to admit us (timeout=600s)          # lobby detected; event-driven watch active
