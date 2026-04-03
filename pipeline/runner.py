@@ -146,7 +146,7 @@ class AgentRunner:
                         )
                     elif "already_running" in reason:
                         print("\n⚠️  Another Operator session is already running.")
-                        print("   Stop that session before starting a new one.\n")
+                        print("   Use --force to stop it and start a new one.\n")
                         self._on_state_change(
                             "error",
                             "Already running — stop the other session first",

@@ -16,7 +16,7 @@ from playwright.sync_api import sync_playwright
 import config
 
 from .base import MeetingConnector
-from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live
+from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live, _chrome_kill_and_clear, _write_operator_pid
 
 log = logging.getLogger(__name__)
 
@@ -30,11 +30,12 @@ BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 class MacOSAdapter(MeetingConnector):
     """MeetingConnector for macOS using ScreenCaptureKit + real Chrome."""
 
-    def __init__(self, auth_state_file=None):
+    def __init__(self, auth_state_file=None, force=False):
         super().__init__()
         if auth_state_file is None:
             auth_state_file = config.AUTH_STATE_FILE
         self._auth_state_file = auth_state_file
+        self._force = force
         self._leave_event = threading.Event()
         self._capture_proc = None
         self._blackhole_rec_proc = None
@@ -131,15 +132,21 @@ class MacOSAdapter(MeetingConnector):
         singleton_lock = os.path.join(BROWSER_PROFILE, "SingletonLock")
         if os.path.islink(singleton_lock) or os.path.exists(singleton_lock):
             if _chrome_lock_is_live(singleton_lock):
-                log.error(
-                    "MacOSAdapter: another Operator session is already running — "
-                    "stop that session before starting a new one"
-                )
-                self.join_status.signal_failure("already_running")
-                return
-            os.remove(singleton_lock)
-            log.info("MacOSAdapter: removed stale SingletonLock")
+                if self._force:
+                    log.info("MacOSAdapter: --force: killing existing session")
+                    _chrome_kill_and_clear(singleton_lock)
+                else:
+                    log.error(
+                        "MacOSAdapter: another Operator session is already running — "
+                        "stop that session before starting a new one"
+                    )
+                    self.join_status.signal_failure("already_running")
+                    return
+            else:
+                os.remove(singleton_lock)
+                log.info("MacOSAdapter: removed stale SingletonLock")
 
+        _write_operator_pid(singleton_lock)
         js = self.join_status
         browser = None
         try:
@@ -268,6 +275,11 @@ class MacOSAdapter(MeetingConnector):
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
+            pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
+            try:
+                os.remove(pid_file)
+            except OSError:
+                pass
             if browser:
                 try:
                     browser.close()

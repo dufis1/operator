@@ -45,6 +45,99 @@ def _chrome_lock_is_live(lock_path):
         return False
 
 
+def _write_operator_pid(lock_path):
+    """Write the current process PID to a file alongside the SingletonLock.
+
+    Called at the start of each browser session so --force can find and
+    terminate the Operator Python process, not just Chrome.
+    """
+    pid_file = os.path.join(os.path.dirname(lock_path), ".operator.pid")
+    try:
+        with open(pid_file, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError as e:
+        log.warning(f"session: could not write operator PID file: {e}")
+
+
+def _chrome_kill_and_clear(lock_path):
+    """Kill the Operator session (Python process + Chrome) and clear the lock.
+
+    Kills the Python operator process first via the PID file (its SIGTERM
+    handler triggers a clean shutdown including browser.close()).  Chrome is
+    killed as a fallback in case the PID file is absent or the process is
+    already dead.  Safe to call on a stale or already-gone lock.
+    """
+    import signal as _signal
+    import time as _time
+
+    pid_file = os.path.join(os.path.dirname(lock_path), ".operator.pid")
+
+    # ── 1. Kill the Operator Python process ──────────────────────────
+    operator_pid = None
+    try:
+        with open(pid_file) as f:
+            operator_pid = int(f.read().strip())
+        if operator_pid == os.getpid():
+            operator_pid = None          # never kill ourselves
+    except (FileNotFoundError, ValueError):
+        pass
+
+    if operator_pid:
+        try:
+            reason_file = os.path.join(os.path.dirname(lock_path), ".operator.kill_reason")
+            with open(reason_file, "w") as f:
+                f.write("Terminated: killed by another Operator instance (--force)")
+        except OSError:
+            pass
+        try:
+            os.kill(operator_pid, _signal.SIGTERM)
+            for _ in range(30):          # wait up to 3 s for clean exit
+                _time.sleep(0.1)
+                try:
+                    os.kill(operator_pid, 0)
+                except OSError:
+                    break                # gone
+            else:
+                try:
+                    os.kill(operator_pid, _signal.SIGKILL)
+                except OSError:
+                    pass
+        except OSError:
+            pass                         # already gone
+
+    # ── 2. Kill Chrome as a fallback ─────────────────────────────────
+    # Handles the case where the PID file was absent or Python didn't
+    # close Chrome before exiting.
+    try:
+        target = os.readlink(lock_path)
+        chrome_pid = int(target.rsplit("-", 1)[-1])
+        try:
+            os.kill(chrome_pid, _signal.SIGTERM)
+        except OSError:
+            pass
+        for _ in range(20):              # wait up to 2 s
+            _time.sleep(0.1)
+            try:
+                os.kill(chrome_pid, 0)
+            except OSError:
+                break
+        else:
+            try:
+                os.kill(chrome_pid, _signal.SIGKILL)
+            except OSError:
+                pass
+    except (OSError, ValueError):
+        pass
+
+    # ── 3. Remove lock and PID file ───────────────────────────────────
+    for path in (lock_path, pid_file):
+        try:
+            if os.path.islink(path) or os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+
 def detect_page_state(page):
     """Classify what Google Meet is showing after navigation.
 

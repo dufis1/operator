@@ -32,15 +32,20 @@ def main():
         metavar="MEET_URL",
         help="Google Meet URL to join (Linux only)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Kill any existing Operator session and start a new one",
+    )
     args = parser.parse_args()
 
     if sys.platform == "darwin":
         if args.meeting_url:
-            _run_macos_headless(args.meeting_url)
+            _run_macos_headless(args.meeting_url, force=args.force)
         else:
             _run_macos()
     else:
-        _run_linux(args.meeting_url)
+        _run_linux(args.meeting_url, force=args.force)
 
 
 def _run_macos():
@@ -49,9 +54,10 @@ def _run_macos():
     OperatorApp().run()
 
 
-def _run_macos_headless(meeting_url):
+def _run_macos_headless(meeting_url, force=False):
     """Join a specific meeting directly on macOS, no menu bar."""
     import logging
+    import os
     import signal
 
     logging.basicConfig(
@@ -81,11 +87,11 @@ def _run_macos_headless(meeting_url):
     if connector_type == "meet-captions":
         from connectors.captions_adapter import CaptionsAdapter
         log.info(f"Starting Operator (captions) — joining {meeting_url}")
-        connector = CaptionsAdapter()
+        connector = CaptionsAdapter(force=force)
     elif connector_type == "audio":
         from connectors.macos_adapter import MacOSAdapter
         log.info(f"Starting Operator (audio) — joining {meeting_url}")
-        connector = MacOSAdapter()
+        connector = MacOSAdapter(force=force)
     else:
         log.error(f"Unknown connector type: {connector_type}")
         sys.exit(1)
@@ -96,8 +102,16 @@ def _run_macos_headless(meeting_url):
     )
 
     def _shutdown(signum=None, frame=None):
-        if signum:
-            log.info(f"Received signal {signum} — shutting down")
+        reason_file = os.path.join(config.BROWSER_PROFILE_DIR, ".operator.kill_reason")
+        try:
+            with open(reason_file) as _f:
+                reason = _f.read().strip()
+            os.remove(reason_file)
+            print(f"\n⚠️  {reason}\n")
+            log.info(reason)
+        except FileNotFoundError:
+            if signum:
+                log.info(f"Received signal {signum} — shutting down")
         runner.stop()
         connector.leave()
 
@@ -111,7 +125,7 @@ def _run_macos_headless(meeting_url):
         _shutdown()
 
 
-def _run_linux(meeting_url):
+def _run_linux(meeting_url, force=False):
     """Run preflight checks then start the agent on Linux."""
     import logging
     import os

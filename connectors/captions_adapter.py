@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 import config
 
 from .base import MeetingConnector
-from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live
+from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live, _chrome_kill_and_clear, _write_operator_pid
 
 log = logging.getLogger(__name__)
 
@@ -171,11 +171,12 @@ class CaptionsAdapter(MeetingConnector):
     goes through mpv → BlackHole, same as MacOSAdapter.
     """
 
-    def __init__(self, auth_state_file=None):
+    def __init__(self, auth_state_file=None, force=False):
         super().__init__()
         if auth_state_file is None:
             auth_state_file = config.AUTH_STATE_FILE
         self._auth_state_file = auth_state_file
+        self._force = force
         self._leave_event = threading.Event()
         self._caption_callback = None  # set via set_caption_callback()
         self._page = None              # set once in-meeting (for echo guard)
@@ -262,15 +263,21 @@ class CaptionsAdapter(MeetingConnector):
         singleton_lock = os.path.join(BROWSER_PROFILE, "SingletonLock")
         if os.path.islink(singleton_lock) or os.path.exists(singleton_lock):
             if _chrome_lock_is_live(singleton_lock):
-                log.error(
-                    "CaptionsAdapter: another Operator session is already running — "
-                    "stop that session before starting a new one"
-                )
-                self.join_status.signal_failure("already_running")
-                return
-            os.remove(singleton_lock)
-            log.info("CaptionsAdapter: removed stale SingletonLock")
+                if self._force:
+                    log.info("CaptionsAdapter: --force: killing existing session")
+                    _chrome_kill_and_clear(singleton_lock)
+                else:
+                    log.error(
+                        "CaptionsAdapter: another Operator session is already running — "
+                        "stop that session before starting a new one"
+                    )
+                    self.join_status.signal_failure("already_running")
+                    return
+            else:
+                os.remove(singleton_lock)
+                log.info("CaptionsAdapter: removed stale SingletonLock")
 
+        _write_operator_pid(singleton_lock)
         js = self.join_status
         browser = None
         try:
@@ -415,6 +422,11 @@ class CaptionsAdapter(MeetingConnector):
                 js.signal_failure(f"exception: {e}")
         finally:
             self._page = None
+            pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
+            try:
+                os.remove(pid_file)
+            except OSError:
+                pass
             if browser:
                 try:
                     browser.close()
@@ -474,7 +486,10 @@ class CaptionsAdapter(MeetingConnector):
                 )
                 return True
             except Exception:
-                pass  # chunk expired, not admitted yet
+                if page.is_closed():
+                    log.info("CaptionsAdapter: browser closed during admission wait — aborting")
+                    return False
+                # chunk expired, not admitted yet — continue waiting
 
             if time.time() - last_status_log >= 30:
                 elapsed = time.time() - wait_start
