@@ -43,6 +43,7 @@ connector:
   type: "auto"                   # auto | audio | linux | docker | meet-captions
   browser_profile_dir: "./browser_profile"
   auth_state_file: "./auth_state.json"  # path to auth_state.json for session recovery
+  admission_timeout_seconds: 600  # how long to wait in the lobby before giving up (10 min)
 
 captions:
   finalization_seconds: 1.5      # seconds of no DOM updates before text is considered final

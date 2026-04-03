@@ -34,9 +34,10 @@ STT_DEVICE       = _config["stt"]["device"]
 STT_COMPUTE_TYPE = _config["stt"]["compute_type"]
 
 # Connector
-CONNECTOR_TYPE      = _config["connector"]["type"]
-BROWSER_PROFILE_DIR = _config["connector"]["browser_profile_dir"]
-AUTH_STATE_FILE     = _config["connector"]["auth_state_file"]
+CONNECTOR_TYPE            = _config["connector"]["type"]
+BROWSER_PROFILE_DIR       = _config["connector"]["browser_profile_dir"]
+AUTH_STATE_FILE           = _config["connector"]["auth_state_file"]
+ADMISSION_TIMEOUT_SECONDS = _config["connector"].get("admission_timeout_seconds", 600)
 
 # Captions
 _captions = _config.get("captions", {})
