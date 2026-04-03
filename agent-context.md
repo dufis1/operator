@@ -18,8 +18,14 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Audio debug tooling added.
+**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Waiting room handling implemented.
 **Next action:** Decide whether to reduce `captions.finalization_seconds` below 1.5s (currently the dominant latency floor) or move to Phase 7.5 (TTS reliability). The 1.62s dead-air-to-filler is real and trustworthy — further tuning requires a test to confirm prompts still finalize cleanly at e.g. 1.0s or 1.2s.
+
+**What was built this session (April 2, 2026, session 12):**
+- `connectors/captions_adapter.py` — Replaced immediate post-click "joined" assumption with a two-phase waiting room detection. Phase 1: `wait_for_selector(state="visible")` confirms the lobby screen appeared (up to 10s). Phase 2: `wait_for_selector(state="detached")` fires the instant the host clicks "Let in" — event-driven, zero polling lag. Admission signal: `img[alt*="Please wait until a meeting host"]` (confirmed in live DOM captures). If lobby never appears within 10s, proceeds optimistically (handles open meetings or auto-admit flows). Times out with `admission_timeout` after `ADMISSION_TIMEOUT_SECONDS` if never admitted. Heartbeat log every 30s while waiting.
+- `pipeline/runner.py` — Extended join timeout from hardcoded 60s to `ADMISSION_TIMEOUT_SECONDS + 60` so the runner doesn't kill the wait prematurely. Fast-fail cases (session_expired, cant_join, no_join_button) still fail immediately — only the waiting room case benefits.
+- `config.yaml` + `config.py` — `connector.admission_timeout_seconds: 600` (10 min default). Exposed as `config.ADMISSION_TIMEOUT_SECONDS`.
+- `docs/model-log.md` — Added waiting room log lines and `admission_timeout` failure reason to Section 1.
 
 **What was built this session (April 2, 2026, session 11):**
 - `connectors/captions_adapter.py` — Added `--mute-audio` to Chrome launch args. Chrome was routing received meeting audio back into BlackHole (its audio output), creating a real AEC feedback loop on every session. WebRTC AEC normally handled it, but occasionally suppressed a word during TTS playback (confirmed via BlackHole recording: meeting audio was present before fix, TTS-only after). `--mute-audio` breaks the loop at the source; bot uses captions not audio so no functionality lost.

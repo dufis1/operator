@@ -72,11 +72,21 @@ STARTUP join failed: session_expired
 Re-export session: python scripts/auth_export.py       # action for user
 
 # Other join failures
-STARTUP join timed out (60s)                           # browser thread didn't signal in time
+STARTUP join timed out (660s)                          # browser thread didn't signal in time (value = ADMISSION_TIMEOUT_SECONDS + 60)
 STARTUP join failed: cant_join                         # "You can't join this video call" (authenticated — host controls)
 ❌ Not authenticated — run this to sign in:             # printed to stdout (not log) for visibility
    python scripts/auth_export.py
 STARTUP join failed: no_join_button                    # pre-join screen but no button found
+STARTUP join failed: admission_timeout                 # waited in lobby for ADMISSION_TIMEOUT_SECONDS, never admitted
+
+# Waiting room (when 'Ask to join' is clicked and host approval is required)
+CaptionsAdapter: waiting for lobby screen to appear...                                   # phase 1: confirming lobby loaded
+CaptionsAdapter: lobby confirmed — watching for host to admit us (timeout=600s)          # lobby detected; event-driven watch active
+CaptionsAdapter: still in waiting room (Ns elapsed)                                      # heartbeat every 30s
+CaptionsAdapter: admitted — lobby screen gone (event-driven, waited N.Ns total)          # host clicked 'Let in'; N.N = wait time
+CaptionsAdapter: admission timeout after 600s                                            # gave up; triggers admission_timeout failure
+CaptionsAdapter: lobby screen not detected after N.Ns — assuming already admitted        # lobby never appeared; proceeding optimistically
+CaptionsAdapter: admission wait cancelled (leave called after Ns)                        # leave() called while waiting
 
 # In-meeting health check (every 5 min in hold loop)
 MacOSAdapter: health check — unexpected URL: ...       # navigated away from meet.google.com
@@ -295,11 +305,17 @@ caption: speaker change Alice -> Bob
 TIMING caption_finalized reason=speaker_change ...  # previous speaker's prompt finalized early
 ```
 
+**At DEBUG level** — dropped captions during TTS playback:
+```
+caption: dropped while speaking [You] On it. 2 + 2 = 4.    # is_speaking=True gate active; normal during response
+```
+
 **What to check:**
 - No `caption_wake_detected` when someone says "hey operator" → check caption observer injection, check captions are enabled
 - `caption_wake_retracted` frequently → ASR is unstable for "hey operator", may need wake phrase tuning
 - `caption_speculative_fire` gap >> 1.0s → DOM updates stalled, check Playwright event loop
 - No `caption:` lines at all → caption callback not wired, check adapter/processor connection
+- Caption finalization hangs (no `caption_finalized` after user stops talking) → check if all captions showing `[You]` speaker label; Meet occasionally relabels user speech — is_speaking gate and wake anchoring handle this correctly
 
 ---
 
@@ -342,22 +358,30 @@ Interspersed with caption and pipeline events. These measure the gap between aco
 
 ```
 TIMING perceived_speech_start                                   # mic RMS crosses threshold — user started talking
-TIMING perceived_acoustic_silence_end speech_duration=N.NNs peak_rms=N.NNNN  # mic went quiet (sustained 300ms)
+TIMING perceived_acoustic_silence_end speech_duration=N.NNs peak_rms=N.NNNN  # mic went quiet (sustained 600ms)
 ```
 
 **Normal pattern per interaction:**
-- One or two `perceived_speech_start` lines while user speaks (brief between-word dips cause re-trigger)
+- One `perceived_speech_start` as user begins speaking
 - One `perceived_acoustic_silence_end` after user finishes — appears BEFORE `caption_prompt_finalized`
-- No perceived events during filler or response (probe gated off at `filler_play_start`)
+- No perceived events during filler or response (probe gated off at `filler_play_start`, 500ms warmup on resume)
+
+**Disabled probe** (diagnostics.latency_probe: false in config.yaml):
+```
+LatencyProbe: disabled via config
+```
 
 **Key derived metrics** (computed by `scripts/parse_latency.py`):
 - ASR delay = `caption_prompt_finalized` − `perceived_acoustic_silence_end` (typically 0.5–1.5s)
 - Dead air to filler = `filler_play_start` − `perceived_acoustic_silence_end`
 - Dead air to response = `response_play_start` − `perceived_acoustic_silence_end`
+- Parse script anchors cycles on `caption_wake_confirmed`, not ambient silences — multi-participant safe
+- Gate-leak cycles (filler started before acoustic silence logged) shown as `LEAK(N.NN)`, excluded from averages
 
 **What to check:**
-- No `perceived_*` events at all → check `LatencyProbe: input device` — must be real mic, not Display Audio or BlackHole
-- Events fire during bot response → `set_active` gate not working; check runner.py filler/response sections
+- No `perceived_*` events at all → check `LatencyProbe: input device` — must be real mic, not Display Audio or BlackHole; or `latency_probe: false` in config
+- Events fire during bot response → gate not closing; check `set_active(False)` at filler_play_start in runner.py
+- Multiple start/end events per utterance → between-word pauses exceeding 600ms; increase `_SILENCE_HOLD_BLOCKS`
 - Only `perceived_speech_start`, no `perceived_acoustic_silence_end` → ambient noise above threshold (0.03); may need tuning
 - `peak_rms` near 0.03 → user's voice barely above threshold; consider lowering to 0.025
 
