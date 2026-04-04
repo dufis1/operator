@@ -18,23 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Conversation mode classifier improved. Timeout bug fixed. Two-strike PASS system designed but not yet implemented.
-**Next action:** Implement two-strike PASS system for conversation-mode exit detection (see design below).
+**Phase:** Caption-scraping refactor — C.6 complete. Conversation mode classifier improved. Timeout bug fixed. Two-strike PASS system implemented and live-tested.
+**Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
 
-**What was built this session (April 4, 2026, session 21):**
+**What was built this session (April 4, 2026, session 22):**
+- `pipeline/runner.py` — Implemented two-strike PASS system for conversation-mode exit detection. First speculative PASS is now "soft" — stays in conversation mode instead of immediately exiting. If finalized text grew beyond speculative snapshot (word count delta > 2), re-classifies on full text via new `_reclassify_full_text()` method. Second consecutive PASS exits for real. Second-strike classifier prompt includes "[Context] You previously concluded the conversation was over" framing via `was_soft_pass` field on `_SpeculativeResult`. `soft_pass_active` boolean resets on any successful RESPOND, allowing future soft PASSes within the same conversation. All five scenarios verified in live meeting: happy path (no regression), soft PASS → timeout, soft PASS → recovery, soft PASS → second strike, short-pause follow-up.
+
+**What was built session 21 (April 4, 2026):**
 - `__main__.py` + `app.py` — Added `HH:MM:SS` timestamp formatting to the stderr/stdout StreamHandler so terminal logs show timing.
 - `pipeline/runner.py` — Fixed conversation timeout bug: caption-mode follow-up loop was calling `capture_next_wake_utterance` without `no_speech_timeout`, so it defaulted to `None` (wait forever). Now passes `CONVERSATION_TIMEOUT` (20s). Improved classifier prompt: includes last exchange context (`_last_utterance` + `_last_reply` tracked on the runner, not pulled from LLM history which contained the full formatted prompt). Classifier instruction rewritten to be meeting-aware ("You are in a live meeting with multiple participants. You just answered a question. Decide: is this a follow-up directed at you, or has the speaker moved on...").
-
-**Design for next session — Two-strike PASS system:**
-The current classifier fires speculatively at 1s silence on partial text. If someone says "Thanks. [pause] Now triple that." — the classifier PASSes on just "Thanks." before the follow-up arrives. The fix:
-1. Speculative fires at 1s → gets PASS (or response)
-2. At finalization: if finalized text has new words beyond speculative snapshot (word count delta > 2), re-classify on full text. If still PASS or no new words, continue to step 3.
-3. Soft PASS — don't exit. Stay in conversation mode, keep listening.
-4. Wait for next utterance (still within 20s timeout).
-5. Classify next utterance with context: "You previously thought this conversation was over. Now someone said X. Is this directed at you?"
-6. Second PASS → exit for real.
-7. 20s timeout with no speech → exit for real.
-Key insight: a PASS on partial text becomes a "soft" signal, not a hard exit. The 20s timeout remains the hard backstop. Cost: one extra GPT-4.1-mini call per soft PASS (only when someone speaks after a PASS, not on silence timeout). No latency impact on the happy path (legitimate follow-ups still hit speculative cache at 0.00s wait).
 
 **What was built session 20 (April 4, 2026):**
 - `__main__.py` — Terminal mode (`python __main__.py`) no longer uses rumps. Runs `run_polling()` directly on the main thread so SIGINT works as normal `KeyboardInterrupt`. Merged the old `_run_macos_headless` into a single `_run_macos_terminal()` that handles both direct URL and calendar polling modes. Added `start_new_session=True` monkey-patch on `subprocess.Popen.__init__` so child processes (Playwright driver, Chrome) don't receive SIGINT from the terminal. `_run_macos()` (rumps) retained only for `Operator.app` bundle.

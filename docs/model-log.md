@@ -353,11 +353,35 @@ TIMING caption_prompt_finalized speaker=Alice prompt="now triple it"
 mode includes `[Your last exchange]` (raw utterance + reply) and a meeting-aware instruction
 asking the model to decide if the new utterance is a follow-up or the speaker moving on.
 
-**Conversation ends** — model returns PASS when speaker moves on:
+**Conversation ends — two-strike PASS system:**
+
+First PASS is "soft" — stays listening. Second consecutive PASS exits for real.
+If finalized text grew beyond speculative snapshot (word delta > 2), re-classifies
+on full text before committing to soft PASS.
+
 ```
 TIMING caption_combined_classify for_assistant=False
-Conversation mode: utterance not for assistant — returning to idle
+Conversation mode: soft PASS — staying in conversation mode    # first strike: stay listening
+```
+
+Re-classify path (finalized text grew beyond speculative snapshot):
+```
+Conversation mode: soft PASS re-classify (spec=N final=M delta=D)  # word count grew
+TIMING reclassify_full_text result=True/False reply="..."          # classify-only LLM call
+Conversation mode: re-classify flipped PASS→RESPOND                # re-classify overturned PASS
+```
+
+Second strike (two consecutive PASSes):
+```
+TIMING caption_combined_classify for_assistant=False
+Conversation mode: second PASS — returning to idle               # hard exit
 State → idle (Listening for 'operator'...)
+```
+
+Soft PASS recovery (someone follows up after soft PASS):
+```
+TIMING caption_combined_classify for_assistant=True              # second-strike classifier says RESPOND
+...                                                              # responds normally, soft_pass resets
 ```
 
 **Conversation timeout** — no captions within 20 seconds:

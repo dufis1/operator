@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 21)*
+*Last updated: April 4, 2026 (session 22)*
 
-> **Current status: Conversation timeout and classifier fixed.** Caption-mode conversation follow-up loop now enforces the 20s timeout (was None/infinite). Classifier prompt improved with last-exchange context and meeting-aware instructions. Terminal logs now show HH:MM:SS timestamps. Next: implement two-strike PASS system for more robust conversation-mode exit detection.
+> **Current status: Two-strike PASS system implemented and live-tested.** Conversation-mode classifier no longer exits on the first speculative PASS. First PASS is "soft" (stay listening); second consecutive PASS exits for real. Re-classifies on full text when finalized text grows beyond speculative snapshot. All five scenarios verified in live meeting. Next: Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
 
 ---
 
