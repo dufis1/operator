@@ -45,6 +45,7 @@ class _SpeculativeResult:
         self.full_prompt = None       # Context-augmented prompt sent to LLM
         self.llm_reply = None         # LLM reply (None if not yet done or failed)
         self.for_assistant = None     # classifier result (True/False/None=not run)
+        self.was_soft_pass = False    # True when this cycle follows a soft PASS
         self.ready = threading.Event()
 
 
@@ -449,12 +450,14 @@ class AgentRunner:
             self._finalize_prompt(prompt, speculative=spec, caption_mode=True)
 
             # Conversation mode: accept follow-ups without re-triggering wake phrase.
-            # Exit when the LLM classifier (run in parallel with speculative LLM)
-            # decides the speaker has moved on.
+            # Two-strike PASS system: first PASS is "soft" (stay listening),
+            # only a second consecutive PASS exits conversation mode.
             log.info("Entering conversation mode")
+            soft_pass_active = False
             while self.captions.capturing and not self._stop_event.is_set():
                 self.conv.set_listening("Listening...")
                 spec = _SpeculativeResult()
+                spec.was_soft_pass = soft_pass_active
                 followup_speaker, followup = self.captions.capture_next_wake_utterance(
                     require_wake=False,
                     no_speech_timeout=CONVERSATION_TIMEOUT,
@@ -465,10 +468,38 @@ class AgentRunner:
                     break
                 # Wait for speculative thread (classifier result lives inside it)
                 spec.ready.wait()
-                if spec.for_assistant is False:
-                    log.info("Conversation mode: utterance not for assistant — returning to idle")
+
+                # --- RESPOND path (happy path) ---
+                if spec.for_assistant is not False:
+                    soft_pass_active = False
+                    self._finalize_prompt(followup, speculative=spec, caption_mode=True)
+                    continue
+
+                # --- PASS path: two-strike logic ---
+                # If finalized text grew beyond speculative snapshot, re-classify on full text
+                spec_words = len(spec.transcript.split()) if spec.transcript else 0
+                final_words = len(followup.split())
+                word_delta = final_words - spec_words
+
+                if word_delta > 2:
+                    log.info(
+                        f"Conversation mode: soft PASS re-classify "
+                        f"(spec={spec_words} final={final_words} delta={word_delta})"
+                    )
+                    if self._reclassify_full_text(followup):
+                        log.info("Conversation mode: re-classify flipped PASS→RESPOND")
+                        soft_pass_active = False
+                        self._finalize_prompt(followup, speculative=None, caption_mode=True)
+                        continue
+
+                # Second strike → hard exit
+                if soft_pass_active:
+                    log.info("Conversation mode: second PASS — returning to idle")
                     break
-                self._finalize_prompt(followup, speculative=spec, caption_mode=True)
+
+                # First strike → soft PASS, stay listening
+                log.info("Conversation mode: soft PASS — staying in conversation mode")
+                soft_pass_active = True
             self.conv.set_idle()
 
         log.info("AgentRunner: caption loop ended")
@@ -505,9 +536,19 @@ class AgentRunner:
                 if self._last_utterance and self._last_reply:
                     last_exchange = f"[Your last exchange]\nThey asked: {self._last_utterance}\nYou answered: {self._last_reply}\n\n"
 
+                # If this follows a soft PASS, tell the classifier about the prior decision
+                soft_pass_note = ""
+                if spec.was_soft_pass:
+                    soft_pass_note = (
+                        "[Context] You previously concluded the conversation was over "
+                        "and decided to PASS. Now someone has spoken again. "
+                        "Re-evaluate carefully: is this new speech directed at you?\n\n"
+                    )
+
                 spec.full_prompt = (
                     f"[Meeting transcript so far]\n{context}\n\n"
                     f"{last_exchange}"
+                    f"{soft_pass_note}"
                     f"[Someone just said]\n{prompt_text}\n\n"
                     f"[Instruction] You are in a live meeting with multiple participants. "
                     f"You just answered a question. Decide: is this new utterance a follow-up "
@@ -531,6 +572,38 @@ class AgentRunner:
             log.error(f"Speculative caption LLM error: {e}", exc_info=True)
         finally:
             spec.ready.set()
+
+    def _reclassify_full_text(self, full_text: str) -> bool:
+        """Re-classify finalized text after speculative PASS on partial.
+
+        Returns True if directed at assistant, False if PASS.
+        """
+        with self._transcript_lock:
+            context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
+
+        last_exchange = ""
+        if self._last_utterance and self._last_reply:
+            last_exchange = (
+                f"[Your last exchange]\nThey asked: {self._last_utterance}\n"
+                f"You answered: {self._last_reply}\n\n"
+            )
+
+        prompt = (
+            f"[Meeting transcript so far]\n{context}\n\n"
+            f"{last_exchange}"
+            f"[Someone just said]\n{full_text}\n\n"
+            f"[Instruction] You are in a live meeting. Decide: is this utterance a follow-up "
+            f"directed at you or has the speaker moved on? "
+            f"Respond with YES if for you, PASS if not."
+        )
+        try:
+            reply = self.llm.ask(prompt, record=False)
+            result = not reply.strip().upper().startswith("PASS")
+            log.info(f"TIMING reclassify_full_text result={result} reply=\"{reply[:60]}\"")
+            return result
+        except Exception as e:
+            log.error(f"Re-classify LLM error: {e}", exc_info=True)
+            return False  # default to PASS on error
 
     def _on_transcript_text(self, speaker, text):
         """Callback from CaptionProcessor — feeds ALL caption text into transcript."""
