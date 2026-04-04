@@ -18,14 +18,20 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired.
-**Next action:** Wire meeting-exit system phrases to leave logic (groundwork from session 15). Consider adding staleness check to calendar poller (currently joins events that started 30+ minutes ago).
+**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired. Inactivity-based meeting exit implemented.
+**Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Cmd+D mic mute/unmute testing.
 
-**What was built this session (April 3, 2026, session 17):**
+**What was built this session (April 3, 2026, session 18):**
+- `config.yaml` + `config.py` — Renamed `admission_timeout_seconds` → `idle_timeout_seconds` (default 600s). Single config value now controls both lobby patience and in-meeting inactivity timeout.
+- `connectors/captions_adapter.py` — Added `_last_caption_time` tracking. Hold loop replaced: 4-hour hard deadline removed, replaced with inactivity check that arms on first caption. If `now - _last_caption_time >= idle_timeout`, triggers `leave_event.set()`. Bot waits indefinitely in a silent meeting before anyone speaks (timer only starts after first caption).
+- `pipeline/runner.py` — Updated `ADMISSION_TIMEOUT_SECONDS` → `IDLE_TIMEOUT_SECONDS` reference.
+- **Google Calendar API migration explored and shelved.** Built full replacement using `google.auth.default()` + `googleapiclient` with `gcloud auth application-default login`. Discovered: (1) gcloud requires 500MB SDK install, (2) Google is deprecating calendar scopes on gcloud's default client ID (`WARNING: The following scopes will be blocked soon`), (3) Playwright browser cookies are actually more durable than CLI-scoped OAuth tokens. Reverted — calendar poller stays browser-based.
+- **Live test result (April 3, 2026):** Inactivity timer confirmed working. Set to 60s for testing. Bot joined meeting, answered "what's 2+2" (4.54s e2e), then left cleanly after 60s of no captions when user departed. Log: `CaptionsAdapter: no captions for 60s — leaving meeting`. Returned to polling state correctly.
+
+**What was built last session (April 3, 2026, session 17):**
 - `app.py` — Added `logging.StreamHandler()` to root logger so terminal output matches headless mode (previously only wrote to `/tmp/operator.log`).
 - `calendar_poller.py` — Added `RunningChromeVersion` to `copytree` ignore patterns (transient Chromium file that vanishes mid-copy). Changed `shutil.Error` handling from fatal return to warning-and-continue (partial copy failures are non-fatal; auth redirect check on line 95 catches real problems).
-- **Live test result (April 3, 2026):** Full calendar poller → auto-join → caption pipeline confirmed working. Poller detected event, queued Meet URL, bot joined, wake phrase detected through caption self-correction ("Pay Oper" → "Hey operator"), speculative LLM reused (0.94s wait), filler played concurrently, TTS response heard by participants. 4.77s end-to-end latency. Conversation mode entered correctly after response.
-- **Observation:** Poller joined a meeting that started 32 minutes ago (`-32.2m`). No lower bound on event staleness — may want to skip events more than ~10 minutes past start.
+- **Live test result (April 3, 2026):** Full calendar poller → auto-join → caption pipeline confirmed working. 4.77s end-to-end latency.
 
 **What was built this session (April 3, 2026, session 16):**
 - `caldav_poller.py` deleted. Replaced with `calendar_poller.py` — browser-based Google Calendar scraper. Uses a copied `browser_profile` (avoids SingletonLock conflict with the meeting browser). Polls the day view every 30s, extracts events from `[data-eventid]` DOM elements, finds Meet URLs in page source data near event IDs. No CalDAV, no keyring, no app passwords — zero extra auth setup.
@@ -39,7 +45,7 @@
 
 **Tested:** CalendarPoller extraction verified standalone — correctly finds events by `[data-eventid]`, extracts Meet URL from page source, queues it. Full end-to-end live test not yet run.
 
-**Context for next session:** Meeting-exit detection groundwork from session 15 still pending. System phrase logging is in place (`grep "system phrase" /tmp/operator.log`). The two exit phrases: "Returning to home screen" (host ended) and "No one else is in this meeting" (everyone left — needs `_seen_other_participant` witness flag). Wire these to call `leave()` once live-tested. The 4-hour session deadline is planned for removal once exit detection is sturdy.
+**Context for next session:** Meeting-exit detection is done via caption inactivity timer (session 18). System phrase logging preserved for diagnostics but no longer triggers exits. The 4-hour deadline is removed. Calendar poller cookie expiry remains a known friction point — user re-runs `scripts/auth_export.py` when session dies (every few weeks). Google Calendar API was explored and ruled out (gcloud scope deprecation).
 
 **What was built last session (April 2, 2026, session 15):**
 - `connectors/captions_adapter.py:574` — Added `log.info(f"CaptionsAdapter: system phrase detected — {stripped!r}")` before the early return in `_on_caption_from_js`. This surfaces Meet's system messages in the log for exit detection groundwork.

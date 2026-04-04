@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 3, 2026 (session 17)*
+*Last updated: April 3, 2026 (session 18)*
 
-> **Current status: Calendar poller → auto-join → caption pipeline live-tested end-to-end.** Full loop works: poller detects event, joins meeting, wake phrase triggers LLM, TTS response plays. Logging parity fix applied (menu bar mode now matches headless verbosity). Meeting-exit system phrase wiring still pending. Poller joins stale events (no lower bound on start time) — needs staleness check.
+> **Current status: Inactivity-based meeting exit implemented and live-tested.** Operator now leaves meetings after `idle_timeout_seconds` (default 600s) of no captions. Replaces the 4-hour hard deadline. Timer arms on the first caption so the bot can wait patiently in a silent meeting. Google Calendar API migration explored and shelved — gcloud's calendar scopes are being deprecated for default clients, and Playwright cookies are more durable. Calendar poller stays browser-based.
 
 ---
 
@@ -226,7 +226,8 @@
 - **TTS:** Three-tier architecture — `tts.provider: local | openai | elevenlabs`. Default: `local/kokoro_heart` (af_heart, 4/5, free). OpenAI tier: `gpt-4o-mini-tts` (5/5, ~0.87s TTFAB). ElevenLabs tier: `eleven_flash_v2_5` (5/5, ~0.39s TTFAB). Kokoro requires Python 3.10–3.12; falls back to `macos_say` gracefully if unavailable.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only.
 - **Demo strategy:** Invite-based. Users can't paste an instant meeting link to try the product (Google blocks headless bots). We provide the bot's email; user invites it. Same model as Otter.ai/Fireflies. A pre-configured demo bot must be running and ready.
-- **Meeting detection:** Browser-based Google Calendar scraping (30s interval). Uses a copied browser profile — same auth as the meeting browser, zero extra setup. Replaced CalDAV + keychain approach in session 16.
+- **Meeting detection:** Browser-based Google Calendar scraping (30s interval). Uses a copied browser profile — same auth as the meeting browser, zero extra setup. Replaced CalDAV + keychain approach in session 16. Google Calendar API migration explored (session 18) and shelved — gcloud ADC scopes being deprecated, Playwright cookies more durable.
+- **Meeting exit:** Caption inactivity timer (`idle_timeout_seconds`, default 600s). Arms on first caption; Operator waits indefinitely in silent meetings before anyone speaks. Same config value shared with lobby admission timeout.
 - **Licensing:** MIT (decided)
 - **Python target:** 3.11
 

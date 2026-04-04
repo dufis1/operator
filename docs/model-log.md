@@ -419,6 +419,13 @@ CaptionsAdapter: left meeting
 CaptionsAdapter: browser closed
 ```
 
+**Caption mode — inactivity exit (no Ctrl+C):**
+```
+CaptionsAdapter: no captions for 600s — leaving meeting    # idle_timeout_seconds elapsed since last caption
+AgentRunner: caption loop ended
+CaptionsAdapter: left meeting
+```
+
 ---
 
 ## Typical Timing Baselines (macOS, March 2026)
