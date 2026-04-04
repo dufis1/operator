@@ -411,17 +411,22 @@ MacOSAdapter: left meeting
 MacOSAdapter: browser closed
 ```
 
-**Caption mode:**
+**Caption mode (terminal — `python __main__.py`):**
 ```
-Interrupted — leaving meeting                     # or "Received signal 15 — shutting down"
-AgentRunner: caption loop ended
-CaptionsAdapter: left meeting
+Received signal 2 — shutting down                 # SIGINT handler fires on main thread
+CalendarPoller: stopped
+CaptionsAdapter: waiting for browser to close...
+CaptionsAdapter: navigated away — left meeting cleanly   # page.goto("about:blank") triggers Meet's leave signal
 CaptionsAdapter: browser closed
+CaptionsAdapter: left meeting
+AgentRunner: caption loop ended
 ```
 
 **Caption mode — inactivity exit (no Ctrl+C):**
 ```
 CaptionsAdapter: no captions for 600s — leaving meeting    # idle_timeout_seconds elapsed since last caption
+CaptionsAdapter: navigated away — left meeting cleanly
+CaptionsAdapter: browser closed
 AgentRunner: caption loop ended
 CaptionsAdapter: left meeting
 ```

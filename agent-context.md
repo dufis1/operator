@@ -21,12 +21,16 @@
 **Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired. Inactivity-based meeting exit implemented. Shutdown and auth reliability hardened.
 **Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Cmd+D mic mute/unmute testing.
 
-**What was built this session (April 3, 2026, session 19):**
+**What was built this session (April 4, 2026, session 20):**
+- `__main__.py` — Terminal mode (`python __main__.py`) no longer uses rumps. Runs `run_polling()` directly on the main thread so SIGINT works as normal `KeyboardInterrupt`. Merged the old `_run_macos_headless` into a single `_run_macos_terminal()` that handles both direct URL and calendar polling modes. Added `start_new_session=True` monkey-patch on `subprocess.Popen.__init__` so child processes (Playwright driver, Chrome) don't receive SIGINT from the terminal. `_run_macos()` (rumps) retained only for `Operator.app` bundle.
+- `connectors/captions_adapter.py` — Moved navigate-away (`page.goto("about:blank")`) and `browser.close()` inside the `with sync_playwright()` block. Previously they were in a `finally` outside it, so the Playwright driver was already dead when they ran. Removed broken `_force_kill_chrome()` method (SingletonLock doesn't exist in `--headless=new` mode).
+
+**What was built last session (April 3, 2026, session 19):**
 - `connectors/captions_adapter.py` — Fixed Ctrl+C shutdown delay (Chrome orphaned for 30-60s). Root cause: browser thread was daemon, `leave()` only set an event flag, main process exited before `browser.close()` ran. Fix: `leave()` now joins the browser thread (10s timeout). Also reduced hold-loop poll from 5s to 1s.
 - `calendar_poller.py` — Fixed session auth failure. Two bugs: (1) was using Playwright's `headless=True` (old headless mode, can't decrypt Chrome cookies) instead of `headless=False` + `--headless=new`; (2) was using Playwright's bundled Chromium instead of real Chrome (`executable_path` was missing). Now matches `CaptionsAdapter`'s launch pattern.
 - `scripts/auth_export.py` — Now visits `calendar.google.com` after login to establish Calendar's service-specific session cookies. Meet and Calendar use different Google service scopes; visiting only `accounts.google.com` authenticated Meet but not Calendar.
 
-**What was built last session (April 3, 2026, session 18):**
+**What was built in session 18 (April 3, 2026):**
 - `config.yaml` + `config.py` — Renamed `admission_timeout_seconds` → `idle_timeout_seconds` (default 600s). Single config value now controls both lobby patience and in-meeting inactivity timeout.
 - `connectors/captions_adapter.py` — Added `_last_caption_time` tracking. Hold loop replaced: 4-hour hard deadline removed, replaced with inactivity check that arms on first caption. If `now - _last_caption_time >= idle_timeout`, triggers `leave_event.set()`. Bot waits indefinitely in a silent meeting before anyone speaks (timer only starts after first caption).
 - `pipeline/runner.py` — Updated `ADMISSION_TIMEOUT_SECONDS` → `IDLE_TIMEOUT_SECONDS` reference.

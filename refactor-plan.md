@@ -4,7 +4,7 @@
 
 *Last updated: April 3, 2026 (session 19)*
 
-> **Current status: Shutdown and auth reliability hardened.** Fixed Ctrl+C leaving Chrome orphaned in meetings for 30-60s (browser thread now joined before exit). Fixed calendar poller auth failures — was using wrong headless mode and missing Chrome executable path; also `auth_export.py` now establishes Calendar-specific session cookies (Meet and Calendar use different Google service scopes).
+> **Current status: Instant Ctrl+C leave working.** Fixed the 60s ghost participant on Ctrl+C — three stacked issues: rumps' Cocoa event loop bypassed all Python cleanup, SIGINT killed Chrome via process group, and browser.close() didn't trigger Meet's leave signal. Terminal mode now bypasses rumps, child processes run in separate sessions, and the browser navigates to about:blank before closing.
 
 ---
 
