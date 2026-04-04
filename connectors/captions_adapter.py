@@ -183,6 +183,7 @@ class CaptionsAdapter(MeetingConnector):
         self._js_time_offset = None    # maps performance.now() → wall clock time
         self._blackhole_rec_proc = None
         self._on_disconnect = None  # callback fired when browser session exits
+        self._last_caption_time = None  # set on first caption; inactivity timer arms from here
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -399,17 +400,27 @@ class CaptionsAdapter(MeetingConnector):
                 self._page = page
                 js.signal_success()
 
-                # Hold until leave() or 4-hour cap
-                deadline = time.time() + 4 * 3600
+                # Hold until leave() or inactivity timeout (arms on first caption)
+                idle_timeout = config.IDLE_TIMEOUT_SECONDS
                 last_health = time.time()
-                while not self._leave_event.is_set() and time.time() < deadline:
+                while not self._leave_event.is_set():
                     # Use Playwright's own wait (pumps the CDP event loop) rather than
                     # time.sleep() which blocks it — expose_function callbacks won't fire
                     # unless the Playwright event loop is being pumped.
                     page.wait_for_timeout(5000)
 
-                    if time.time() - last_health >= 300:
-                        last_health = time.time()
+                    now = time.time()
+
+                    # Inactivity check — only armed after first caption
+                    if self._last_caption_time is not None:
+                        idle_secs = now - self._last_caption_time
+                        if idle_secs >= idle_timeout:
+                            log.info(f"CaptionsAdapter: no captions for {idle_secs:.0f}s — leaving meeting")
+                            self._leave_event.set()
+                            break
+
+                    if now - last_health >= 300:
+                        last_health = now
                         try:
                             current_url = page.url
                             if "meet.google.com" not in current_url:
@@ -449,7 +460,7 @@ class CaptionsAdapter(MeetingConnector):
 
         Returns True if admitted, False on timeout or leave().
         """
-        timeout_seconds = config.ADMISSION_TIMEOUT_SECONDS
+        timeout_seconds = config.IDLE_TIMEOUT_SECONDS
         deadline = time.time() + timeout_seconds
         wait_start = time.time()
         last_status_log = wait_start
@@ -588,6 +599,8 @@ class CaptionsAdapter(MeetingConnector):
         timestamp = self._js_time_offset + js_timestamp / 1000.0
         bridge_lag = py_now - timestamp
         log.info(f"caption: [{speaker}] {stripped[:80]}  [bridge_lag={bridge_lag*1000:.0f}ms]")
+
+        self._last_caption_time = py_now
 
         if self._caption_callback:
             self._caption_callback(speaker, stripped, timestamp)

@@ -164,7 +164,7 @@ class AgentRunner:
             # Wait for browser thread to signal join result
             join_status = self.connector.join_status
             if join_status:
-                join_timeout = config.ADMISSION_TIMEOUT_SECONDS + 60
+                join_timeout = config.IDLE_TIMEOUT_SECONDS + 60
                 if not join_status.ready.wait(timeout=join_timeout):
                     log.error(f"STARTUP join timed out ({join_timeout}s)")
                     self._on_state_change("error", "Join timed out")
