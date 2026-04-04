@@ -24,10 +24,10 @@ STARTUP loading Whisper model...
 STARTUP STT provider=mlx model=base             # provider and model from config.yaml
 STARTUP Whisper model loaded                   # ~0.4s on Apple Silicon
 STARTUP connecting to APIs...                  # OpenAI client init
-STARTUP initializing TTS...
-STARTUP Kokoro TTS ready (voice=af_heart)      # ~3s for Kokoro model load
+STARTUP initializing TTS (background)...       # TTS init runs in background thread
 STARTUP joining meeting <url>                  # only if meeting_url provided
 MacOSAdapter: joining <url>                    # connector-level join
+STARTUP TTS ready (background)                 # Kokoro load finished (overlaps with browser)
 MacOSAdapter: Swift helper launched            # audio capture binary started
 AgentRunner: audio capture started
 State → idle (Listening for 'operator'...)
@@ -39,10 +39,10 @@ STARTUP complete — idle, listening for wake phrase
 STARTUP begin
 STARTUP mode=captions (DOM-based, no Whisper)   # no Whisper model load
 STARTUP connecting to APIs...                   # OpenAI client init
-STARTUP initializing TTS...
-STARTUP Kokoro TTS ready (voice=af_heart)
+STARTUP initializing TTS (background)...       # TTS init runs in background thread
 STARTUP joining meeting <url>
 CaptionsAdapter: joining <url>                  # caption connector join
+STARTUP TTS ready (background)                 # Kokoro load finished (overlaps with browser)
 CaptionsAdapter: captions enabled via Shift+C   # or "via button fallback"
 CaptionsAdapter: caption observer injected      # MutationObserver scoped to caption region
 STARTUP caption processing active
@@ -54,7 +54,7 @@ STARTUP complete — idle, listening for wake phrase
 
 **Join failure / session recovery lines** (only appear when join has problems):
 ```
-# Page state detection (after 8s load)
+# Page state detection (after event-driven wait for pre-join elements)
 session: 'can't join' but no Google session cookie — treating as logged_out  # auth failure, not host controls
 session: detected 'can't join' state (authenticated — likely host controls)  # genuine host block
 
@@ -175,6 +175,7 @@ When someone says "operator" followed by a question in the same utterance:
 TIMING ambient_whisper_done "Operator, what time is it?"
 TIMING wake_inline prompt=" what time is it"    # trailing text extracted as prompt
 State → listening (Listening for prompt...)
+TIMING waiting for TTS init...                   # only if Kokoro still loading (rare — overlaps with browser)
 TIMING prompt_finalized " what time is it"      # prompt sent to pipeline
 State → thinking (Thinking...)
 ```

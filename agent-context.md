@@ -18,10 +18,18 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Conversation mode classifier improved. Timeout bug fixed. Two-strike PASS system implemented and live-tested.
-**Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
+**Phase:** Caption-scraping refactor — C.6 complete. Startup performance optimized.
+**Next action:** Live-test startup optimizations, then Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
 
-**What was built this session (April 4, 2026, session 22):**
+**What was built this session (April 4, 2026, session 23):**
+- **Startup performance audit and optimization.** Analyzed 30s startup timeline and replaced fixed sleeps with event-driven Playwright waits. Expected savings: ~15-20s.
+- `pipeline/runner.py` — Moved `TTSClient` construction to a background thread (`tts-init`). Kokoro's ~5s model load now overlaps with browser navigation. Added `_tts_ready` threading.Event; `_finalize_prompt` and `_play_acknowledgment` wait for it only when TTS is first needed.
+- `connectors/captions_adapter.py` — (1) Replaced `wait_for_timeout(8000)` after `page.goto()` with `wait_for_selector` on pre-join elements (Join now / Ask to join / camera buttons). CDP fires on DOM mutation — no polling. (2) Camera button: replaced 3s timeout with `locator.or_()` racing "Turn off camera" and "Turn on camera" — resolves instantly when one already exists. (3) Post-join: replaced `wait_for_timeout(3000)` with `wait_for_selector` on `button[aria-label*="Leave call"]` (verified: only exists in-meeting). (4) Mic button: same `or_()` race pattern — resolves instantly when mic already on. (5) Removed 3s pre-sleep in `_enable_captions`, reduced Escape loop gaps from 200ms to 100ms. (6) Gated all 3 `save_debug()` calls behind `config.DEBUG_AUDIO`.
+- `connectors/macos_adapter.py` — Same optimizations applied (items 1-4 and 6).
+- `pipeline/tts.py` — Suppressed three noisy-but-harmless Kokoro init warnings (HF Hub unauthenticated download notice, PyTorch LSTM dropout, PyTorch weight_norm deprecation). Scoped to init only.
+- **Selectors verified against actual debug HTML** from a live session: "Join now" (1 match in initial_load), "Turn off camera" aria-label (2 matches in initial_load), "Turn off microphone" (2 matches in initial_load), "Leave call" (2 matches in in_meeting, 0 in pre_join).
+
+**What was built session 22 (April 4, 2026):**
 - `pipeline/runner.py` — Implemented two-strike PASS system for conversation-mode exit detection. First speculative PASS is now "soft" — stays in conversation mode instead of immediately exiting. If finalized text grew beyond speculative snapshot (word count delta > 2), re-classifies on full text via new `_reclassify_full_text()` method. Second consecutive PASS exits for real. Second-strike classifier prompt includes "[Context] You previously concluded the conversation was over" framing via `was_soft_pass` field on `_SpeculativeResult`. `soft_pass_active` boolean resets on any successful RESPOND, allowing future soft PASSes within the same conversation. All five scenarios verified in live meeting: happy path (no regression), soft PASS → timeout, soft PASS → recovery, soft PASS → second strike, short-pause follow-up.
 
 **What was built session 21 (April 4, 2026):**
