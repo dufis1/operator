@@ -86,6 +86,8 @@ class AgentRunner:
         self.conv = None
         self.llm = None
         self.tts = None
+        self._last_utterance = None   # raw user prompt text (for classifier context)
+        self._last_reply = None       # raw LLM reply text (for classifier context)
         self._latency_probe = LatencyProbe()
 
     # ------------------------------------------------------------------
@@ -455,6 +457,7 @@ class AgentRunner:
                 spec = _SpeculativeResult()
                 followup_speaker, followup = self.captions.capture_next_wake_utterance(
                     require_wake=False,
+                    no_speech_timeout=CONVERSATION_TIMEOUT,
                     on_speculative=self._make_caption_speculative_callback(spec, run_classifier=True),
                 )
                 if not followup:
@@ -497,11 +500,21 @@ class AgentRunner:
                 context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
 
             if run_classifier:
+                # Build last-exchange context from tracked utterance/reply
+                last_exchange = ""
+                if self._last_utterance and self._last_reply:
+                    last_exchange = f"[Your last exchange]\nThey asked: {self._last_utterance}\nYou answered: {self._last_reply}\n\n"
+
                 spec.full_prompt = (
                     f"[Meeting transcript so far]\n{context}\n\n"
+                    f"{last_exchange}"
                     f"[Someone just said]\n{prompt_text}\n\n"
-                    f"[Note] This may or may not be addressed to you. "
-                    f"If it is not addressed to you, respond with only the word PASS."
+                    f"[Instruction] You are in a live meeting with multiple participants. "
+                    f"You just answered a question. Decide: is this new utterance a follow-up "
+                    f"directed at you, or has the speaker moved on — e.g. addressing another "
+                    f"participant, changing the subject, or continuing the meeting without you? "
+                    f"If it is for you, respond normally. "
+                    f"If it is NOT for you, respond with only the word PASS."
                 )
                 spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
                 spec.for_assistant = not spec.llm_reply.strip().upper().startswith("PASS")
@@ -616,6 +629,10 @@ class AgentRunner:
 
             # --- Sanitize for TTS ---
             reply = sanitize_for_speech(reply)
+
+            # Track for classifier context in conversation follow-up mode
+            self._last_utterance = prompt
+            self._last_reply = reply
 
             # --- Step 2: TTS synthesis kicked off ---
             self.conv.set_speaking()
