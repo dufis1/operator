@@ -11,7 +11,28 @@ Note: `python -m operator` conflicts with Python's built-in `operator` module.
       It will work correctly once the package is installed via pyproject.toml (Step 8.1).
 """
 import argparse
+import subprocess
 import sys
+
+# ── Prevent Ctrl+C from killing child processes ────────────────────
+# Playwright's Node.js driver and Chrome are child processes in our
+# terminal's foreground process group.  When the user presses Ctrl+C,
+# the terminal sends SIGINT to the whole group — killing Chrome
+# abruptly and leaving it in the meeting for ~60s until Meet's
+# heartbeat times out.
+#
+# Fix: put every child in its own session (setsid) so SIGINT only
+# reaches our Python process.  We then close Chrome cleanly via
+# Playwright, and Meet sees an immediate disconnect.
+_OriginalPopenInit = subprocess.Popen.__init__
+
+
+def _detached_popen_init(self, *args, **kwargs):
+    kwargs.setdefault("start_new_session", True)
+    _OriginalPopenInit(self, *args, **kwargs)
+
+
+subprocess.Popen.__init__ = _detached_popen_init
 
 
 def main():
@@ -40,24 +61,26 @@ def main():
     args = parser.parse_args()
 
     if sys.platform == "darwin":
-        if args.meeting_url:
-            _run_macos_headless(args.meeting_url, force=args.force)
-        else:
-            _run_macos()
+        _run_macos_terminal(args.meeting_url, force=args.force)
     else:
         _run_linux(args.meeting_url, force=args.force)
 
 
 def _run_macos():
-    """Launch the macOS menu bar app."""
+    """Launch the macOS menu bar app (Operator.app only)."""
     from app import OperatorApp
     OperatorApp().run()
 
 
-def _run_macos_headless(meeting_url, force=False):
-    """Join a specific meeting directly on macOS, no menu bar."""
+def _run_macos_terminal(meeting_url=None, force=False):
+    """Run from terminal on macOS — calendar polling or direct URL.
+
+    Keeps the main thread in Python code so SIGINT (Ctrl+C) is handled
+    reliably.  The rumps menu bar is only used when launched as Operator.app.
+    """
     import logging
     import os
+    import queue
     import signal
 
     logging.basicConfig(
@@ -86,11 +109,9 @@ def _run_macos_headless(meeting_url, force=False):
 
     if connector_type == "meet-captions":
         from connectors.captions_adapter import CaptionsAdapter
-        log.info(f"Starting Operator (captions) — joining {meeting_url}")
         connector = CaptionsAdapter(force=force)
     elif connector_type == "audio":
         from connectors.macos_adapter import MacOSAdapter
-        log.info(f"Starting Operator (audio) — joining {meeting_url}")
         connector = MacOSAdapter(force=force)
     else:
         log.error(f"Unknown connector type: {connector_type}")
@@ -100,6 +121,8 @@ def _run_macos_headless(meeting_url, force=False):
         connector=connector,
         tts_output_device=BLACKHOLE_DEVICE,
     )
+
+    poller = None
 
     def _shutdown(signum=None, frame=None):
         reason_file = os.path.join(config.BROWSER_PROFILE_DIR, ".operator.kill_reason")
@@ -113,12 +136,23 @@ def _run_macos_headless(meeting_url, force=False):
             if signum:
                 log.info(f"Received signal {signum} — shutting down")
         runner.stop()
+        if poller:
+            poller.stop()
         connector.leave()
 
     signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
 
     try:
-        runner.run(meeting_url)
+        if meeting_url:
+            log.info(f"Starting Operator — joining {meeting_url}")
+            runner.run(meeting_url)
+        else:
+            from calendar_poller import CalendarPoller
+            meeting_queue = queue.Queue()
+            poller = CalendarPoller(meeting_queue)
+            poller.start()
+            runner.run_polling(meeting_queue)
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
@@ -205,6 +239,7 @@ def _run_linux(meeting_url, force=False):
         connector.leave()
 
     signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
 
     try:
         runner.run(meeting_url)

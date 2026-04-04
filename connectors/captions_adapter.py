@@ -243,9 +243,9 @@ class CaptionsAdapter(MeetingConnector):
         # propagates through the Playwright driver).
         if self._browser_thread and self._browser_thread.is_alive():
             log.info("CaptionsAdapter: waiting for browser to close...")
-            self._browser_thread.join(timeout=10)
+            self._browser_thread.join(timeout=20)
             if self._browser_thread.is_alive():
-                log.warning("CaptionsAdapter: browser thread did not finish in 10s")
+                log.warning("CaptionsAdapter: browser thread did not finish in 20s")
         if self._blackhole_rec_proc:
             self._blackhole_rec_proc.terminate()
             try:
@@ -439,6 +439,21 @@ class CaptionsAdapter(MeetingConnector):
                         except Exception:
                             log.warning("CaptionsAdapter: health check — page not accessible")
 
+                # ── Clean leave (inside `with sync_playwright()`) ────
+                # Navigate away so Meet's JS fires the leave signal.
+                # Must happen before the `with` block exits, which kills
+                # the Playwright driver.
+                try:
+                    page.goto("about:blank", timeout=5000)
+                    log.info("CaptionsAdapter: navigated away — left meeting cleanly")
+                except Exception as e:
+                    log.info(f"CaptionsAdapter: navigate-away failed: {e}")
+                try:
+                    browser.close()
+                    log.info("CaptionsAdapter: browser closed")
+                except Exception as e:
+                    log.info(f"CaptionsAdapter: browser.close() failed: {e}")
+
         except Exception as e:
             log.error(f"CaptionsAdapter: browser session error: {e}")
             if not js.ready.is_set():
@@ -450,12 +465,6 @@ class CaptionsAdapter(MeetingConnector):
                 os.remove(pid_file)
             except OSError:
                 pass
-            if browser:
-                try:
-                    browser.close()
-                    log.info("CaptionsAdapter: browser closed")
-                except Exception:
-                    log.debug("CaptionsAdapter: browser already closed")
             if self._on_disconnect:
                 self._on_disconnect()
 
