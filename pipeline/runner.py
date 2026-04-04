@@ -148,8 +148,16 @@ class AgentRunner:
         log.info("STARTUP connecting to APIs...")
         openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
         self.llm = LLMClient(openai_client)
-        log.info("STARTUP initializing TTS...")
-        self.tts = TTSClient(self._tts_output_device)
+
+        # Start TTS init in background — Kokoro model load (~5s) overlaps with
+        # browser launch + page navigation. TTS isn't needed until first response.
+        log.info("STARTUP initializing TTS (background)...")
+        self._tts_ready = threading.Event()
+        def _init_tts():
+            self.tts = TTSClient(self._tts_output_device)
+            self._tts_ready.set()
+            log.info("STARTUP TTS ready (background)")
+        threading.Thread(target=_init_tts, daemon=True, name="tts-init").start()
 
         self.conv = ConversationState(on_state_change=self._on_state_change)
 
@@ -628,6 +636,11 @@ class AgentRunner:
             self.conv.set_idle()
             return
 
+        # Ensure TTS background init has finished before we need to synthesize
+        if not self._tts_ready.is_set():
+            log.info("TIMING waiting for TTS init...")
+            self._tts_ready.wait()
+
         log.info(f"TIMING prompt_finalized \"{prompt}\"")
         self.conv.set_thinking()
 
@@ -796,6 +809,9 @@ class AgentRunner:
 
     def _play_acknowledgment(self):
         """Play a random acknowledgment clip through the TTS output device."""
+        if not self._tts_ready.is_set():
+            log.info("TIMING waiting for TTS init...")
+            self._tts_ready.wait()
         clip = random.choice(ACK_CLIPS)
         clip_name = os.path.basename(clip).replace("ack_", "").replace(".mp3", "")
         log.info(f"Operator says: \"{clip_name}\" (acknowledgment)")

@@ -64,10 +64,22 @@ class TTSClient:
 
     def _init_kokoro(self):
         try:
-            from kokoro import KPipeline
-            voice_id = _KOKORO_VOICES[config.TTS_LOCAL_VOICE]
-            lang_code = "b" if voice_id.startswith("b") else "a"
-            self._kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
+            import warnings
+            # Suppress noisy-but-harmless warnings from Kokoro's dependencies:
+            #   - HF Hub: unauthenticated download notice (cosmetic)
+            #   - PyTorch: LSTM dropout with num_layers=1 (no-op in model arch)
+            #   - PyTorch: weight_norm deprecation (upstream library issue)
+            hf_logger = logging.getLogger("huggingface_hub")
+            prev_hf_level = hf_logger.level
+            hf_logger.setLevel(logging.ERROR)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*dropout option adds dropout.*")
+                warnings.filterwarnings("ignore", message=".*torch.nn.utils.weight_norm.*")
+                from kokoro import KPipeline
+                voice_id = _KOKORO_VOICES[config.TTS_LOCAL_VOICE]
+                lang_code = "b" if voice_id.startswith("b") else "a"
+                self._kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
+            hf_logger.setLevel(prev_hf_level)
             self._kokoro_voice = voice_id
             log.info(f"STARTUP Kokoro TTS ready (voice={voice_id})")
         except ImportError:

@@ -160,10 +160,21 @@ class MacOSAdapter(MeetingConnector):
                 page = browser.pages[0] if browser.pages else browser.new_page()
 
                 page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(8000)
+                # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s
+                try:
+                    page.wait_for_selector(
+                        'button:has-text("Join now"), '
+                        'button:has-text("Ask to join"), '
+                        'button[aria-label*="Turn off camera"], '
+                        'button[aria-label*="Turn on camera"], '
+                        'button[aria-label*="Sign in"]',
+                        timeout=15000,
+                    )
+                except Exception:
+                    log.warning("MacOSAdapter: no pre-join element detected — proceeding anyway")
 
-                # Snapshot what the browser sees after initial load
-                save_debug(page, "initial_load")
+                if config.DEBUG_AUDIO:
+                    save_debug(page, "initial_load")
 
                 # --- Session recovery ladder ---
                 state = detect_page_state(page)
@@ -174,7 +185,15 @@ class MacOSAdapter(MeetingConnector):
                     auth = validate_auth_state(self._auth_state_file)
                     if auth and inject_cookies(browser, auth):
                         page.reload(wait_until="domcontentloaded", timeout=30000)
-                        page.wait_for_timeout(8000)
+                        try:
+                            page.wait_for_selector(
+                                'button:has-text("Join now"), '
+                                'button:has-text("Ask to join"), '
+                                'button[aria-label*="Turn off camera"]',
+                                timeout=15000,
+                            )
+                        except Exception:
+                            pass
                         state = detect_page_state(page)
                         if state == "pre_join":
                             log.info("MacOSAdapter: session recovered via cookie injection")
@@ -208,18 +227,21 @@ class MacOSAdapter(MeetingConnector):
                 except Exception:
                     pass
 
-                # Turn off camera
+                # Race both camera states — resolves instantly when one already exists
+                cam_off = page.get_by_role("button", name="Turn off camera")
+                cam_on = page.get_by_role("button", name="Turn on camera")
                 try:
-                    cam_btn = page.get_by_role("button", name="Turn off camera")
-                    cam_btn.wait_for(timeout=3000)
-                    cam_btn.click()
-                    page.wait_for_timeout(300)
-                    log.debug("MacOSAdapter: camera turned off")
+                    cam_off.or_(cam_on).wait_for(timeout=3000)
+                    if cam_off.is_visible():
+                        cam_off.click()
+                        log.debug("MacOSAdapter: camera turned off")
+                    else:
+                        log.debug("MacOSAdapter: camera already off")
                 except Exception:
-                    log.debug("MacOSAdapter: camera button not found or already off")
+                    log.debug("MacOSAdapter: camera button not found")
 
-                # Snapshot pre-join screen for debugging
-                save_debug(page, "pre_join")
+                if config.DEBUG_AUDIO:
+                    save_debug(page, "pre_join")
 
                 # Click join button
                 joined = False
@@ -243,15 +265,27 @@ class MacOSAdapter(MeetingConnector):
                 log.info("MacOSAdapter: joined meeting successfully")
                 js.signal_success(recovered=recovered)
 
-                # Ensure mic is unmuted after join
-                page.wait_for_timeout(3000)
+                # Event-driven: wait for in-meeting UI instead of sleeping 3s
                 try:
-                    mic_btn = page.get_by_role("button", name="Turn on microphone")
-                    mic_btn.wait_for(timeout=3000)
-                    mic_btn.click()
-                    log.debug("MacOSAdapter: microphone unmuted")
+                    page.wait_for_selector(
+                        'button[aria-label*="Leave call"]',
+                        timeout=15000,
+                    )
                 except Exception:
-                    log.debug("MacOSAdapter: mic already on or button not found")
+                    log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
+
+                # Race both mic states — resolves instantly when mic is already on
+                mic_on_btn = page.get_by_role("button", name="Turn on microphone")
+                mic_off_btn = page.get_by_role("button", name="Turn off microphone")
+                try:
+                    mic_on_btn.or_(mic_off_btn).wait_for(timeout=3000)
+                    if mic_on_btn.is_visible():
+                        mic_on_btn.click()
+                        log.debug("MacOSAdapter: microphone unmuted")
+                    else:
+                        log.debug("MacOSAdapter: mic already on")
+                except Exception:
+                    log.debug("MacOSAdapter: mic button not found")
 
                 log.info("MacOSAdapter: in meeting — holding browser open")
 
