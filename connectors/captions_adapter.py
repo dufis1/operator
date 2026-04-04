@@ -182,6 +182,7 @@ class CaptionsAdapter(MeetingConnector):
         self._page = None              # set once in-meeting (for echo guard)
         self._js_time_offset = None    # maps performance.now() → wall clock time
         self._blackhole_rec_proc = None
+        self._on_disconnect = None  # callback fired when browser session exits
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -433,6 +434,8 @@ class CaptionsAdapter(MeetingConnector):
                     log.info("CaptionsAdapter: browser closed")
                 except Exception:
                     log.debug("CaptionsAdapter: browser already closed")
+            if self._on_disconnect:
+                self._on_disconnect()
 
     # ── Waiting room ─────────────────────────────────────────────────
 

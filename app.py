@@ -3,6 +3,7 @@ Operator — AI Meeting Participant
 Runs in the macOS menu bar. Delegates pipeline work to AgentRunner.
 """
 import os
+import queue
 import subprocess
 import threading
 import time
@@ -12,8 +13,7 @@ import numpy as np
 import rumps
 from PyObjCTools.AppHelper import callAfter
 import config
-from caldav_poller import CalDAVPoller
-from connectors.macos_adapter import MacOSAdapter
+from calendar_poller import CalendarPoller
 from pipeline.audio import SAMPLE_RATE
 from pipeline.runner import AgentRunner
 
@@ -103,17 +103,32 @@ class OperatorApp(rumps.App):
             return
 
         self._set_state("⚪", "Loading...")
-        self.connector = MacOSAdapter()
+
+        connector_type = config.CONNECTOR_TYPE
+        if connector_type == "auto":
+            connector_type = "meet-captions"
+        if connector_type == "meet-captions":
+            from connectors.captions_adapter import CaptionsAdapter
+            self.connector = CaptionsAdapter()
+        elif connector_type == "audio":
+            from connectors.macos_adapter import MacOSAdapter
+            self.connector = MacOSAdapter()
+        else:
+            log.error(f"Unknown connector type: {connector_type}")
+            self._set_state("⚠️", f"Unknown connector: {connector_type}")
+            return
+
         self.runner = AgentRunner(
             connector=self.connector,
             tts_output_device=BLACKHOLE_DEVICE,
             on_state_change=self._on_conv_state_change,
         )
 
-        self._calendar_poller = CalDAVPoller(self.connector)
+        self._meeting_queue = queue.Queue()
+        self._calendar_poller = CalendarPoller(self._meeting_queue)
         self._calendar_poller.start()
 
-        self.runner.run()  # blocks until stopped
+        self.runner.run_polling(self._meeting_queue)  # blocks until stopped
 
     # ------------------------------------------------------------------
     # Menu actions
@@ -199,7 +214,7 @@ class OperatorApp(rumps.App):
             self.runner.stop()
         if self._calendar_poller:
             self._calendar_poller.stop()
-        elif self.connector:
+        if self.connector:
             self.connector.leave()
         rumps.quit_application()
 

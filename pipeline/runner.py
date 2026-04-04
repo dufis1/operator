@@ -92,6 +92,41 @@ class AgentRunner:
     # Entry point
     # ------------------------------------------------------------------
 
+    def run_polling(self, meeting_queue):
+        """Wait for meeting URLs from CalDAV, run each one, loop back.
+
+        Used by the macOS menu bar app with CalDAV polling.
+        Blocks until stop() is called or a None sentinel is received.
+        """
+        import queue as _queue
+        log.info("STARTUP polling mode — waiting for meetings")
+        self._on_state_change("idle", "Waiting for meeting...")
+
+        while not self._stop_event.is_set():
+            try:
+                meeting_url = meeting_queue.get(timeout=1.0)
+            except _queue.Empty:
+                continue
+
+            if meeting_url is None:  # sentinel from poller.stop()
+                break
+
+            log.info(f"POLLING received meeting URL: {meeting_url}")
+            self._on_state_change("idle", f"Joining {meeting_url}...")
+
+            self.run(meeting_url)
+
+            # Clean up after meeting
+            self.connector.leave()
+            self._stop_event.clear()
+            self._transcript_lines.clear()
+            self.captions = None
+            self.audio = None
+            self._on_state_change("idle", "Waiting for meeting...")
+            log.info("POLLING meeting ended — waiting for next")
+
+        log.info("POLLING loop exited")
+
     def run(self, meeting_url=None):
         """Initialise pipeline, optionally join a meeting, then run the main loop.
 
@@ -118,10 +153,12 @@ class AgentRunner:
         if meeting_url:
             log.info(f"STARTUP joining meeting {meeting_url}")
 
-            # For caption mode, wire up the callback before joining
+            # For caption mode, wire up callbacks before joining
             if self._caption_mode:
                 self.connector.set_caption_callback(self.captions.on_caption_update)
                 self.captions.set_transcript_callback(self._on_transcript_text)
+                # Signal caption loop to exit when browser session ends
+                self.connector._on_disconnect = lambda: self.captions.stop()
 
             self.connector.join(meeting_url)
             # Wait for browser thread to signal join result

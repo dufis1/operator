@@ -49,9 +49,6 @@ _diagnostics = _config.get("diagnostics", {})
 LATENCY_PROBE_ENABLED = _diagnostics.get("latency_probe", True)
 DEBUG_AUDIO           = _diagnostics.get("debug_audio", False)
 
-# CalDAV
-CALDAV_BOT_GMAIL = _config["caldav"]["bot_gmail"]
-
 # Secrets from .env
 OPENAI_API_KEY     = os.environ["OPENAI_API_KEY"]
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")

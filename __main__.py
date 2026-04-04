@@ -3,7 +3,7 @@ Operator — AI Meeting Participant
 Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
 
 Usage:
-    python __main__.py              # macOS: opens menu bar app (CalDAV auto-join)
+    python __main__.py              # macOS: opens menu bar app (calendar auto-join)
     python __main__.py <meet-url>   # Linux: joins a specific meeting
     python .                        # same as above from the repo root
 
@@ -21,7 +21,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "macOS: meeting URL is not required — Operator monitors your calendar\n"
-            "       via CalDAV and joins automatically.\n\n"
+            "       via Google Calendar and joins automatically.\n\n"
             "Linux: meeting URL is required. Set DISPLAY and run\n"
             "       scripts/linux_setup.sh before starting."
         ),
