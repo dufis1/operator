@@ -18,8 +18,14 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller replaced. Multi-meeting lifecycle wired.
-**Next action:** Live end-to-end test of calendar poller → auto-join → caption pipeline. Then wire meeting-exit system phrases to leave logic.
+**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired.
+**Next action:** Wire meeting-exit system phrases to leave logic (groundwork from session 15). Consider adding staleness check to calendar poller (currently joins events that started 30+ minutes ago).
+
+**What was built this session (April 3, 2026, session 17):**
+- `app.py` — Added `logging.StreamHandler()` to root logger so terminal output matches headless mode (previously only wrote to `/tmp/operator.log`).
+- `calendar_poller.py` — Added `RunningChromeVersion` to `copytree` ignore patterns (transient Chromium file that vanishes mid-copy). Changed `shutil.Error` handling from fatal return to warning-and-continue (partial copy failures are non-fatal; auth redirect check on line 95 catches real problems).
+- **Live test result (April 3, 2026):** Full calendar poller → auto-join → caption pipeline confirmed working. Poller detected event, queued Meet URL, bot joined, wake phrase detected through caption self-correction ("Pay Oper" → "Hey operator"), speculative LLM reused (0.94s wait), filler played concurrently, TTS response heard by participants. 4.77s end-to-end latency. Conversation mode entered correctly after response.
+- **Observation:** Poller joined a meeting that started 32 minutes ago (`-32.2m`). No lower bound on event staleness — may want to skip events more than ~10 minutes past start.
 
 **What was built this session (April 3, 2026, session 16):**
 - `caldav_poller.py` deleted. Replaced with `calendar_poller.py` — browser-based Google Calendar scraper. Uses a copied `browser_profile` (avoids SingletonLock conflict with the meeting browser). Polls the day view every 30s, extracts events from `[data-eventid]` DOM elements, finds Meet URLs in page source data near event IDs. No CalDAV, no keyring, no app passwords — zero extra auth setup.

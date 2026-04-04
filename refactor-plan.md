@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 3, 2026 (session 16)*
+*Last updated: April 3, 2026 (session 17)*
 
-> **Current status: CalDAV poller replaced with browser-based calendar poller.** Extraction tested — poller correctly finds events and Meet URLs from Google Calendar DOM. Full end-to-end live test (poller → auto-join → caption pipeline) not yet run. Meeting-exit system phrase wiring still pending.
+> **Current status: Calendar poller → auto-join → caption pipeline live-tested end-to-end.** Full loop works: poller detects event, joins meeting, wake phrase triggers LLM, TTS response plays. Logging parity fix applied (menu bar mode now matches headless verbosity). Meeting-exit system phrase wiring still pending. Poller joins stale events (no lower bound on start time) — needs staleness check.
 
 ---
 
