@@ -18,14 +18,29 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired. Inactivity-based meeting exit implemented. Shutdown and auth reliability hardened.
-**Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Cmd+D mic mute/unmute testing.
+**Phase:** Caption-scraping refactor — C.6 complete. Conversation mode classifier improved. Timeout bug fixed. Two-strike PASS system designed but not yet implemented.
+**Next action:** Implement two-strike PASS system for conversation-mode exit detection (see design below).
 
-**What was built this session (April 4, 2026, session 20):**
+**What was built this session (April 4, 2026, session 21):**
+- `__main__.py` + `app.py` — Added `HH:MM:SS` timestamp formatting to the stderr/stdout StreamHandler so terminal logs show timing.
+- `pipeline/runner.py` — Fixed conversation timeout bug: caption-mode follow-up loop was calling `capture_next_wake_utterance` without `no_speech_timeout`, so it defaulted to `None` (wait forever). Now passes `CONVERSATION_TIMEOUT` (20s). Improved classifier prompt: includes last exchange context (`_last_utterance` + `_last_reply` tracked on the runner, not pulled from LLM history which contained the full formatted prompt). Classifier instruction rewritten to be meeting-aware ("You are in a live meeting with multiple participants. You just answered a question. Decide: is this a follow-up directed at you, or has the speaker moved on...").
+
+**Design for next session — Two-strike PASS system:**
+The current classifier fires speculatively at 1s silence on partial text. If someone says "Thanks. [pause] Now triple that." — the classifier PASSes on just "Thanks." before the follow-up arrives. The fix:
+1. Speculative fires at 1s → gets PASS (or response)
+2. At finalization: if finalized text has new words beyond speculative snapshot (word count delta > 2), re-classify on full text. If still PASS or no new words, continue to step 3.
+3. Soft PASS — don't exit. Stay in conversation mode, keep listening.
+4. Wait for next utterance (still within 20s timeout).
+5. Classify next utterance with context: "You previously thought this conversation was over. Now someone said X. Is this directed at you?"
+6. Second PASS → exit for real.
+7. 20s timeout with no speech → exit for real.
+Key insight: a PASS on partial text becomes a "soft" signal, not a hard exit. The 20s timeout remains the hard backstop. Cost: one extra GPT-4.1-mini call per soft PASS (only when someone speaks after a PASS, not on silence timeout). No latency impact on the happy path (legitimate follow-ups still hit speculative cache at 0.00s wait).
+
+**What was built session 20 (April 4, 2026):**
 - `__main__.py` — Terminal mode (`python __main__.py`) no longer uses rumps. Runs `run_polling()` directly on the main thread so SIGINT works as normal `KeyboardInterrupt`. Merged the old `_run_macos_headless` into a single `_run_macos_terminal()` that handles both direct URL and calendar polling modes. Added `start_new_session=True` monkey-patch on `subprocess.Popen.__init__` so child processes (Playwright driver, Chrome) don't receive SIGINT from the terminal. `_run_macos()` (rumps) retained only for `Operator.app` bundle.
 - `connectors/captions_adapter.py` — Moved navigate-away (`page.goto("about:blank")`) and `browser.close()` inside the `with sync_playwright()` block. Previously they were in a `finally` outside it, so the Playwright driver was already dead when they ran. Removed broken `_force_kill_chrome()` method (SingletonLock doesn't exist in `--headless=new` mode).
 
-**What was built last session (April 3, 2026, session 19):**
+**What was built session 19 (April 3, 2026):**
 - `connectors/captions_adapter.py` — Fixed Ctrl+C shutdown delay (Chrome orphaned for 30-60s). Root cause: browser thread was daemon, `leave()` only set an event flag, main process exited before `browser.close()` ran. Fix: `leave()` now joins the browser thread (10s timeout). Also reduced hold-loop poll from 5s to 1s.
 - `calendar_poller.py` — Fixed session auth failure. Two bugs: (1) was using Playwright's `headless=True` (old headless mode, can't decrypt Chrome cookies) instead of `headless=False` + `--headless=new`; (2) was using Playwright's bundled Chromium instead of real Chrome (`executable_path` was missing). Now matches `CaptionsAdapter`'s launch pattern.
 - `scripts/auth_export.py` — Now visits `calendar.google.com` after login to establish Calendar's service-specific session cookies. Meet and Calendar use different Google service scopes; visiting only `accounts.google.com` authenticated Meet but not Calendar.

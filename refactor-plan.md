@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 3, 2026 (session 19)*
+*Last updated: April 4, 2026 (session 21)*
 
-> **Current status: Instant Ctrl+C leave working.** Fixed the 60s ghost participant on Ctrl+C — three stacked issues: rumps' Cocoa event loop bypassed all Python cleanup, SIGINT killed Chrome via process group, and browser.close() didn't trigger Meet's leave signal. Terminal mode now bypasses rumps, child processes run in separate sessions, and the browser navigates to about:blank before closing.
+> **Current status: Conversation timeout and classifier fixed.** Caption-mode conversation follow-up loop now enforces the 20s timeout (was None/infinite). Classifier prompt improved with last-exchange context and meeting-aware instructions. Terminal logs now show HH:MM:SS timestamps. Next: implement two-strike PASS system for more robust conversation-mode exit detection.
 
 ---
 

@@ -1,6 +1,6 @@
 # Model Log Reference
 
-Last updated: 2026-04-01
+Last updated: 2026-04-04
 Captured from: macOS headless, Kokoro TTS, Whisper base model (audio mode) / Meet captions (caption mode)
 
 This is the gold-standard reference for what Operator's logs should look like during
@@ -339,7 +339,7 @@ addressed, otherwise responds normally.
 ```
 Entering conversation mode
 State → listening (Listening...)
-TIMING caption_capture_start (timeout=None require_wake=False)   # follow-up capture
+TIMING caption_capture_start (timeout=20 require_wake=False)     # follow-up capture (20s = CONVERSATION_TIMEOUT)
 TIMING caption_followup_started — entering silence detection
 TIMING caption_speculative_fire gap=1.03s prompt="now triple it"
 TIMING caption_speculative_llm_start prompt="now triple it"
@@ -349,10 +349,21 @@ TIMING caption_prompt_finalized speaker=Alice prompt="now triple it"
 ...                                                              # responds, loops
 ```
 
+**Classifier prompt includes last exchange context** — the speculative LLM call in follow-up
+mode includes `[Your last exchange]` (raw utterance + reply) and a meeting-aware instruction
+asking the model to decide if the new utterance is a follow-up or the speaker moving on.
+
 **Conversation ends** — model returns PASS when speaker moves on:
 ```
 TIMING caption_combined_classify for_assistant=False
 Conversation mode: utterance not for assistant — returning to idle
+State → idle (Listening for 'operator'...)
+```
+
+**Conversation timeout** — no captions within 20 seconds:
+```
+TIMING caption_timeout (no captions in 20s)
+Conversation mode: capture ended — returning to idle
 State → idle (Listening for 'operator'...)
 ```
 
