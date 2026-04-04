@@ -18,14 +18,26 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. AEC loopback fixed. Waiting room handling implemented. Multi-instance guard + `--force` flag implemented.
-**Next action:** Audit `caldav_poller.py` — verify it's still wired correctly to `CaptionsAdapter` + `AgentRunner` after the caption refactor. Test by inviting Operator's Google account to a real meeting. If passing, test meeting-exit system phrases (see session 15 notes below).
+**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller replaced. Multi-meeting lifecycle wired.
+**Next action:** Live end-to-end test of calendar poller → auto-join → caption pipeline. Then wire meeting-exit system phrases to leave logic.
 
-**What was built this session (April 2, 2026, session 15):**
-- `connectors/captions_adapter.py:574` — Added `log.info(f"CaptionsAdapter: system phrase detected — {stripped!r}")` before the early return in `_on_caption_from_js`. This surfaces Meet's system messages ("No one else is in this meeting", "Returning to home screen") in the log so we can verify which phrases fire in which exit scenarios before wiring leave logic to them.
+**What was built this session (April 3, 2026, session 16):**
+- `caldav_poller.py` deleted. Replaced with `calendar_poller.py` — browser-based Google Calendar scraper. Uses a copied `browser_profile` (avoids SingletonLock conflict with the meeting browser). Polls the day view every 30s, extracts events from `[data-eventid]` DOM elements, finds Meet URLs in page source data near event IDs. No CalDAV, no keyring, no app passwords — zero extra auth setup.
+- `app.py` — Fixed hardcoded `MacOSAdapter()` → config-driven connector resolution (matches `__main__.py`). Switched from `runner.run()` to `runner.run_polling(meeting_queue)`. CalDAV import replaced with CalendarPoller. Shutdown now always calls `connector.leave()`.
+- `pipeline/runner.py` — Added `run_polling(meeting_queue)` method: outer loop that pulls URLs from a `queue.Queue`, calls `run(url)` for each meeting, cleans up and waits for next. Added `_on_disconnect` callback wiring in caption mode so the caption loop exits when the browser session ends.
+- `connectors/captions_adapter.py` — Added `_on_disconnect` callback, fired in `_browser_session` finally block. Signals the caption processor to stop when the browser exits for any reason.
+- `config.py` / `config.yaml` — Removed `caldav` section and `CALDAV_BOT_GMAIL`.
+- `requirements.txt` — Removed `caldav` and `keyring` dependencies.
+- `.gitignore` — Added `browser_profile_calendar/`.
+- `__main__.py` — Updated help text (CalDAV → Google Calendar).
+
+**Tested:** CalendarPoller extraction verified standalone — correctly finds events by `[data-eventid]`, extracts Meet URL from page source, queues it. Full end-to-end live test not yet run.
+
+**Context for next session:** Meeting-exit detection groundwork from session 15 still pending. System phrase logging is in place (`grep "system phrase" /tmp/operator.log`). The two exit phrases: "Returning to home screen" (host ended) and "No one else is in this meeting" (everyone left — needs `_seen_other_participant` witness flag). Wire these to call `leave()` once live-tested. The 4-hour session deadline is planned for removal once exit detection is sturdy.
+
+**What was built last session (April 2, 2026, session 15):**
+- `connectors/captions_adapter.py:574` — Added `log.info(f"CaptionsAdapter: system phrase detected — {stripped!r}")` before the early return in `_on_caption_from_js`. This surfaces Meet's system messages in the log for exit detection groundwork.
 - No functional behavior changed — system phrases still filtered, just now logged.
-
-**Context for next session:** The plan is to make Operator leave when the meeting ends. Meet emits system phrases in the caption DOM on exit events — we'll use these as leave signals. Two phrases are candidates: "Returning to home screen" (host ended for everyone) and "No one else is in this meeting" (everyone left naturally — needs a `_seen_other_participant` witness flag to avoid false-triggering when Operator joins an empty room). But before wiring this, we need to (1) verify `caldav_poller.py` still works so Operator can join before the host (the empty-room case), and (2) run test sessions to confirm exactly which phrases fire in which scenarios. Watch with: `grep "system phrase" /tmp/operator.log`.
 
 **What was built this session (April 2, 2026, session 14):**
 - `__main__.py` — Added `--force` CLI flag. Threads `force=True` into `CaptionsAdapter` and `MacOSAdapter` constructors. `_shutdown()` now reads `browser_profile/.operator.kill_reason` on SIGTERM and prints a user-facing reason if present.

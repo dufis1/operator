@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 2, 2026 (session 15)*
+*Last updated: April 3, 2026 (session 16)*
 
-> **Current status: System phrase logging added for meeting-exit detection groundwork.** Next session: audit `caldav_poller.py` for compatibility with the caption refactor, test calendar auto-join end-to-end, then run exit-scenario tests to verify which Meet system phrases fire on host-end vs. natural empty-out.
+> **Current status: CalDAV poller replaced with browser-based calendar poller.** Extraction tested — poller correctly finds events and Meet URLs from Google Calendar DOM. Full end-to-end live test (poller → auto-join → caption pipeline) not yet run. Meeting-exit system phrase wiring still pending.
 
 ---
 
@@ -125,7 +125,7 @@
 | Step | Description | Status |
 |------|-------------|--------|
 | 6.1 | Extract shared transcription loop → `pipeline/runner.py` | ✅ |
-| 6.1.5 | Replace `calendar_join.py` with `caldav_poller.py` — CalDAV + keychain, before app.py refactor | ✅ |
+| 6.1.5 | Replace `calendar_join.py` with `calendar_poller.py` — browser-based Google Calendar scraping, no extra auth | ✅ |
 | 6.2 | Simplify `app.py` to use `runner.py` and `caldav_poller.py` (macOS menu bar shell only) | ✅ |
 | 6.3 | Create Linux entry point using `runner.py` | ✅ |
 | 6.4 | Add OS auto-detection — `python -m operator` picks the right adapter | ✅ |
@@ -169,7 +169,7 @@
 | 9.2 | Implement `setup keys` — prompt for OpenAI API key (validate), ElevenLabs key (optional, validate if provided). Write to `.env`. | ⬜ |
 | 9.3 | Implement `setup voice` — local vs cloud selection. Local: Kokoro-only, fetch voice list from HuggingFace repo, print preview link. Cloud: prompt for provider (OpenAI/ElevenLabs), fetch voices from provider API, print preview link. Write to `config.yaml`. | ⬜ |
 | 9.4 | Implement `setup agent` — agent name, wake phrase, system prompt, interaction mode. Write to `config.yaml`. | ⬜ |
-| 9.5 | Implement `setup calendar` — CalDAV credential flow: prompt for bot Gmail, open apppasswords URL, inline instructions, validate CalDAV connection, store in system keychain. | ⬜ |
+| 9.5 | Implement `setup calendar` — calendar auto-join now uses the browser profile (no separate credentials). This step may reduce to just verifying the browser profile exists and is authenticated. | ⬜ |
 | 9.6 | Implement full `operator setup` — chains all subcommands in sequence. OS-aware audio driver install (macOS: BlackHole, Linux: PulseAudio sinks). | ⬜ |
 | 9.7 | Startup validation — on `operator run`, check config for broken/missing voice/provider and print "run `operator setup voice` to fix". | ⬜ |
 | 9.8 | Test from scratch with no `.env` — follow prompts, confirm working on first meeting | ⬜ |
@@ -226,7 +226,7 @@
 - **TTS:** Three-tier architecture — `tts.provider: local | openai | elevenlabs`. Default: `local/kokoro_heart` (af_heart, 4/5, free). OpenAI tier: `gpt-4o-mini-tts` (5/5, ~0.87s TTFAB). ElevenLabs tier: `eleven_flash_v2_5` (5/5, ~0.39s TTFAB). Kokoro requires Python 3.10–3.12; falls back to `macos_say` gracefully if unavailable.
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only.
 - **Demo strategy:** Invite-based. Users can't paste an instant meeting link to try the product (Google blocks headless bots). We provide the bot's email; user invites it. Same model as Otter.ai/Fireflies. A pre-configured demo bot must be running and ready.
-- **Meeting detection:** CalDAV polling (1 min interval), app password stored in system keychain. No OAuth, no credentials.json.
+- **Meeting detection:** Browser-based Google Calendar scraping (30s interval). Uses a copied browser profile — same auth as the meeting browser, zero extra setup. Replaced CalDAV + keychain approach in session 16.
 - **Licensing:** MIT (decided)
 - **Python target:** 3.11
 
