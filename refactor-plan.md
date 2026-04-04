@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 3, 2026 (session 18)*
+*Last updated: April 3, 2026 (session 19)*
 
-> **Current status: Inactivity-based meeting exit implemented and live-tested.** Operator now leaves meetings after `idle_timeout_seconds` (default 600s) of no captions. Replaces the 4-hour hard deadline. Timer arms on the first caption so the bot can wait patiently in a silent meeting. Google Calendar API migration explored and shelved — gcloud's calendar scopes are being deprecated for default clients, and Playwright cookies are more durable. Calendar poller stays browser-based.
+> **Current status: Shutdown and auth reliability hardened.** Fixed Ctrl+C leaving Chrome orphaned in meetings for 30-60s (browser thread now joined before exit). Fixed calendar poller auth failures — was using wrong headless mode and missing Chrome executable path; also `auth_export.py` now establishes Calendar-specific session cookies (Meet and Calendar use different Google service scopes).
 
 ---
 

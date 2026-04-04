@@ -184,6 +184,7 @@ class CaptionsAdapter(MeetingConnector):
         self._blackhole_rec_proc = None
         self._on_disconnect = None  # callback fired when browser session exits
         self._last_caption_time = None  # set on first caption; inactivity timer arms from here
+        self._browser_thread = None    # saved so leave() can join it
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -207,12 +208,13 @@ class CaptionsAdapter(MeetingConnector):
         self.join_status = JoinStatus()
         if config.DEBUG_AUDIO:
             self._start_blackhole_recording()
-        threading.Thread(
+        self._browser_thread = threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
             daemon=True,
             name="CaptionsAdapter-browser",
-        ).start()
+        )
+        self._browser_thread.start()
         log.info(f"CaptionsAdapter: joining {meeting_url}")
 
     def get_audio_stream(self):
@@ -235,6 +237,15 @@ class CaptionsAdapter(MeetingConnector):
 
     def leave(self):
         self._leave_event.set()
+        # Wait for the browser thread to run browser.close() — without this,
+        # the main thread exits, the daemon thread is killed, and Chrome is
+        # orphaned (stays in the meeting for 30-60s until the broken pipe
+        # propagates through the Playwright driver).
+        if self._browser_thread and self._browser_thread.is_alive():
+            log.info("CaptionsAdapter: waiting for browser to close...")
+            self._browser_thread.join(timeout=10)
+            if self._browser_thread.is_alive():
+                log.warning("CaptionsAdapter: browser thread did not finish in 10s")
         if self._blackhole_rec_proc:
             self._blackhole_rec_proc.terminate()
             try:
@@ -407,7 +418,7 @@ class CaptionsAdapter(MeetingConnector):
                     # Use Playwright's own wait (pumps the CDP event loop) rather than
                     # time.sleep() which blocks it — expose_function callbacks won't fire
                     # unless the Playwright event loop is being pumped.
-                    page.wait_for_timeout(5000)
+                    page.wait_for_timeout(1000)
 
                     now = time.time()
 

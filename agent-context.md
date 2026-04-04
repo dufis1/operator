@@ -18,10 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired. Inactivity-based meeting exit implemented.
+**Phase:** Caption-scraping refactor — C.6 complete. Calendar poller live-tested end-to-end. Multi-meeting lifecycle wired. Inactivity-based meeting exit implemented. Shutdown and auth reliability hardened.
 **Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Cmd+D mic mute/unmute testing.
 
-**What was built this session (April 3, 2026, session 18):**
+**What was built this session (April 3, 2026, session 19):**
+- `connectors/captions_adapter.py` — Fixed Ctrl+C shutdown delay (Chrome orphaned for 30-60s). Root cause: browser thread was daemon, `leave()` only set an event flag, main process exited before `browser.close()` ran. Fix: `leave()` now joins the browser thread (10s timeout). Also reduced hold-loop poll from 5s to 1s.
+- `calendar_poller.py` — Fixed session auth failure. Two bugs: (1) was using Playwright's `headless=True` (old headless mode, can't decrypt Chrome cookies) instead of `headless=False` + `--headless=new`; (2) was using Playwright's bundled Chromium instead of real Chrome (`executable_path` was missing). Now matches `CaptionsAdapter`'s launch pattern.
+- `scripts/auth_export.py` — Now visits `calendar.google.com` after login to establish Calendar's service-specific session cookies. Meet and Calendar use different Google service scopes; visiting only `accounts.google.com` authenticated Meet but not Calendar.
+
+**What was built last session (April 3, 2026, session 18):**
 - `config.yaml` + `config.py` — Renamed `admission_timeout_seconds` → `idle_timeout_seconds` (default 600s). Single config value now controls both lobby patience and in-meeting inactivity timeout.
 - `connectors/captions_adapter.py` — Added `_last_caption_time` tracking. Hold loop replaced: 4-hour hard deadline removed, replaced with inactivity check that arms on first caption. If `now - _last_caption_time >= idle_timeout`, triggers `leave_event.set()`. Bot waits indefinitely in a silent meeting before anyone speaks (timer only starts after first caption).
 - `pipeline/runner.py` — Updated `ADMISSION_TIMEOUT_SECONDS` → `IDLE_TIMEOUT_SECONDS` reference.
@@ -45,7 +50,7 @@
 
 **Tested:** CalendarPoller extraction verified standalone — correctly finds events by `[data-eventid]`, extracts Meet URL from page source, queues it. Full end-to-end live test not yet run.
 
-**Context for next session:** Meeting-exit detection is done via caption inactivity timer (session 18). System phrase logging preserved for diagnostics but no longer triggers exits. The 4-hour deadline is removed. Calendar poller cookie expiry remains a known friction point — user re-runs `scripts/auth_export.py` when session dies (every few weeks). Google Calendar API was explored and ruled out (gcloud scope deprecation).
+**Context for next session:** Meeting-exit detection is done via caption inactivity timer (session 18). System phrase logging preserved for diagnostics but no longer triggers exits. The 4-hour deadline is removed. Calendar poller auth is now reliable — `auth_export.py` establishes both Meet and Calendar sessions, and the poller uses real Chrome with `--headless=new`. Ctrl+C shutdown is clean (browser thread joined before exit). Google Calendar API was explored and ruled out (gcloud scope deprecation).
 
 **What was built last session (April 2, 2026, session 15):**
 - `connectors/captions_adapter.py:574` — Added `log.info(f"CaptionsAdapter: system phrase detected — {stripped!r}")` before the early return in `_on_caption_from_js`. This surfaces Meet's system messages in the log for exit detection groundwork.
@@ -437,6 +442,9 @@ operator/
 - **PulseAudio user-mode on the droplet dies without `--exit-idle-time=-1`** — `pulseaudio --daemonize` as root exits immediately at idle. Fix: `pulseaudio --daemonize --exit-idle-time=-1`. Add to startup procedure.
 - **Whisper cold-start on the droplet is ~28s; subsequent runs are <2s** — first inference triggers JIT/model warmup. Not fixable in code; warm up Whisper before entering the transcription loop or use a persistent inference thread. Addressed in Step 7.6.
 - **mpv drain inflated to ~5s for short TTS clips** — mpv buffers aggressively; drain time does not track audio duration. Investigate `--audio-buffer=50` or streaming TTS directly to parec/pacat to bypass mpv.
+- **Ctrl+C orphans Chrome for 30-60s if `browser.close()` doesn't run:** The browser session thread in `CaptionsAdapter` is a daemon thread. On Ctrl+C, the main thread calls `connector.leave()` (sets an event flag) and exits — but daemon threads are killed before their `finally` blocks run, so `browser.close()` never executes. Chrome stays in the meeting as an orphan until the broken Playwright pipe propagates through the driver. Fix: `leave()` must `join()` the browser thread (with timeout) so the main process waits for `browser.close()` to complete. Also reduced the browser hold-loop poll interval from 5s to 1s so the leave event is noticed faster.
+- **Google Meet and Calendar use different session scopes:** `auth_export.py` visiting only `accounts.google.com` establishes a session for Meet but NOT Calendar. The calendar poller gets redirected to login even though Meet works fine with the same profile. Fix: `auth_export.py` must also navigate to `calendar.google.com` after login to establish Calendar's service-specific cookies (`service=cl`).
+- **Playwright `headless=True` vs Chrome `--headless=new` — different cookie stores:** Playwright's `headless=True` launches Chrome's old headless mode, which is essentially a different browser binary that cannot decrypt cookies stored by real Chrome. The calendar poller must use `headless=False` + `--headless=new` in Chrome args (same pattern as `CaptionsAdapter`) to share the profile's cookie encryption.
 
 ---
 

@@ -88,8 +88,9 @@ class CalendarPoller:
             with sync_playwright() as p:
                 browser = p.chromium.launch_persistent_context(
                     user_data_dir=_CAL_PROFILE,
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled"],
+                    headless=False,
+                    executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    args=["--headless=new", "--disable-blink-features=AutomationControlled"],
                 )
                 page = browser.pages[0] if browser.pages else browser.new_page()
 
