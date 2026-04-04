@@ -22,6 +22,8 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
+# Also print to stderr so the terminal shows progress (matches headless mode)
+logging.getLogger().addHandler(logging.StreamHandler())
 log = logging.getLogger(__name__)
 # Silence noisy HTTP debug logs from API clients
 logging.getLogger("httpcore").setLevel(logging.WARNING)

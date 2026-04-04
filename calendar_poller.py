@@ -60,9 +60,13 @@ class CalendarPoller:
                 src_profile, _CAL_PROFILE,
                 ignore=shutil.ignore_patterns(
                     "SingletonLock", "SingletonSocket", "SingletonCookie",
+                    "RunningChromeVersion",
                     ".operator.pid",
                 ),
             )
+        except shutil.Error as e:
+            # shutil.Error collects per-file failures — the copy mostly succeeded
+            log.warning(f"CalendarPoller: partial copy errors (non-fatal): {e}")
         except Exception as e:
             log.error(f"CalendarPoller: failed to copy browser profile: {e}")
             return
