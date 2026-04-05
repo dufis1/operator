@@ -18,10 +18,14 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Log audit: 2 of 5 issues fixed.
-**Next action:** Fix remaining 3 issues from log audit (see handoff.md): LLM history truncation, premature speculative finalization, double echo-resume log.
+**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor planned (9 steps).
+**Next action:** Begin step 1 of finalization refactor: remove filler grace period. Full plan in `handoff.md`.
 
-**What was built this session (April 4, 2026, session 30):**
+**What was built this session (April 4, 2026, session 31):**
+- **Issue #1 fix (LLM log truncation).** Root cause: `utterance[:80]` in `llm.py:38` truncated the log display at INFO level, making it look like the LLM received truncated prompts. Actual API calls were unaffected. Fix: replaced with `prompt_chars=N` at INFO, full utterance at DEBUG.
+- **Full pipeline audit.** Inventoried 34 mechanisms across 7 groups (silence detection, speculative processing, conversation mode, echo prevention, abort, fillers, context management). Identified 4 conflicts: (A) filler grace blocks abort signals, (B) speculative classify locks in decisions on incomplete text, (C) ASR punctuation doesn't correlate with sentence completion, (D) echo guard adds dead time in rapid Q&A. Drafted 9-step refactor plan.
+
+**What was built last session (April 4, 2026, session 30):**
 - **Duplicate caption event fix.** Root cause: MutationObserver configured with `subtree: true` fires `childList` records for both parent div and child span when Meet inserts a caption subtree. Both are different DOM nodes, so the per-node `nodeState` WeakMap dedup didn't catch them. `getText()` on either returns the same text → two identical callbacks to Python. Fix: added global `(speaker + text)` dedup with 50ms window in the JS `send()` function, before the `__onCaption` bridge call. Catches duplicates regardless of mutation source. Verified zero duplicates in live meeting.
 
 **What was built last session (April 4, 2026, session 29):**
@@ -1114,6 +1118,10 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 **Splitting speculative events exposes TTS regression.** When separating `llm_done` from `ready` to unblock the runner earlier, `_finalize_prompt` still checked `speculative.ready.is_set()` for both LLM and TTS resolution. This meant the runner unblocked faster but then started redundant fresh TTS synthesis (speculative TTS was still in-flight). The filler skip logic also broke — `spec_ready` was false (TTS not done), so fillers played unnecessarily. Fix: Step 1 checks `llm_done` for LLM resolution; Step 2 detects in-flight speculative TTS (LLM done + `ready` not set) and waits for it; filler skip adds `spec_tts_inflight` condition.
 
 **Filler echo infinite loop via Google Meet speaker misattribution.** Google Meet nondeterministically attributes filler audio (human-voice clips like "Yeah", "Right") to the previous human speaker's caption bubble instead of creating a new "[You]" bubble. This set `abort_event` in `on_caption_update`, triggering an abort→retry→new filler→misattributed again→abort loop. Each cycle took ~1.2s and played an audible filler, burning LLM tokens with duplicate requests. The misattribution is not timing-dependent — identical gaps between user speech and filler produced correct "[You]" attribution 3/4 times, then failed on the 4th. Root cause is in Google's server-side caption rendering, not our audio routing (mpv explicitly targets BlackHole). Fix: dynamic grace period (`_filler_done_at + 1.0s`), `allow_abort=False` on recursive retry, no filler on retries.
+
+**Filler grace period conflicts with abort mechanism.** The 1.0s filler grace (ignoring non-"You" captions after filler playback) was added to prevent the misattribution loop above. But it also suppresses the abort signal when the user is genuinely still talking after premature finalization. In logs: user says "And what about?" (finalized prematurely), then "Texas" arrives 0.5s later during filler playback — grace period has 0.01s left, abort is suppressed, bot speaks the wrong answer. The filler grace and abort mechanism are fighting each other. Planned fix (session 32): remove filler grace entirely, rely on `is_speaking` + echo guard for echo prevention, widen the abort window to 0.4s.
+
+**Log string truncation mimics data bugs.** `utterance[:80]` in INFO-level logging truncated the displayed prompt mid-word (e.g., "Now, what about F"), making it look like the LLM received incomplete input. Actual API calls were unaffected — full prompts were sent. Cost several hours of investigation across sessions before being identified as display-only. Fix: metadata at INFO (`prompt_chars=N`), full payload at DEBUG only.
 
 ---
 

@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 30)*
+*Last updated: April 4, 2026 (session 31)*
 
-> **Current status: 2 of 5 log-audit issues fixed.** Resolved duplicate caption events (global text dedup in JS observer). Three remaining: LLM history truncation, premature speculative finalization, double echo-resume log. Attacking one at a time before Phase 8.
+> **Current status: Pipeline finalization refactor planned.** Issue #1 (LLM log truncation) fixed. Issue #2 (premature speculative finalization) root-caused via full pipeline audit. 9-step refactor plan drafted in `handoff.md`. Next session begins step 1: remove filler grace period.
 
 ---
 
