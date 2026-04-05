@@ -107,9 +107,14 @@ class CaptionProcessor:
         firing (~3/sec during speech). Must be fast — no blocking.
         """
         if self.is_speaking:
-            if speaker.lower() != "you" and not self.abort_event.is_set():
-                log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
-                self.abort_event.set()
+            if speaker.lower() != "you":
+                if not self.abort_event.is_set():
+                    log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
+                    self.abort_event.set()
+                # Keep _current_text updated so abort path reads fresh text
+                with self._lock:
+                    self._current_text = text
+                    self._current_speaker = speaker
             log.debug(f"caption: dropped while speaking [{speaker}] {text[:60]}")
             return
 

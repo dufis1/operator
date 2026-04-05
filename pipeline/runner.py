@@ -81,6 +81,22 @@ def _normalize_for_match(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+def _strip_mid_punctuation(text: str) -> str:
+    """Remove sentence-ending punctuation (.?!) at mid-text boundaries.
+
+    Google Meet's ASR inserts artificial sentence breaks at speech pauses,
+    turning "How about Belgium" into "How about? Belgium." This confuses
+    the INCOMPLETE classifier. Stripping mid-text boundaries collapses the
+    text into a single run-on sentence that reads as more complete.
+
+    Only targets punctuation followed by whitespace (sentence boundaries),
+    preserving decimals ("3.5") and abbreviations without spaces ("U.S.A").
+    """
+    # Replace mid-text sentence-ending punctuation + space with just a space.
+    # Keep the very last character's punctuation intact.
+    return re.sub(r'[.?!]\s+', ' ', text)
+
+
 class AgentRunner:
     """
     Platform-agnostic agent pipeline.
@@ -629,11 +645,15 @@ class AgentRunner:
                         "Re-evaluate carefully: is this new speech directed at you?\n\n"
                     )
 
+                # Strip mid-text sentence punctuation so Google Meet's
+                # artificial breaks ("How about? Belgium.") don't trigger
+                # false INCOMPLETE classifications.
+                classifier_text = _strip_mid_punctuation(prompt_text)
                 spec.full_prompt = (
                     f"[Meeting transcript so far]\n{context}\n\n"
                     f"{last_exchange}"
                     f"{soft_pass_note}"
-                    f"[Someone just said]\n{prompt_text}\n\n"
+                    f"[Someone just said]\n{classifier_text}\n\n"
                     f"[Instruction] You are in a live meeting with multiple participants. "
                     f"You just answered a question. Decide: is this new utterance a follow-up "
                     f"directed at you, or has the speaker moved on — e.g. addressing another "
@@ -920,8 +940,16 @@ class AgentRunner:
                         )
                         abort = True
                 if abort:
+                    # Let captions settle — first caption may be partial
+                    # ("German.") with the full word ("Germany.") arriving
+                    # ~300ms later. _current_text is kept updated during
+                    # is_speaking for non-"You" speakers.
+                    time.sleep(0.5)
                     with self.captions._lock:
-                        updated_prompt = self.captions._current_text.strip()
+                        new_text = self.captions._current_text.strip()
+                    # Concatenate original prompt with late-arriving text so
+                    # the LLM gets full context even across speaker changes.
+                    updated_prompt = prompt + " " + new_text
                     log.info(f"TIMING abort_triggered — re-processing with \"{updated_prompt[:60]}\"")
                     # Re-process with allow_abort=False to prevent infinite
                     # loops from filler echo being misattributed by Google Meet.
