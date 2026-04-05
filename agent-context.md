@@ -18,13 +18,19 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor — all 9 steps verified live. Single-threshold consolidation planned.
-**Next action:** Implement the 11-step single-threshold consolidation plan (see `handoff.md`). Merge the two-threshold system (speculative at 0.5s + finalization at 0.7s) into a single configurable `silence_seconds: 0.7` threshold. This eliminates speculative misses, wasted LLM calls, and ~200 lines of bifurcated code.
+**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor — all 9 steps verified live. Single-threshold consolidation complete — needs live verification.
+**Next action:** Review the consolidation changes for correctness, then live-test in Google Meet. Key areas to verify: (1) wake→response path works without speculative, (2) conversation-mode classifier (PASS/INCOMPLETE/RESPOND) works inline, (3) abort system still fires correctly, (4) filler always plays during LLM wait.
 
-**What was built this session (April 5, 2026, session 35):**
+**What was built this session (April 5, 2026, session 36):**
+- **Single-threshold consolidation — all 11 steps implemented.** Merged speculative (0.5s) + finalization (0.7s) into single `silence_seconds: 0.7` threshold. Removed: `_SpeculativeResult` class, `_run_caption_speculative()`, `_make_caption_speculative_callback()`, `_run_speculative()`, `_make_speculative_callback()`, `_speculative_fired` flag, all speculative hit/miss branching in `_finalize_prompt()`, `on_first_silence` from audio.py, `on_speculative` from captions.py. Net ~230 lines removed.
+- **New `_classify_followup()` method.** Conversation-mode classifier now runs inline after finalization instead of speculatively before it. Same prompt, same PASS/INCOMPLETE/RESPOND logic, just sequential instead of threaded. Returns `(for_assistant, is_incomplete, llm_reply)` tuple.
+- **`_finalize_prompt()` simplified.** Removed `speculative` parameter. Added `precomputed_reply` parameter so classifier responses (which are valid LLM replies) skip redundant LLM calls. Filler always plays (except abort retries). TTS always synthesizes fresh.
+- **Config consolidated.** `speculative_seconds` + `finalization_seconds` → single `silence_seconds: 0.7` in config.yaml/config.py.
+
+**What was built last session (April 5, 2026, session 35):**
 - **DOM timing instrumentation.** Added unbatched `dom_raw` mutation timing logs to the caption observer JS — logs raw `performance.now()` timestamps for `addedNodes`, `characterData`, and text node mutations before `setTimeout` batching. Added `batch_delay` measurement to every caption log line. Confirmed: `batch_delay` is 1-3ms (our batching adds nothing), and Meet's ASR renders at a consistent ~333ms cadence. The 0.5s speculative threshold fires after just 1.5 render cycles, which frequently catches incomplete text.
 - **Latency probe moved to DEBUG.** `perceived_speech_start` and `perceived_acoustic_silence_end` are purely diagnostic — moved from `log.info` to `log.debug` to declutter INFO logs.
-- **Single-threshold consolidation plan.** Drafted 11-step plan to merge speculative (0.5s) + finalization (0.7s) into one `silence_seconds: 0.7` threshold. Eliminates: `_SpeculativeResult` class, `_run_caption_speculative()`, `_make_caption_speculative_callback()`, `_speculative_fired` flag, hit/miss matching logic in `_finalize_prompt()`, and audio-mode speculative equivalents. Conversation-mode classifier call moves inline after finalization. Plan in `handoff.md`.
+- **Single-threshold consolidation plan.** Drafted 11-step plan to merge speculative (0.5s) + finalization (0.7s) into one `silence_seconds: 0.7` threshold.
 
 **What was built last session (April 5, 2026, session 34):**
 - **Live verification of all 9 finalization refactor steps.** Tested in Google Meet with stress cases: rapid Q&A, mid-sentence pauses, drawn-out "How about... Belgium" follow-ups. Results: Steps 1,2,4,5,6,7,8,9 confirmed PASS. Step 3 (abort window widening) not exercised (bridge lag was clean). Step 5 (INCOMPLETE) was the star — 6 correct classifications. Step 7 (re-fire cap) hit 3/3 cleanly on Belgium sequence.

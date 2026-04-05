@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 35)*
+*Last updated: April 5, 2026 (session 36)*
 
-> **Current status: Single-threshold consolidation planned.** DOM timing instrumentation confirmed Google Meet renders captions at ~333ms cadence. The 0.5s speculative threshold fires after just 1.5 render cycles, frequently catching incomplete text. Decision: merge speculative (0.5s) + finalization (0.7s) into a single 0.7s threshold. 11-step consolidation plan in `handoff.md`. Latency probe moved to DEBUG.
+> **Current status: Single-threshold consolidation complete.** Merged speculative (0.5s) + finalization (0.7s) into single `silence_seconds: 0.7` threshold. Removed ~230 lines of speculative machinery. Classifier, two-strike PASS, INCOMPLETE re-fire, and abort systems preserved. Needs live verification next session.
 
 ---
 
@@ -208,9 +208,9 @@
 |------|-------------|--------|
 | C.1 | Preserve audio pipeline as selectable connector (`connector.type: audio`) | ✅ |
 | C.2 | Build CaptionsAdapter — Playwright + scoped MutationObserver + JS→Python bridge | ✅ |
-| C.3 | Build CaptionProcessor — real-time wake detection, silence via timing gaps, speculative callback | ✅ |
-| C.4 | Wire runner.py for caption mode — caption loop, speculative LLM, echo guard, transcript feeding | ✅ |
-| C.5 | Config wiring — `meet-captions` connector type, `captions.finalization_seconds`, `captions.speculative_seconds` | ✅ |
+| C.3 | Build CaptionProcessor — real-time wake detection, silence via timing gaps | ✅ |
+| C.4 | Wire runner.py for caption mode — caption loop, echo guard, transcript feeding | ✅ |
+| C.5 | Config wiring — `meet-captions` connector type, `captions.silence_seconds` | ✅ |
 | C.6 | Live end-to-end test in Google Meet | ✅ Wake→LLM→TTS confirmed. Echo/leak/finalization bugs fixed. Playwright bridge lag resolved (0–2ms). |
 
 ---

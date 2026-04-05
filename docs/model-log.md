@@ -234,23 +234,21 @@ After a prompt is finalized, the pipeline calls LLM and synthesizes speech:
 
 ```
 Echo prevention: paused caption processing      # caption mode: ignore captions while bot speaks
-TIMING filler_skipped — speculative LLM+TTS already complete       # filler not needed; response ready to play immediately
-TIMING filler_skipped — speculative LLM done, TTS in-flight        # LLM done, TTS still running; will wait for it in Step 2
-TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization (skipped if speculative ready or abort retry)
+TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization (skipped on abort retry)
 LLM ask model=gpt-4.1-mini history_turns=N prompt_chars=N         # logged before API call (metadata only; full utterance at DEBUG level)
 LLM reply="..."                                 # logged on successful response
-TIMING caption_speculative_llm_done reply="..."  # speculative LLM result
-TIMING caption_speculative_tts_start             # speculative TTS synthesis begins (overlaps finalization wait)
-TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s (logged inside tts.py)
-TIMING caption_speculative_tts_done bytes=N      # speculative TTS cached WAV ready
-TIMING llm_speculative_hit waited=N.NNNs reply="..."  # speculative result used (waited=0.000s if already done)
+TIMING llm_request_sent                          # fresh LLM call
+TIMING llm_response_received elapsed=N.NNNs reply="..."  # LLM response
+TIMING llm_precomputed reply="..."               # classifier already produced reply, no extra LLM call needed
 TIMING llm_resolved elapsed_from_finalized=N.NNNs    # wall-clock from finalization to LLM answer ready
 State → speaking (Speaking...)
-TIMING tts_speculative_hit bytes=N               # cached WAV used, synthesis skipped (0.00s)
+TIMING tts_synthesis_start                       # TTS synthesis begins
+TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s (logged inside tts.py)
+TIMING tts_synthesis_done elapsed=N.NNNs         # synthesis complete
 TIMING tts_resolved elapsed_from_finalized=N.NNNs    # wall-clock from finalization to audio bytes ready
 TIMING filler_play_done                         # filler finishes (concurrent with LLM + TTS)
 TIMING filler_wait_done elapsed=N.NNNs           # how long we blocked waiting for filler after TTS ready
-TIMING response_play_start gap_since_filler_done=N.NNNs  # includes 150ms abort grace period
+TIMING response_play_start gap_since_filler_done=N.NNNs  # includes 400ms abort grace period
 TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID  # logged before mpv launch
 TIMING mpv_spawned elapsed=N.NNNs               # subprocess.Popen overhead (~28ms typical)
 TIMING mpv_audio_piped elapsed=N.NNNs            # stdin.write + close overhead (~130ms typical)
@@ -267,17 +265,11 @@ TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption d
 TIMING abort_text_grew — finalized="..." current="..."     # caption text grew beyond prompt (signal 2)
 TIMING abort_triggered — re-processing with "..."          # discards response, re-calls _finalize_prompt
 ```
-Either or both signals may fire. `abort_caption_detected` has a grace period: non-"You" captions are ignored until 1s after filler playback finishes (Google Meet sometimes misattributes filler audio to the previous human speaker). After abort, `_finalize_prompt` retries with `allow_abort=False` — no filler on retry, no further aborts possible.
+Either or both signals may fire. After abort, `_finalize_prompt` retries with `allow_abort=False` — no filler on retry, no further aborts possible.
 
 **LLM resolution variants** (one of these appears per interaction):
-- `TIMING llm_speculative_hit waited=0.00s reply="..."` — speculative done before finalization, used immediately
-- `TIMING llm_speculative_hit waited=N.NNs reply="..."` — speculative still in-flight at finalization, waited for it (includes speculative TTS time)
-- `TIMING llm_speculative_miss reason=<transcript_mismatch|no_reply> waited=N.NNs` — speculative failed or mismatched; fresh call follows
-- `TIMING llm_request_sent` + `TIMING llm_response_received elapsed=N.NNs reply="..."` — fresh call (no speculative, or after miss)
-
-**TTS resolution variants** (one of these appears per interaction):
-- `TIMING tts_speculative_hit bytes=N` — speculative TTS cached audio used, synthesis skipped (0.00s)
-- `TIMING tts_synthesis_start` + `TIMING tts_synthesis_done elapsed=N.NNs` — fresh synthesis (speculative miss or no speculative)
+- `TIMING llm_precomputed reply="..."` — classifier already produced a valid response (conversation mode RESPOND path)
+- `TIMING llm_request_sent` + `TIMING llm_response_received elapsed=N.NNs reply="..."` — fresh LLM call (wake mode, or conversation mode without precomputed reply)
 
 **What to check:**
 - `LLM ask` present but no `LLM reply` → API call hung or raised; check for `LLM API call failed` error below it
@@ -330,10 +322,7 @@ TIMING caption_capture_start (timeout=None require_wake=True)   # initial wake l
 caption: [Alice] Hey operator what is the plan  [bridge_lag=Nms batch_delay=Nms]   # raw caption + bridge lag + setTimeout batch delay
 TIMING caption_wake_detected speaker=Alice prompt_so_far="what is the plan"  # wake found mid-speech
 TIMING caption_wake_confirmed — entering silence detection
-TIMING caption_speculative_fire gap=1.04s prompt="what is the plan"  # speculative LLM at 1.0s of silence
-TIMING caption_speculative_llm_start prompt="what is the plan"
-TIMING caption_speculative_llm_done reply="<LLM reply>"
-TIMING caption_finalized reason=silence gap=1.56s speaker=Alice prompt="what is the plan"
+TIMING caption_finalized reason=silence gap=0.7Ns speaker=Alice prompt="what is the plan"
 TIMING caption_prompt_finalized speaker=Alice prompt="what is the plan"
 TIMING wake_caption speaker=Alice prompt="what is the plan"
 State → listening (Listening for prompt...)
@@ -371,7 +360,6 @@ CaptionsAdapter: JS diagnostic — dom_raw mutation_gap=505.7ms text=Hey Operato
 **What to check:**
 - No `caption_wake_detected` when someone says "hey operator" → check caption observer injection, check captions are enabled
 - `caption_wake_retracted` frequently → ASR is unstable for "hey operator", may need wake phrase tuning
-- `caption_speculative_fire` gap >> 0.5s → DOM updates stalled, check Playwright event loop
 - No `caption:` lines at all → caption callback not wired, check adapter/processor connection
 - Caption finalization hangs (no `caption_finalized` after user stops talking) → check if all captions showing `[You]` speaker label; Meet occasionally relabels user speech — is_speaking gate and wake anchoring handle this correctly
 
@@ -379,55 +367,50 @@ CaptionsAdapter: JS diagnostic — dom_raw mutation_gap=505.7ms text=Hey Operato
 
 ## Section 5b: Caption Mode — Conversation Mode
 
-Follow-up utterances don't require "hey operator". The speculative LLM call doubles
-as a classifier: PASS instruction appended to prompt, model returns "PASS" if not
-addressed, otherwise responds normally.
+Follow-up utterances don't require "hey operator". After finalization, an inline
+classifier LLM call decides: RESPOND (answer), INCOMPLETE (keep listening), or PASS (not for us).
 
 ```
 Entering conversation mode
 State → listening (Listening...)
 TIMING caption_capture_start (timeout=20 require_wake=False)     # follow-up capture (20s = CONVERSATION_TIMEOUT)
 TIMING caption_followup_started — entering silence detection
-TIMING caption_speculative_fire gap=1.03s prompt="now triple it"
-TIMING caption_speculative_llm_start prompt="now triple it"
-TIMING caption_speculative_llm_done reply="That would be 12."
-TIMING caption_combined_classify for_assistant=True              # staying in conversation
 TIMING caption_prompt_finalized speaker=Alice prompt="now triple it"
+TIMING classify_followup result=RESPOND reply="That would be 12."  # inline classifier
 ...                                                              # responds, loops
 ```
 
-**Classifier prompt includes last exchange context** — the speculative LLM call in follow-up
-mode includes `[Your last exchange]` (raw utterance + reply) and a meeting-aware instruction
-asking the model to decide if the new utterance is a follow-up or the speaker moving on.
+**Classifier prompt includes last exchange context** — the inline classifier call includes
+`[Your last exchange]` (raw utterance + reply) and a meeting-aware instruction asking the
+model to decide if the new utterance is a follow-up or the speaker moving on.
 
 **Conversation ends — two-strike PASS system:**
 
 First PASS is "soft" — stays listening. Second consecutive PASS exits for real.
-If finalized text grew beyond speculative snapshot (word delta > 2), re-classifies
-on full text before committing to soft PASS.
+If caption text grew after finalization, re-classifies on full text before committing.
 
 ```
-TIMING caption_combined_classify for_assistant=False
+TIMING classify_followup result=PASS
 Conversation mode: soft PASS — staying in conversation mode    # first strike: stay listening
 ```
 
-Re-classify path (finalized text grew beyond speculative snapshot):
+Re-classify path (caption text grew after finalization):
 ```
-Conversation mode: soft PASS re-classify (spec=N final=M delta=D)  # word count grew
+Conversation mode: soft PASS but caption text grew — finalized="..." current="..."
 TIMING reclassify_full_text result=True/False reply="..."          # classify-only LLM call
-Conversation mode: re-classify flipped PASS→RESPOND                # re-classify overturned PASS
+Conversation mode: extended text flipped PASS→RESPOND              # re-classify overturned PASS
 ```
 
 Second strike (two consecutive PASSes):
 ```
-TIMING caption_combined_classify for_assistant=False
+TIMING classify_followup result=PASS
 Conversation mode: second PASS — returning to idle               # hard exit
 State → idle (Listening for 'operator'...)
 ```
 
 Soft PASS recovery (someone follows up after soft PASS):
 ```
-TIMING caption_combined_classify for_assistant=True              # second-strike classifier says RESPOND
+TIMING classify_followup result=RESPOND reply="..."              # classifier says RESPOND
 ...                                                              # responds normally, soft_pass resets
 ```
 
@@ -526,7 +509,7 @@ CaptionsAdapter: left meeting
 | Silence wait (post-speech) | 1.0-1.5s | >2s (threshold or noise floor issue) |
 | Whisper transcription | ~0.1-0.5s | >1s |
 | LLM response | 0.8-1.7s | >3s |
-| Kokoro synthesis | 0.5-1.5s (0.0s on speculative hit) | >3s |
+| Kokoro synthesis | 0.5-1.5s | >3s |
 | Full pipeline (prompt→done) | 3.5-7s | >12s |
 
 ---
