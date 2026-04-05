@@ -44,6 +44,7 @@ class _SpeculativeResult:
         self.transcript = None        # Whisper result on the first-silence snapshot
         self.full_prompt = None       # Context-augmented prompt sent to LLM
         self.llm_reply = None         # LLM reply (None if not yet done or failed)
+        self.synth_bytes = None       # Pre-rendered TTS audio (bytes), if available
         self.for_assistant = None     # classifier result (True/False/None=not run)
         self.was_soft_pass = False    # True when this cycle follows a soft PASS
         self.ready = threading.Event()
@@ -576,6 +577,19 @@ class AgentRunner:
                 spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
 
             log.info(f"TIMING caption_speculative_llm_done reply=\"{spec.llm_reply[:60]}\"")
+
+            # Speculative TTS: synthesize audio while waiting for finalization.
+            # If the prompt doesn't change, _finalize_prompt skips synthesis entirely.
+            reply = spec.llm_reply
+            if reply and (not run_classifier or spec.for_assistant):
+                reply_clean = sanitize_for_speech(reply)
+                if self._tts_ready.is_set() and self.tts:
+                    try:
+                        log.info("TIMING caption_speculative_tts_start")
+                        spec.synth_bytes = self.tts.synthesize(reply_clean)
+                        log.info(f"TIMING caption_speculative_tts_done bytes={len(spec.synth_bytes)}")
+                    except Exception as e:
+                        log.warning(f"Speculative TTS failed (will retry in finalize): {e}")
         except Exception as e:
             log.error(f"Speculative caption LLM error: {e}", exc_info=True)
         finally:
@@ -720,29 +734,39 @@ class AgentRunner:
             self._last_utterance = prompt
             self._last_reply = reply
 
-            # --- Step 2: TTS synthesis kicked off ---
+            # --- Step 2: TTS synthesis (skip if speculative TTS already rendered) ---
             self.conv.set_speaking()
-            t_tts = time.time()
-            log.info("TIMING tts_synthesis_start")
+            t_synth_start = time.time()
 
-            synthesis_done = threading.Event()
-            wav_result = [None]
+            if (speculative
+                    and speculative.synth_bytes
+                    and speculative.transcript == prompt):
+                wav_result = [speculative.synth_bytes]
+                synth_elapsed = 0.0
+                log.info(f"TIMING tts_speculative_hit bytes={len(wav_result[0])}")
+            else:
+                log.info("TIMING tts_synthesis_start")
+                synthesis_done = threading.Event()
+                wav_result = [None]
 
-            def _synthesize():
-                t_s = time.time()
-                try:
-                    wav_result[0] = self.tts.synthesize(reply)
-                except Exception as exc:
-                    log.error(f"Synthesis error: {exc}")
-                finally:
-                    log.info(f"TIMING tts_synthesis_done elapsed={time.time() - t_s:.2f}s")
-                    synthesis_done.set()
+                def _synthesize():
+                    t_s = time.time()
+                    try:
+                        wav_result[0] = self.tts.synthesize(reply)
+                    except Exception as exc:
+                        log.error(f"Synthesis error: {exc}")
+                    finally:
+                        log.info(f"TIMING tts_synthesis_done elapsed={time.time() - t_s:.2f}s")
+                        synthesis_done.set()
 
-            threading.Thread(target=_synthesize, daemon=True).start()
+                threading.Thread(target=_synthesize, daemon=True).start()
+                synthesis_done.wait()
+                synth_elapsed = time.time() - t_synth_start
 
-            # --- Step 4: Wait for synthesis, then filler ---
-            synthesis_done.wait()
+            # --- Step 4: Wait for filler ---
+            t_ready_to_play = time.time()
             filler_done.wait()  # usually already set; no delay if filler finished first
+            filler_wait_elapsed = time.time() - t_ready_to_play
 
             # --- Step 5: Response plays ---
             self._latency_probe.set_active(False)
@@ -753,8 +777,9 @@ class AgentRunner:
             log.info(f"TIMING response_play_done elapsed={t_done - t_play:.2f}s")
             log.info(
                 f"TIMING end_to_end — "
-                f"llm_wait: {t_tts - t_finalized:.2f}s | "
-                f"synthesis: {t_play - t_tts:.2f}s | "
+                f"llm_wait: {t_synth_start - t_finalized:.2f}s | "
+                f"synthesis: {synth_elapsed:.2f}s | "
+                f"filler_wait: {filler_wait_elapsed:.2f}s | "
                 f"speak: {t_done - t_play:.2f}s | "
                 f"total_from_finalized: {t_done - t_finalized:.2f}s"
             )
