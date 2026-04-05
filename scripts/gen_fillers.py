@@ -60,6 +60,14 @@ FILLERS = {
         "For sure.",
         "I get what you're saying."
     ],
+    "interruption": [
+        "Heard you.",
+        "One sec.",
+        "Hang on.",
+        "Got it.",
+        "Okay okay.",
+        "Hold on.",
+    ],
 }
 
 

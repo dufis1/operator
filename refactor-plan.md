@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 37)*
+*Last updated: April 5, 2026 (session 38)*
 
-> **Current status: Streaming classifier redesign planned.** Session 37 live-tested the single-threshold consolidation, fixed 3 bugs (abort duplication, speaker bleed, echo misattribution), and designed a new architecture: streaming first-token classification, playback-only abort, interruption handling, classification-based conversation exit. Implementation begins next session.
+> **Current status: Streaming classifier redesign implemented, pending live test.** Session 38 implemented all 8 steps of the streaming classifier redesign: streaming LLM, first-token PASS/EXIT/respond classification for both wake and conversation mode, playback-only interruption, processing-phase interruption handling with stream-classify, wake phrase detection in conversation mode, classification-based exit, and interruption filler clips. Live testing in Google Meet is the next step.
 
 ---
 
@@ -173,6 +173,19 @@
 | 9.6 | Implement full `operator setup` — chains all subcommands in sequence. OS-aware audio driver install (macOS: BlackHole, Linux: PulseAudio sinks). | ⬜ |
 | 9.7 | Startup validation — on `operator run`, check config for broken/missing voice/provider and print "run `operator setup voice` to fix". | ⬜ |
 | 9.8 | Test from scratch with no `.env` — follow prompts, confirm working on first meeting | ⬜ |
+
+---
+
+## Phase 12: Config Hot-Reload Audit
+
+*Goal: Review every key in `config.yaml`, decide which should be hot-reloadable (re-read on use) vs. startup-only (frozen constant), and implement accordingly. Do this after all feature phases so the config's full shape is known before locking down the behavior.*
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 12.1 | Walk every key in `config.yaml` and classify each as: **hot-reloadable** (safe to re-read at call time — e.g. prompts, phrase lists, timeouts, filler clips) vs. **startup-only** (gates client/model initialization — e.g. TTS provider, STT model, connector type) | ⬜ |
+| 12.2 | Refactor hot-reloadable keys in `config.py`: replace module-level constants with per-call re-reads so live edits take effect without restart | ⬜ |
+| 12.3 | Annotate startup-only keys in `config.yaml` with a comment (`# requires restart`) so users know what takes effect live vs. what needs a relaunch | ⬜ |
+| 12.4 | Test: edit a hot-reloadable key (e.g. system prompt) mid-session, confirm new value is used on next response with no restart | ⬜ |
 
 ---
 

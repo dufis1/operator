@@ -53,6 +53,33 @@ class LLMClient:
             self._history.append({"role": "assistant", "content": reply})
         return reply
 
+    def ask_stream(self, utterance):
+        """Stream tokens from GPT. Yields token strings as they arrive.
+
+        Does NOT record to history — call record_exchange() if you use the result.
+        """
+        messages = [
+            {"role": "system", "content": config.SYSTEM_PROMPT},
+            *self._history,
+            {"role": "user", "content": utterance},
+        ]
+        log.info(f"LLM ask_stream model={config.LLM_MODEL} history_turns={len(self._history)//2} prompt_chars={len(utterance)}")
+        log.debug(f"LLM utterance: {utterance}")
+        try:
+            response = self._client.chat.completions.create(
+                model=config.LLM_MODEL,
+                max_tokens=60,
+                messages=messages,
+                stream=True,
+            )
+        except Exception as e:
+            log.error(f"LLM API stream failed: {e}", exc_info=True)
+            raise
+        for chunk in response:
+            delta = chunk.choices[0].delta
+            if delta.content:
+                yield delta.content
+
     def record_exchange(self, utterance: str, reply: str):
         """Commit a user/assistant exchange to history without an API call.
 

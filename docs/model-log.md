@@ -1,6 +1,6 @@
 # Model Log Reference
 
-Last updated: 2026-04-05
+Last updated: 2026-04-05 (session 38)
 Captured from: macOS headless, Kokoro TTS, Whisper base model (audio mode) / Meet captions (caption mode)
 
 This is the gold-standard reference for what Operator's logs should look like during
@@ -230,33 +230,64 @@ Then continues to Section 4 (LLM + TTS).
 
 ## Section 4: LLM + TTS Response
 
-After a prompt is finalized, the pipeline calls LLM and synthesizes speech:
+After a prompt is finalized, the pipeline streams the LLM response and synthesizes speech.
+
+**Streaming path** (caption mode with `stream_classify=True` — both wake and conversation mode):
+
+The first token from the streaming LLM decides the action: PASS (suppress), EXIT (respond then exit conversation), or anything else (it's the response).
 
 ```
 Echo prevention: paused caption processing      # caption mode: ignore captions while bot speaks
-TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization (skipped on abort retry)
-LLM ask model=gpt-4.1-mini history_turns=N prompt_chars=N         # logged before API call (metadata only; full utterance at DEBUG level)
-LLM reply="..."                                 # logged on successful response
-TIMING llm_request_sent                          # fresh LLM call
-TIMING llm_response_received elapsed=N.NNNs reply="..."  # LLM response
-TIMING llm_precomputed reply="..."               # classifier already produced reply, no extra LLM call needed
-TIMING llm_resolved elapsed_from_finalized=N.NNNs    # wall-clock from finalization to LLM answer ready
+TIMING llm_stream_start                          # streaming LLM call begins
+LLM ask_stream model=gpt-4.1-mini history_turns=N prompt_chars=N  # logged before stream
+TIMING llm_first_token elapsed=N.NNNs token="..."  # first non-whitespace token (~300ms typical)
+```
+
+**If PASS** (not for operator — suppress everything, ~300ms total):
+```
+TIMING llm_classified=PASS — not for operator    # first token was "PASS"
+Echo prevention: resumed caption processing
+```
+
+**If EXIT** (wrap-up — respond then exit conversation):
+```
+TIMING llm_classified=EXIT — wrap-up response    # first token was "EXIT", prefix stripped from response
+TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts after classification
+...                                              # same as normal response below
+```
+
+**If response** (normal — first token is NOT PASS/EXIT):
+```
+TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts after first token confirms response
+TIMING llm_stream_done elapsed=N.NNNs reply="..."   # all tokens collected
+TIMING llm_resolved elapsed_from_finalized=N.NNNs   # wall-clock from finalization to LLM done
 State → speaking (Speaking...)
-TIMING tts_synthesis_start                       # TTS synthesis begins
-TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s (logged inside tts.py)
-TIMING tts_synthesis_done elapsed=N.NNNs         # synthesis complete
-TIMING tts_resolved elapsed_from_finalized=N.NNNs    # wall-clock from finalization to audio bytes ready
-TIMING filler_play_done                         # filler finishes (concurrent with LLM + TTS)
-TIMING filler_wait_done elapsed=N.NNNs           # how long we blocked waiting for filler after TTS ready
-TIMING response_play_start gap_since_filler_done=N.NNNs  # includes 400ms abort grace period
-TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID  # logged before mpv launch
-TIMING mpv_spawned elapsed=N.NNNs               # subprocess.Popen overhead (~28ms typical)
-TIMING mpv_audio_piped elapsed=N.NNNs            # stdin.write + close overhead (~130ms typical)
-TTS play_audio: done                            # logged after mpv exits cleanly
+TIMING tts_synthesis_start
+TIMING tts_synth_done (N.NNs)                    # typical Kokoro: 0.5-1.5s
+TIMING tts_synthesis_done elapsed=N.NNNs
+TIMING tts_resolved elapsed_from_finalized=N.NNNs
+TIMING filler_play_done                          # filler finishes (concurrent with LLM + TTS)
+TIMING filler_wait_done elapsed=N.NNNs
+TIMING response_play_start gap_since_filler_done=N.NNNs
+TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID
+TIMING mpv_spawned elapsed=N.NNNs
+TIMING mpv_audio_piped elapsed=N.NNNs
+TTS play_audio: done
 TIMING response_play_done elapsed=N.NNNs
 TIMING end_to_end — llm_wait: N.NNNs | synthesis: N.NNNs | filler_wait: N.NNNs | speak: N.NNNs | total_from_finalized: N.NNNs
-Echo prevention: resumed caption processing      # caption mode
+Echo prevention: resumed caption processing
 State → idle (Listening for 'operator'...)
+```
+
+**Non-streaming path** (audio/transcription mode — filler first, then blocking LLM):
+```
+Echo prevention: paused audio ingestion
+TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>
+LLM ask model=gpt-4.1-mini history_turns=N prompt_chars=N
+TIMING llm_request_sent
+TIMING llm_response_received elapsed=N.NNNs reply="..."
+...                                              # same synthesis + playback as above
+Echo prevention: resumed audio ingestion
 ```
 
 **Echo diagnostics** (every caption during `is_speaking`, added session 37):
@@ -268,20 +299,25 @@ caption: rejected echo-suspect during abort — prev="..." new="..."            
 ```
 `[ECHO-MATCH]` fires when caption text overlaps with `_tts_text` (substring match or 60%+ word overlap). `echo_false_abort_suppressed` means a non-"You" caption was recognized as bot echo and did not trigger abort.
 
-**Abort sequence** (appears instead of response playback when user keeps talking after premature finalization):
+**Playback interruption** (user talks over operator's response):
 ```
-TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption during is_speaking (signal 1, only if not echo-matched)
-TIMING abort_text_grew — finalized="..." current="..."     # caption text grew beyond prompt (signal 2)
-TIMING abort_triggered — re-processing with "..."          # discards response, re-calls _finalize_prompt
+TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption during is_speaking
+TTS play_audio: interrupted by user speech                 # mpv terminated mid-playback
+TIMING response_interrupted — user talked over playback
 ```
-Either or both signals may fire. After abort, `_finalize_prompt` retries with `allow_abort=False` — no filler on retry, no further aborts possible. Speaker bleed guard: only the speaker who triggered the abort (`_abort_speaker`) can update `_current_text` during the abort window.
 
-**LLM resolution variants** (one of these appears per interaction):
-- `TIMING llm_precomputed reply="..."` — classifier already produced a valid response (conversation mode RESPOND path)
-- `TIMING llm_request_sent` + `TIMING llm_response_received elapsed=N.NNs reply="..."` — fresh LLM call (wake mode, or conversation mode without precomputed reply)
+**Processing-phase interruption** (speaker kept talking after finalization, before playback):
+```
+TIMING abort_caption_detected speaker=<name> text="..."                    # caption detected during processing
+TIMING interruption_detected — speaker=<name> original="..." updated="..." # text grew beyond original prompt
+TIMING interruption_classified=PASS — playing original response            # updated text not for operator → play as planned
+TIMING interruption_classified=RESPOND — re-processing                     # updated text IS for operator → re-process
+TIMING interruption_filler clip=filler_NN.mp3                              # "heard you" / "one sec" clip
+```
 
 **What to check:**
-- `LLM ask` present but no `LLM reply` → API call hung or raised; check for `LLM API call failed` error below it
+- `LLM ask_stream` present but no `llm_first_token` → streaming hung; check for `LLM API stream failed` error
+- `LLM ask` present but no `LLM reply` → API call hung or raised; check for `LLM API call failed` error
 - Missing `TIMING response_play_start` → synthesis returned empty bytes; check for `Synthesis error` above
 - `TTS play_audio: mpv exited with code N` → mpv failed; likely wrong audio device string or mpv not installed
 - "Synthesis error: ..." → TTS provider failed
@@ -376,63 +412,58 @@ CaptionsAdapter: JS diagnostic — dom_raw mutation_gap=505.7ms text=Hey Operato
 
 ## Section 5b: Caption Mode — Conversation Mode
 
-Follow-up utterances don't require "hey operator". After finalization, an inline
-classifier LLM call decides: RESPOND (answer), INCOMPLETE (keep listening), or PASS (not for us).
+Follow-up utterances don't require "hey operator". The streaming first-token
+classification decides: PASS (exit conversation), EXIT (respond then exit), or
+anything else (it's the response — play filler, stream, synthesize, speak).
 
 ```
 Entering conversation mode
 State → listening (Listening...)
-TIMING caption_capture_start (timeout=20 require_wake=False)     # follow-up capture (20s = CONVERSATION_TIMEOUT)
+TIMING caption_capture_start (timeout=60 require_wake=False)     # 60s backstop timeout (PASS/EXIT handle normal exits)
 TIMING caption_followup_started — entering silence detection
 TIMING caption_prompt_finalized speaker=Alice prompt="now triple it"
-TIMING classify_followup result=RESPOND reply="That would be 12."  # inline classifier
-...                                                              # responds, loops
 ```
 
-**Classifier prompt includes last exchange context** — the inline classifier call includes
-`[Your last exchange]` (raw utterance + reply) and a meeting-aware instruction asking the
-model to decide if the new utterance is a follow-up or the speaker moving on.
+Then enters Section 4 streaming path. First token decides:
 
-**Conversation ends — two-strike PASS system:**
-
-First PASS is "soft" — stays listening. Second consecutive PASS exits for real.
-If caption text grew after finalization, re-classifies on full text before committing.
-
+**Follow-up response** (first token is not PASS/EXIT):
 ```
-TIMING classify_followup result=PASS
-Conversation mode: soft PASS — staying in conversation mode    # first strike: stay listening
+TIMING llm_first_token elapsed=0.300s token="That"               # response token → filler + stream + speak
+...                                                               # responds, loops back to conversation mode
 ```
 
-Re-classify path (caption text grew after finalization):
+**PASS — exit conversation mode** (first token is PASS):
 ```
-Conversation mode: soft PASS but caption text grew — finalized="..." current="..."
-TIMING reclassify_full_text result=True/False reply="..."          # classify-only LLM call
-Conversation mode: extended text flipped PASS→RESPOND              # re-classify overturned PASS
-```
-
-Second strike (two consecutive PASSes):
-```
-TIMING classify_followup result=PASS
-Conversation mode: second PASS — returning to idle               # hard exit
+TIMING llm_classified=PASS — not for operator
+Conversation mode: PASS — exiting conversation mode
 State → idle (Listening for 'operator'...)
 ```
 
-Soft PASS recovery (someone follows up after soft PASS):
+**EXIT — respond and exit** (first token is EXIT):
 ```
-TIMING classify_followup result=RESPOND reply="..."              # classifier says RESPOND
-...                                                              # responds normally, soft_pass resets
-```
-
-**Conversation timeout** — no captions within 20 seconds:
-```
-TIMING caption_timeout (no captions in 20s)
-Conversation mode: capture ended — returning to idle
+TIMING llm_classified=EXIT — wrap-up response
+...                                                               # speaks sign-off ("You're welcome!")
+Conversation mode: EXIT — responded and exiting
 State → idle (Listening for 'operator'...)
 ```
 
-**Capture ended** — if connector stops (e.g. meeting left):
+**Wake phrase reset** ("hey operator" during conversation → reset to wake mode):
 ```
-Conversation mode: capture ended — returning to idle
+Conversation mode: wake phrase detected — resetting to wake mode
+```
+
+**Backstop timeout** — no captions within 60 seconds:
+```
+TIMING caption_timeout (no captions in 60s)
+Conversation mode: no follow-up — returning to idle
+State → idle (Listening for 'operator'...)
+```
+
+**Wake mode PASS** (ambient speech contained "hey operator" but wasn't directed at bot):
+```
+TIMING wake_caption speaker=Alice prompt="..."
+TIMING llm_classified=PASS — not for operator
+TIMING wake PASS — ignoring ambient speech
 ```
 
 ---

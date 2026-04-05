@@ -120,11 +120,18 @@ class TTSClient:
         else:
             raise ValueError(f"Unknown TTS provider: {provider!r}")
 
-    def play_audio(self, audio_bytes: bytes):
-        """Play raw audio bytes through the output device via mpv."""
+    def play_audio(self, audio_bytes: bytes, interrupt_event=None):
+        """Play raw audio bytes through the output device via mpv.
+
+        Args:
+            interrupt_event: optional threading.Event. If set during playback,
+                             mpv is terminated immediately (playback interruption).
+
+        Returns True if playback completed, False if interrupted or failed.
+        """
         if not audio_bytes:
             log.warning("TTS play_audio: received empty audio bytes — nothing to play")
-            return
+            return False
         log.info(f"TTS play_audio: {len(audio_bytes)} bytes → device={self._output_device}")
         if config.DEBUG_AUDIO:
             import datetime
@@ -145,11 +152,25 @@ class TTSClient:
         proc.stdin.close()
         t_mpv_piped = time.time()
         log.info(f"TIMING mpv_audio_piped elapsed={t_mpv_piped - t_mpv_spawned:.3f}s")
-        rc = proc.wait()
+
+        if interrupt_event:
+            # Poll for interruption during playback
+            while proc.poll() is None:
+                if interrupt_event.is_set():
+                    proc.terminate()
+                    proc.wait(timeout=2)
+                    log.info("TTS play_audio: interrupted by user speech")
+                    return False
+                time.sleep(0.05)
+            rc = proc.returncode
+        else:
+            rc = proc.wait()
+
         if rc != 0:
             log.error(f"TTS play_audio: mpv exited with code {rc}")
-        else:
-            log.info("TTS play_audio: done")
+            return False
+        log.info("TTS play_audio: done")
+        return True
 
     def speak(self, text):
         """Synthesize and immediately play. Convenience wrapper for simple callers."""

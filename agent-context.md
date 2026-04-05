@@ -18,10 +18,20 @@
 
 ## Current Status
 
-**Phase:** Streaming classifier redesign — architecture agreed, implementation pending.
-**Next action:** Implement streaming first-token classification. See `handoff.md` for full architecture and implementation order.
+**Phase:** Streaming classifier redesign — implemented, pending live test.
+**Next action:** Live test in Google Meet. Exercise: wake→response, follow-up, PASS exit, EXIT wrap-up, playback interruption, "hey operator" reset, processing-phase interruption.
 
-**What was built this session (April 5, 2026, session 37):**
+**What was built this session (April 5, 2026, session 38):**
+- **Streaming LLM support.** Added `ask_stream()` to `LLMClient` — yields tokens as they arrive from the OpenAI API. Does not auto-record to history; caller uses `record_exchange()`.
+- **Streaming first-token classification.** `_finalize_prompt()` restructured: when `stream_classify=True`, starts streaming LLM call, checks first token. PASS → suppress (no filler, no response). EXIT → strip prefix, respond with sign-off, signal conversation exit. Anything else → it IS the response (play filler, collect rest, synthesize, speak). Applied to both wake mode and conversation mode.
+- **Conversation mode simplified.** Removed: `_classify_followup()`, `_reclassify_full_text()`, `_strip_mid_punctuation()`, two-strike PASS system, INCOMPLETE re-fire loop, soft PASS logic (~75 lines → ~15 lines). PASS exits immediately. EXIT responds then exits.
+- **Wake phrase in conversation mode.** Full "hey operator" regex (punctuation-tolerant, case-insensitive) resets to wake mode. Bare "operator" does not trigger reset.
+- **Playback-only interruption.** Removed pre-playback abort check (0.4s wait + text-grew + recursive re-process). Added `interrupt_event` parameter to `TTSClient.play_audio()` — polls mpv process and terminates on event. User talking over response stops playback immediately.
+- **Processing-phase interruption.** After synthesis, checks if abort_event fired during processing. Same speaker + text extends original → stream-classify updated text. PASS → play original response. Not PASS → play interruption filler + re-process.
+- **Interruption filler clips.** New "interruption" bucket with 6 clips: "Heard you", "One sec", "Hang on", "Got it", "Okay okay", "Hold on". Generated via Kokoro.
+- **Backstop timeout.** Caption-mode conversation timeout bumped from 20s to 60s (safety net only — PASS/EXIT handle normal exits).
+
+**What was built last session (April 5, 2026, session 37):**
 - **Code review + 3 bug fixes.** (1) Abort re-fire duplication: `prompt + " " + new_text` duplicated prompt because `_current_text` is full text not delta; fixed to use `new_text` directly. (2) Speaker bleed: any non-"You" speaker could overwrite `_current_text` during `is_speaking`; added `_abort_speaker` tracking. (3) Echo misattribution: Google sometimes captions bot TTS as human speaker; added continuity guard (reject discontinuous text) + echo fingerprinting (`_tts_text` comparison).
 - **Echo diagnostics.** Every caption during `is_speaking` logs `DIAG echo_caption` with speaker, you flag, `[ECHO-MATCH]` tag, caption text, and TTS text.
 - **Live testing.** Two runs in Google Meet. Run 1: echo misattribution reproduced and fixed. Run 2: wake/follow-up/conversation all passed. "Capital of France" failed due to INCOMPLETE race condition (text grew during 1.3s classifier call).
@@ -1123,6 +1133,42 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 
 **Test:** Wake phrase → 🤔 appears within 1s → ✅ appears after response.
 **Commit:** `feat: add emoji reactions to MeetingConnector — thinking and done states`
+
+---
+
+## Phase 12: Config Hot-Reload Audit
+
+*Do this after all feature phases so the config's full shape is known. Goal: review every key in `config.yaml`, decide which should hot-reload vs. require a restart, and implement accordingly.*
+
+### Step 12.1 — Classify every config key
+
+Walk `config.yaml` top to bottom. For each key, decide:
+- **Hot-reloadable** — safe to re-read from disk on each use. No object is "holding" the value between calls. Examples: `system_prompt`, `wake_phrase`, `conversation_timeout`, filler phrase lists, finalization thresholds.
+- **Startup-only** — gates initialization of a client or model. Changing it live would leave a partially-initialized object in an inconsistent state. Examples: `tts.provider`, `stt.model`, `connector.type`, API keys.
+
+Output: annotated list (or inline comments in `config.yaml`) marking each key.
+
+**Commit:** `docs: classify config keys as hot-reloadable vs startup-only`
+
+---
+
+### Step 12.2 — Refactor hot-reloadable keys
+
+For keys classified as hot-reloadable, replace the module-level constant in `config.py` with a function or per-call re-read so a live edit to `config.yaml` takes effect on the next response — no restart needed.
+
+Pattern: instead of `SYSTEM_PROMPT = _config["agent"]["system_prompt"]` at import time, expose `get_system_prompt()` that re-parses on demand (or re-reads the file with a short TTL cache if performance matters).
+
+**Test:** Edit `system_prompt` in `config.yaml` mid-session. Next response should reflect the new value.
+
+**Commit:** `feat: hot-reload config keys that are safe to re-read at call time`
+
+---
+
+### Step 12.3 — Annotate startup-only keys in config.yaml
+
+Add a `# requires restart` comment to every startup-only key so users understand which changes take effect live vs. which require a relaunch.
+
+**Commit:** `docs: annotate startup-only keys in config.yaml`
 
 ---
 

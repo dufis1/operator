@@ -38,6 +38,13 @@ from pipeline.wake import detect_wake_phrase
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Full wake phrase regex (punctuation-tolerant) for conversation mode reset.
+# Matches "hey operator", "hey, operator", etc. — NOT bare "operator".
+_FULL_WAKE_RE = re.compile(
+    r"[,\s]+".join(re.escape(w) for w in config.WAKE_PHRASE.split()),
+    re.IGNORECASE,
+)
+
 
 ACK_CLIPS = [
     os.path.join(_BASE, "assets", "ack_yeah.mp3"),
@@ -65,22 +72,6 @@ def _normalize_for_match(text: str) -> str:
         t = t.replace(word, digit)
     t = re.sub(r"[^\w\s]", "", t)      # strip punctuation
     return re.sub(r"\s+", " ", t).strip()
-
-
-def _strip_mid_punctuation(text: str) -> str:
-    """Remove sentence-ending punctuation (.?!) at mid-text boundaries.
-
-    Google Meet's ASR inserts artificial sentence breaks at speech pauses,
-    turning "How about Belgium" into "How about? Belgium." This confuses
-    the INCOMPLETE classifier. Stripping mid-text boundaries collapses the
-    text into a single run-on sentence that reads as more complete.
-
-    Only targets punctuation followed by whitespace (sentence boundaries),
-    preserving decimals ("3.5") and abbreviations without spaces ("U.S.A").
-    """
-    # Replace mid-text sentence-ending punctuation + space with just a space.
-    # Keep the very last character's punctuation intact.
-    return re.sub(r'[.?!]\s+', ' ', text)
 
 
 class AgentRunner:
@@ -471,179 +462,50 @@ class AgentRunner:
 
             log.info(f"TIMING wake_caption speaker={speaker} prompt=\"{prompt[:60]}\"")
             self.conv.set_listening("Listening for prompt...")
-            if not self._finalize_prompt(prompt, caption_mode=True):
-                log.info("TIMING abort — entering conversation mode to capture full utterance")
-                # Fall through to conversation mode (no wake required) so we
-                # pick up the rest of what the user was saying.
+            result = self._finalize_prompt(prompt, caption_mode=True, stream_classify=True)
+            if result == "pass":
+                log.info("TIMING wake PASS — ignoring ambient speech")
+                continue
 
             # Conversation mode: accept follow-ups without re-triggering wake phrase.
-            # Two-strike PASS system: first PASS is "soft" (stay listening),
-            # only a second consecutive PASS exits conversation mode.
+            # Streaming first-token classification: PASS exits immediately.
+            # "Hey operator" during conversation resets to wake mode.
             log.info("Entering conversation mode")
-            soft_pass_active = False
-            incomplete_count = 0          # cap INCOMPLETE re-fires (Step 7)
-            _MAX_INCOMPLETE_REFIRES = 3
             while self.captions.capturing and not self._stop_event.is_set():
                 self.conv.set_listening("Listening...")
+                # Generous backstop — PASS/EXIT handle normal exits; this is
+                # a silent safety net for when everyone goes quiet.
                 followup_speaker, followup = self.captions.capture_next_wake_utterance(
                     require_wake=False,
-                    no_speech_timeout=CONVERSATION_TIMEOUT,
+                    no_speech_timeout=60,
                 )
                 if not followup:
-                    log.info("Conversation mode: capture ended — returning to idle")
+                    log.info("Conversation mode: no follow-up — returning to idle")
                     break
 
-                # Classify the finalized text inline
-                for_assistant, is_incomplete, llm_reply = self._classify_followup(
-                    followup, was_soft_pass=soft_pass_active
+                # "Hey operator" resets to wake mode — treat as fresh wake trigger
+                m = _FULL_WAKE_RE.search(followup)
+                if m:
+                    wake_trailing = followup[m.end():].strip().strip(",.:?!")
+                    log.info(f"Conversation mode: wake phrase detected — resetting to wake mode")
+                    if wake_trailing:
+                        # Inline prompt after "hey operator"
+                        self._finalize_prompt(wake_trailing, caption_mode=True, stream_classify=True)
+                    # Exit conversation loop — outer loop will pick up fresh wake
+                    break
+
+                result = self._finalize_prompt(
+                    followup, caption_mode=True, stream_classify=True,
                 )
-
-                # --- RESPOND path (happy path) ---
-                if for_assistant:
-                    soft_pass_active = False
-                    incomplete_count = 0
-                    self._finalize_prompt(followup, caption_mode=True, precomputed_reply=llm_reply)
-                    continue
-
-                # --- INCOMPLETE path: speaker still forming thought, keep listening ---
-                if is_incomplete:
-                    incomplete_count += 1
-                    if incomplete_count > _MAX_INCOMPLETE_REFIRES:
-                        log.info(f"Conversation mode: INCOMPLETE cap reached ({_MAX_INCOMPLETE_REFIRES}) — treating as RESPOND")
-                        soft_pass_active = False
-                        self._finalize_prompt(followup, caption_mode=True)
-                        continue
-                    log.info(f"Conversation mode: INCOMPLETE ({incomplete_count}/{_MAX_INCOMPLETE_REFIRES}) — keep listening (prompt=\"{followup[:40]}\")")
-                    continue
-
-                # --- PASS path: two-strike logic ---
-                # Second strike → hard exit, unless text grew since last PASS
-                if soft_pass_active:
-                    with self.captions._lock:
-                        latest_text = self.captions._current_text.strip()
-                    latest_norm = _normalize_for_match(latest_text)
-                    followup_norm = _normalize_for_match(followup)
-                    if latest_text and latest_norm and not latest_norm.endswith(followup_norm):
-                        log.info(
-                            f"Conversation mode: second PASS but text grew — "
-                            f"finalized=\"{followup[:40]}\" current=\"{latest_text[:40]}\""
-                        )
-                        if self._reclassify_full_text(latest_text):
-                            log.info("Conversation mode: extended text flipped second PASS→RESPOND")
-                            soft_pass_active = False
-                            self._finalize_prompt(latest_text, caption_mode=True)
-                            continue
-                    log.info("Conversation mode: second PASS — returning to idle")
+                if result == "pass":
+                    log.info("Conversation mode: PASS — exiting conversation mode")
                     break
-
-                # First strike → soft PASS, stay listening.
-                # Check if caption text grew after finalization (e.g. "How about?"
-                # finalized, then "How about France?" arrived 98ms later).
-                with self.captions._lock:
-                    latest_text = self.captions._current_text.strip()
-                if latest_text and not _normalize_for_match(latest_text).endswith(_normalize_for_match(followup)):
-                    log.info(
-                        f"Conversation mode: soft PASS but caption text grew — "
-                        f"finalized=\"{followup[:40]}\" current=\"{latest_text[:40]}\""
-                    )
-                    if self._reclassify_full_text(latest_text):
-                        log.info("Conversation mode: extended text flipped PASS→RESPOND")
-                        soft_pass_active = False
-                        self._finalize_prompt(latest_text, caption_mode=True)
-                        continue
-
-                log.info("Conversation mode: soft PASS — staying in conversation mode")
-                soft_pass_active = True
+                if result == "exit":
+                    log.info("Conversation mode: EXIT — responded and exiting")
+                    break
             self.conv.set_idle()
 
         log.info("AgentRunner: caption loop ended")
-
-    def _classify_followup(self, prompt_text: str, was_soft_pass: bool = False):
-        """Classify finalized follow-up text as RESPOND, INCOMPLETE, or PASS.
-
-        Returns:
-            (for_assistant: bool, is_incomplete: bool, llm_reply: str)
-        """
-        with self._transcript_lock:
-            context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
-
-        last_exchange = ""
-        if self._last_utterance and self._last_reply:
-            last_exchange = f"[Your last exchange]\nThey asked: {self._last_utterance}\nYou answered: {self._last_reply}\n\n"
-
-        soft_pass_note = ""
-        if was_soft_pass:
-            soft_pass_note = (
-                "[Context] You previously concluded the conversation was over "
-                "and decided to PASS. Now someone has spoken again. "
-                "Re-evaluate carefully: is this new speech directed at you?\n\n"
-            )
-
-        classifier_text = _strip_mid_punctuation(prompt_text)
-        full_prompt = (
-            f"[Meeting transcript so far]\n{context}\n\n"
-            f"{last_exchange}"
-            f"{soft_pass_note}"
-            f"[Someone just said]\n{classifier_text}\n\n"
-            f"[Instruction] You are in a live meeting with multiple participants. "
-            f"You just answered a question. Decide: is this new utterance a follow-up "
-            f"directed at you, or has the speaker moved on — e.g. addressing another "
-            f"participant, changing the subject, or continuing the meeting without you?\n"
-            f"- If the utterance is an INCOMPLETE sentence — it ends with a preposition, "
-            f"conjunction, article, dangling question word, or trailing thought (e.g. "
-            f"\"What about?\", \"How about the\", \"And then\") — respond with only the "
-            f"word INCOMPLETE. The speaker is still forming their thought.\n"
-            f"- If it is a complete utterance directed at you, respond normally.\n"
-            f"- If it is NOT for you, respond with only the word PASS."
-        )
-
-        try:
-            llm_reply = self.llm.ask(full_prompt, record=False)
-            reply_upper = llm_reply.strip().upper()
-            if reply_upper.startswith("INCOMPLETE"):
-                log.info(f"TIMING classify_followup result=INCOMPLETE")
-                return (False, True, llm_reply)
-            elif reply_upper.startswith("PASS"):
-                log.info(f"TIMING classify_followup result=PASS")
-                return (False, False, llm_reply)
-            else:
-                log.info(f"TIMING classify_followup result=RESPOND reply=\"{llm_reply[:60]}\"")
-                return (True, False, llm_reply)
-        except Exception as e:
-            log.error(f"Classify followup LLM error: {e}", exc_info=True)
-            return (True, False, "")  # default to RESPOND on error
-
-    def _reclassify_full_text(self, full_text: str) -> bool:
-        """Re-classify full finalized text after initial PASS on partial.
-
-        Returns True if directed at assistant, False if PASS.
-        """
-        with self._transcript_lock:
-            context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
-
-        last_exchange = ""
-        if self._last_utterance and self._last_reply:
-            last_exchange = (
-                f"[Your last exchange]\nThey asked: {self._last_utterance}\n"
-                f"You answered: {self._last_reply}\n\n"
-            )
-
-        prompt = (
-            f"[Meeting transcript so far]\n{context}\n\n"
-            f"{last_exchange}"
-            f"[Someone just said]\n{full_text}\n\n"
-            f"[Instruction] You are in a live meeting. Decide: is this utterance a follow-up "
-            f"directed at you or has the speaker moved on? "
-            f"Respond with YES if for you, PASS if not."
-        )
-        try:
-            reply = self.llm.ask(prompt, record=False)
-            result = not reply.strip().upper().startswith("PASS")
-            log.info(f"TIMING reclassify_full_text result={result} reply=\"{reply[:60]}\"")
-            return result
-        except Exception as e:
-            log.error(f"Re-classify LLM error: {e}", exc_info=True)
-            return False  # default to PASS on error
 
     def _on_transcript_text(self, speaker, text):
         """Callback from CaptionProcessor — feeds ALL caption text into transcript."""
@@ -662,18 +524,26 @@ class AgentRunner:
     # Prompt handling
     # ------------------------------------------------------------------
 
-    def _finalize_prompt(self, prompt, caption_mode=False, allow_abort=True, precomputed_reply=None):
-        """Resolve the LLM reply and speak it, playing fillers while synthesis runs.
+    def _finalize_prompt(self, prompt, caption_mode=False, stream_classify=False):
+        """Stream-classify the utterance and speak the response.
 
-        Args:
-            precomputed_reply: if the classifier already produced a valid LLM
-                response, pass it here to skip a redundant LLM call.
+        When stream_classify=True, the LLM can respond with PASS to indicate
+        the utterance is not directed at the bot. The first token from the
+        streaming response decides: PASS → suppress, anything else → it IS
+        the response (play filler, finish streaming, speak).
 
-        Returns True if the response was played, False if aborted.
+        Used in both wake mode (catches "hey operator" said to someone else)
+        and conversation mode (catches ambient meeting speech).
+
+        Returns:
+            "responded" — response was played (stream_classify=True).
+            "pass"      — LLM classified as not-for-operator.
+            True        — non-streaming success.
+            The abort path returns the result of the recursive call.
         """
         if not prompt:
             self.conv.set_idle()
-            return False
+            return "pass" if stream_classify else False
 
         # Ensure TTS background init has finished before we need to synthesize
         if not self._tts_ready.is_set():
@@ -696,43 +566,112 @@ class AgentRunner:
         with self._transcript_lock:
             context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
 
-        full_prompt = (
-            f"[Meeting transcript so far]\n{context}\n\n"
-            f"[Someone just said to you]\n{prompt}"
-        )
+        # Build prompt — streaming paths add PASS/EXIT instructions
+        if stream_classify and self._last_utterance and self._last_reply:
+            # Conversation mode: include last exchange for context
+            full_prompt = (
+                f"[Meeting transcript so far]\n{context}\n\n"
+                f"[Your last exchange]\nThey asked: {self._last_utterance}\n"
+                f"You answered: {self._last_reply}\n\n"
+                f"[Someone just said]\n{prompt}\n\n"
+                f"[Instruction] You are in a live meeting. Someone spoke after your last response.\n"
+                f"If this is NOT directed at you — they're addressing another participant, "
+                f"continuing the meeting, or it's ambient speech — respond with only PASS.\n"
+                f"If the speaker is wrapping up with you — e.g. \"thanks\", \"that's all\", "
+                f"\"got it\" — start your response with EXIT then a space, then your brief "
+                f"sign-off (e.g. \"EXIT You're welcome!\"). This signals the conversation is over.\n"
+                f"If this IS a follow-up directed at you, respond normally (1-2 short spoken sentences)."
+            )
+        elif stream_classify:
+            # Wake mode: wake phrase was detected but speech may be ambient
+            full_prompt = (
+                f"[Meeting transcript so far]\n{context}\n\n"
+                f"[Someone just said]\n{prompt}\n\n"
+                f"[Instruction] This followed the wake phrase \"hey operator\" in a live meeting.\n"
+                f"If this seems like ambient speech that happened to contain your name "
+                f"— not actually a question or request for you — respond with only PASS.\n"
+                f"If this IS directed at you, respond normally (1-2 short spoken sentences)."
+            )
+        else:
+            full_prompt = (
+                f"[Meeting transcript so far]\n{context}\n\n"
+                f"[Someone just said to you]\n{prompt}"
+            )
 
         response_played = False
-        aborted = False
+        is_exit = False
         filler_done = threading.Event()
-        prompt_norm = _normalize_for_match(prompt)
-        try:
-            t_finalized = time.time()
 
-            # --- Filler: plays while LLM + TTS run ---
-            skip_filler = not allow_abort
+        # Filler launcher shared between both paths
+        def _start_filler():
             filler_bucket = fillers.classify(prompt)
-            filler_clips = fillers.get_clips(filler_bucket) if not skip_filler else []
+            filler_clips = fillers.get_clips(filler_bucket)
             if filler_clips:
                 clip = filler_clips[0]
                 log.info(f"TIMING filler_play_start clip={os.path.basename(clip)} bucket={filler_bucket}")
                 self._latency_probe.set_active(False)
-                def _play_filler():
+                def _play():
                     self.tts.play_clip(clip)
                     log.info("TIMING filler_play_done")
                     filler_done.set()
-                threading.Thread(target=_play_filler, daemon=True, name="filler").start()
+                threading.Thread(target=_play, daemon=True, name="filler").start()
             else:
-                if allow_abort:
-                    log.info(f"Filler: no clips for bucket={filler_bucket}, skipping")
+                log.info(f"Filler: no clips for bucket={filler_bucket}, skipping")
                 filler_done.set()
 
-            # --- LLM call ---
-            t0 = time.time()
-            if precomputed_reply:
-                reply = precomputed_reply
+        try:
+            t_finalized = time.time()
+
+            if stream_classify:
+                # ── Streaming path: LLM first → classify first token → then filler ──
+                t0 = time.time()
+                log.info("TIMING llm_stream_start")
+                stream = self.llm.ask_stream(full_prompt)
+
+                # Accumulate until we have a non-whitespace token
+                first_token = ""
+                all_tokens = []
+                for token in stream:
+                    all_tokens.append(token)
+                    first_token += token
+                    if first_token.strip():
+                        break
+
+                t_first = time.time()
+                log.info(f"TIMING llm_first_token elapsed={t_first - t0:.3f}s token=\"{first_token.strip()}\"")
+
+                first_upper = first_token.strip().upper()
+
+                # PASS → not for operator, suppress everything
+                if first_upper.startswith("PASS"):
+                    log.info("TIMING llm_classified=PASS — not for operator")
+                    for _ in stream:
+                        pass  # drain the stream
+                    filler_done.set()
+                    return "pass"
+
+                # EXIT → wrap-up response, will signal conversation exit after playback
+                is_exit = first_upper.startswith("EXIT")
+                if is_exit:
+                    log.info("TIMING llm_classified=EXIT — wrap-up response")
+                    # Strip the EXIT prefix from the collected tokens
+                    stripped = first_token.strip()[4:].lstrip()
+                    all_tokens = [stripped] if stripped else []
+
+                # Not PASS ��� this IS the response. Start filler, collect rest.
+                _start_filler()
+                for token in stream:
+                    all_tokens.append(token)
+                reply = "".join(all_tokens)
+
+                t_stream_done = time.time()
+                log.info(f"TIMING llm_stream_done elapsed={t_stream_done - t0:.3f}s reply=\"{reply[:60]}\"")
                 self.llm.record_exchange(full_prompt, reply)
-                log.info(f"TIMING llm_precomputed reply=\"{reply[:60]}\"")
+
             else:
+                # ── Non-streaming path: filler first → blocking LLM ──
+                _start_filler()
+                t0 = time.time()
                 log.info("TIMING llm_request_sent")
                 reply = self.llm.ask(full_prompt)
                 log.info(f"TIMING llm_response_received elapsed={time.time() - t0:.3f}s reply=\"{reply[:60]}\"")
@@ -743,7 +682,7 @@ class AgentRunner:
             # --- Sanitize for TTS ---
             reply = sanitize_for_speech(reply)
 
-            # Track for classifier context in conversation follow-up mode
+            # Track for conversation context
             self._last_utterance = prompt
             self._last_reply = reply
 
@@ -781,36 +720,59 @@ class AgentRunner:
             filler_wait_elapsed = time.time() - t_ready_to_play
             log.info(f"TIMING filler_wait_done elapsed={filler_wait_elapsed:.3f}s")
 
-            # --- Abort check: user kept talking after premature finalization ---
-            if caption_mode and allow_abort:
-                self.captions.abort_event.wait(timeout=0.4)
-                abort = self.captions.abort_event.is_set()
-                if not abort:
-                    with self.captions._lock:
-                        latest = self.captions._current_text.strip()
-                    latest_norm = _normalize_for_match(latest)
-                    if latest_norm and not latest_norm.endswith(prompt_norm):
+            # --- Interruption check: did the speaker keep talking during processing? ---
+            if caption_mode and self.captions.abort_event.is_set():
+                with self.captions._lock:
+                    updated_text = self.captions._current_text.strip()
+                    abort_speaker = self.captions._abort_speaker
+                # Same speaker, text extends the original prompt → stream-classify
+                if abort_speaker and updated_text:
+                    orig_norm = _normalize_for_match(prompt)
+                    updated_norm = _normalize_for_match(updated_text)
+                    is_continuation = (
+                        updated_norm.startswith(orig_norm) and updated_norm != orig_norm
+                    )
+                    if is_continuation:
                         log.info(
-                            f"TIMING abort_text_grew — finalized=\"{prompt[:40]}\" "
-                            f"current=\"{latest[:40]}\""
+                            f"TIMING interruption_detected — speaker={abort_speaker} "
+                            f"original=\"{prompt[:40]}\" updated=\"{updated_text[:40]}\""
                         )
-                        abort = True
-                if abort:
-                    time.sleep(0.5)
-                    with self.captions._lock:
-                        updated_prompt = self.captions._current_text.strip()
-                    if not updated_prompt:
-                        updated_prompt = prompt
-                    log.info(f"TIMING abort_triggered — re-processing with \"{updated_prompt[:60]}\"")
-                    aborted = True
-                    return self._finalize_prompt(updated_prompt,
-                                                 caption_mode=True, allow_abort=False)
+                        # Stream-classify the updated text to decide
+                        interrupt_result = self._stream_classify_interruption(updated_text)
+                        if interrupt_result == "pass":
+                            # Updated text is not for operator — play original response
+                            log.info("TIMING interruption_classified=PASS — playing original response")
+                        else:
+                            # Updated text IS for operator — play interruption filler,
+                            # re-process with the full updated text
+                            log.info("TIMING interruption_classified=RESPOND — re-processing")
+                            self._play_interruption_filler()
+                            # Reset echo guard, re-process
+                            self.captions.is_speaking = False
+                            self.captions._abort_speaker = None
+                            self.captions._tts_text = ""
+                            self._finalize_prompt(
+                                updated_text, caption_mode=True, stream_classify=True,
+                            )
+                            return "responded"
 
-            # --- Step 5: Response plays ---
+            # --- Play response (interruptible in caption mode) ---
+            # Clear abort_event before playback — any pre-playback events were
+            # handled above. Only interruptions DURING playback should stop it.
+            if caption_mode:
+                self.captions.abort_event.clear()
             self._latency_probe.set_active(False)
             t_play = time.time()
             log.info(f"TIMING response_play_start gap_since_filler_done={t_play - t_ready_to_play:.3f}s")
-            self.tts.play_audio(wav_result[0])
+            if caption_mode:
+                completed = self.tts.play_audio(
+                    wav_result[0], interrupt_event=self.captions.abort_event,
+                )
+                if not completed:
+                    log.info("TIMING response_interrupted — user talked over playback")
+            else:
+                self.tts.play_audio(wav_result[0])
+                completed = True
             response_played = True
             t_done = time.time()
             log.info(f"TIMING response_play_done elapsed={t_done - t_play:.3f}s")
@@ -826,25 +788,26 @@ class AgentRunner:
         except Exception as e:
             log.error(f"Pipeline error: {e}", exc_info=True)
         finally:
-            if not aborted:
-                # Wait for filler to finish before resuming captions — its audio
-                # plays through BlackHole and would create "You" echo captions.
-                filler_done.wait()
-                if response_played:
-                    time.sleep(config.ECHO_GUARD_SECONDS)
-                self._latency_probe.set_active(True)
-                if caption_mode:
-                    self.captions.is_speaking = False
-                    self.captions._abort_speaker = None
-                    self.captions._tts_text = ""
-                    log.info("Echo prevention: resumed caption processing")
-                else:
-                    self.audio.drain_audio_buffer()
-                    self.audio.is_speaking = False
-                    log.info("Echo prevention: resumed audio ingestion")
+            # Wait for filler to finish before resuming captions — its audio
+            # plays through BlackHole and would create "You" echo captions.
+            filler_done.wait()
+            if response_played:
+                time.sleep(config.ECHO_GUARD_SECONDS)
+            self._latency_probe.set_active(True)
+            if caption_mode:
+                self.captions.is_speaking = False
+                self.captions._abort_speaker = None
+                self.captions._tts_text = ""
+                log.info("Echo prevention: resumed caption processing")
+            else:
+                self.audio.drain_audio_buffer()
+                self.audio.is_speaking = False
+                log.info("Echo prevention: resumed audio ingestion")
 
         self.conv.set_idle()
-        return True
+        if not stream_classify:
+            return True
+        return "exit" if is_exit else "responded"
 
     def _play_acknowledgment(self):
         """Play a random acknowledgment clip through the TTS output device."""
@@ -861,6 +824,58 @@ class AgentRunner:
         self.audio.drain_audio_buffer()
         self.audio.is_speaking = False
         log.info("TIMING ack_done")
+
+    def _stream_classify_interruption(self, updated_text):
+        """Quick stream-classify to check if the updated text is for operator.
+
+        Returns "pass" or "respond".
+        """
+        with self._transcript_lock:
+            context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
+
+        last_exchange = ""
+        if self._last_utterance and self._last_reply:
+            last_exchange = (
+                f"[Your last exchange]\nThey asked: {self._last_utterance}\n"
+                f"You answered: {self._last_reply}\n\n"
+            )
+        full_prompt = (
+            f"[Meeting transcript so far]\n{context}\n\n"
+            f"{last_exchange}"
+            f"[Someone just said]\n{updated_text}\n\n"
+            f"[Instruction] You are in a live meeting. The speaker continued talking "
+            f"after you started processing their earlier utterance.\n"
+            f"If this is NOT directed at you, respond with only PASS.\n"
+            f"If this IS directed at you, respond normally."
+        )
+
+        try:
+            stream = self.llm.ask_stream(full_prompt)
+            first_token = ""
+            for token in stream:
+                first_token += token
+                if first_token.strip():
+                    break
+            # Drain
+            for _ in stream:
+                pass
+
+            if first_token.strip().upper().startswith("PASS"):
+                return "pass"
+            return "respond"
+        except Exception as e:
+            log.error(f"Interruption classify error: {e}", exc_info=True)
+            return "respond"  # default to re-process on error
+
+    def _play_interruption_filler(self):
+        """Play an interruption-acknowledgment filler clip."""
+        clips = fillers.get_clips("interruption")
+        if clips:
+            clip = clips[0]
+            log.info(f"TIMING interruption_filler clip={os.path.basename(clip)}")
+            self.tts.play_clip(clip)
+        else:
+            log.info("Interruption filler: no clips available, skipping")
 
     # ------------------------------------------------------------------
     # Default state change handler
