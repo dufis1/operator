@@ -92,7 +92,7 @@ def _run_macos_terminal(meeting_url=None, force=False):
     )
     # Also print to stderr so the terminal shows progress
     _console = logging.StreamHandler(sys.stderr)
-    _console.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%H:%M:%S"))
+    _console.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s", datefmt="%H:%M:%S"))
     logging.getLogger().addHandler(_console)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)

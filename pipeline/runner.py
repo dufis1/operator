@@ -17,6 +17,7 @@ import logging
 import numpy as np
 import os
 import random
+import re
 import subprocess
 import threading
 import time
@@ -57,6 +58,25 @@ ACK_CLIPS = [
 ]
 
 log = logging.getLogger(__name__)
+
+
+def _normalize_for_match(text: str) -> str:
+    """Normalize caption text for speculative matching.
+
+    Google's ASR rewrites captions between updates — changing case,
+    substituting symbols (e.g. 'plus' → '+'), and tweaking punctuation.
+    This normalizes both sides so speculative hits aren't lost to cosmetic diffs.
+    """
+    t = text.lower().strip()
+    # Symbol → word
+    t = t.replace("+", " plus ").replace("=", " equals ").replace("-", " minus ")
+    # Number word → digit (Google ASR freely swaps these)
+    for word, digit in [("zero", "0"), ("one", "1"), ("two", "2"), ("three", "3"),
+                        ("four", "4"), ("five", "5"), ("six", "6"), ("seven", "7"),
+                        ("eight", "8"), ("nine", "9"), ("ten", "10")]:
+        t = t.replace(word, digit)
+    t = re.sub(r"[^\w\s]", "", t)      # strip punctuation
+    return re.sub(r"\s+", " ", t).strip()
 
 
 class AgentRunner:
@@ -456,7 +476,10 @@ class AgentRunner:
 
             log.info(f"TIMING wake_caption speaker={speaker} prompt=\"{prompt[:60]}\"")
             self.conv.set_listening("Listening for prompt...")
-            self._finalize_prompt(prompt, speculative=spec, caption_mode=True)
+            if not self._finalize_prompt(prompt, speculative=spec, caption_mode=True):
+                log.info("TIMING abort — entering conversation mode to capture full utterance")
+                # Fall through to conversation mode (no wake required) so we
+                # pick up the rest of what the user was saying.
 
             # Conversation mode: accept follow-ups without re-triggering wake phrase.
             # Two-strike PASS system: first PASS is "soft" (stay listening),
@@ -475,8 +498,11 @@ class AgentRunner:
                 if not followup:
                     log.info("Conversation mode: capture ended — returning to idle")
                     break
-                # Wait for speculative thread (classifier result lives inside it)
-                spec.ready.wait()
+                # Wait for speculative thread (classifier result lives inside it).
+                # Timeout handles the case where utterance finalized (e.g. via
+                # speaker-change) before the speculative threshold was reached.
+                if not spec.ready.wait(timeout=3.0):
+                    log.info("Conversation mode: speculative never fired — treating as RESPOND")
 
                 # --- RESPOND path (happy path) ---
                 if spec.for_assistant is not False:
@@ -506,7 +532,23 @@ class AgentRunner:
                     log.info("Conversation mode: second PASS — returning to idle")
                     break
 
-                # First strike → soft PASS, stay listening
+                # First strike → soft PASS, stay listening.
+                # Check if caption text grew after finalization (e.g. "How about?"
+                # finalized, then "How about France?" arrived 98ms later).
+                # If so, re-classify with the full text before committing to PASS.
+                with self.captions._lock:
+                    latest_text = self.captions._current_text.strip()
+                if latest_text and not _normalize_for_match(latest_text).endswith(_normalize_for_match(followup)):
+                    log.info(
+                        f"Conversation mode: soft PASS but caption text grew — "
+                        f"finalized=\"{followup[:40]}\" current=\"{latest_text[:40]}\""
+                    )
+                    if self._reclassify_full_text(latest_text):
+                        log.info("Conversation mode: extended text flipped PASS→RESPOND")
+                        soft_pass_active = False
+                        self._finalize_prompt(latest_text, speculative=None, caption_mode=True)
+                        continue
+
                 log.info("Conversation mode: soft PASS — staying in conversation mode")
                 soft_pass_active = True
             self.conv.set_idle()
@@ -645,10 +687,13 @@ class AgentRunner:
     # ------------------------------------------------------------------
 
     def _finalize_prompt(self, prompt, speculative=None, caption_mode=False):
-        """Resolve the LLM reply and speak it, playing fillers while synthesis runs."""
+        """Resolve the LLM reply and speak it, playing fillers while synthesis runs.
+
+        Returns True if the response was played, False if aborted.
+        """
         if not prompt:
             self.conv.set_idle()
-            return
+            return False
 
         # Ensure TTS background init has finished before we need to synthesize
         if not self._tts_ready.is_set():
@@ -660,6 +705,7 @@ class AgentRunner:
 
         # Echo guard: pause ingestion so the bot's own speech doesn't re-trigger
         if caption_mode:
+            self.captions.abort_event.clear()
             self.captions.is_speaking = True
             log.info("Echo prevention: paused caption processing")
         else:
@@ -676,13 +722,14 @@ class AgentRunner:
             f"[Someone just said to you]\n{prompt}"
         )
 
+        response_played = False
+        filler_done = threading.Event()
         try:
             t_finalized = time.time()
 
             # --- Step 3: Start filler immediately, concurrent with LLM wait ---
             filler_bucket = fillers.classify(prompt)
             filler_clips = fillers.get_clips(filler_bucket)
-            filler_done = threading.Event()
             if filler_clips:
                 clip = filler_clips[0]
                 log.info(f"TIMING filler_play_start clip={os.path.basename(clip)} bucket={filler_bucket}")
@@ -700,9 +747,11 @@ class AgentRunner:
             t0 = time.time()
             reply = None
 
+            prompt_norm = _normalize_for_match(prompt)
+
             if (speculative
                     and speculative.ready.is_set()
-                    and speculative.transcript == prompt
+                    and _normalize_for_match(speculative.transcript or "") == prompt_norm
                     and speculative.llm_reply):
                 # Already done before we got here
                 reply = speculative.llm_reply
@@ -713,19 +762,22 @@ class AgentRunner:
                 t_wait_start = time.time()
                 speculative.ready.wait()
                 t_waited = time.time() - t_wait_start
-                if speculative.transcript == prompt and speculative.llm_reply:
+                if _normalize_for_match(speculative.transcript or "") == prompt_norm and speculative.llm_reply:
                     reply = speculative.llm_reply
                     self.llm.record_exchange(speculative.full_prompt, reply)
-                    log.info(f"TIMING llm_speculative_hit waited={t_waited:.2f}s reply=\"{reply[:60]}\"")
+                    log.info(f"TIMING llm_speculative_hit waited={t_waited:.3f}s reply=\"{reply[:60]}\"")
                 else:
-                    reason = "transcript_mismatch" if speculative.transcript != prompt else "no_reply"
-                    log.info(f"TIMING llm_speculative_miss reason={reason} waited={t_waited:.2f}s")
+                    reason = "transcript_mismatch" if _normalize_for_match(speculative.transcript or "") != prompt_norm else "no_reply"
+                    log.info(f"TIMING llm_speculative_miss reason={reason} waited={t_waited:.3f}s")
 
             if reply is None:
                 # No speculative, or speculative failed/mismatched — fresh call
                 log.info("TIMING llm_request_sent")
                 reply = self.llm.ask(full_prompt)
-                log.info(f"TIMING llm_response_received elapsed={time.time() - t0:.2f}s reply=\"{reply[:60]}\"")
+                log.info(f"TIMING llm_response_received elapsed={time.time() - t0:.3f}s reply=\"{reply[:60]}\"")
+
+            t_llm_resolved = time.time()
+            log.info(f"TIMING llm_resolved elapsed_from_finalized={t_llm_resolved - t_finalized:.3f}s")
 
             # --- Sanitize for TTS ---
             reply = sanitize_for_speech(reply)
@@ -740,7 +792,7 @@ class AgentRunner:
 
             if (speculative
                     and speculative.synth_bytes
-                    and speculative.transcript == prompt):
+                    and _normalize_for_match(speculative.transcript or "") == prompt_norm):
                 wav_result = [speculative.synth_bytes]
                 synth_elapsed = 0.0
                 log.info(f"TIMING tts_speculative_hit bytes={len(wav_result[0])}")
@@ -756,38 +808,76 @@ class AgentRunner:
                     except Exception as exc:
                         log.error(f"Synthesis error: {exc}")
                     finally:
-                        log.info(f"TIMING tts_synthesis_done elapsed={time.time() - t_s:.2f}s")
+                        log.info(f"TIMING tts_synthesis_done elapsed={time.time() - t_s:.3f}s")
                         synthesis_done.set()
 
                 threading.Thread(target=_synthesize, daemon=True).start()
                 synthesis_done.wait()
                 synth_elapsed = time.time() - t_synth_start
 
+            t_tts_resolved = time.time()
+            log.info(f"TIMING tts_resolved elapsed_from_finalized={t_tts_resolved - t_finalized:.3f}s")
+
             # --- Step 4: Wait for filler ---
             t_ready_to_play = time.time()
             filler_done.wait()  # usually already set; no delay if filler finished first
             filler_wait_elapsed = time.time() - t_ready_to_play
+            log.info(f"TIMING filler_wait_done elapsed={filler_wait_elapsed:.3f}s")
+
+            # --- Abort check: user kept talking after premature finalization ---
+            # Two signals: (1) abort_event set by a non-"You" caption during
+            # is_speaking, or (2) caption text grew beyond the finalized prompt
+            # in the gap between finalization and is_speaking being set.
+            if caption_mode:
+                self.captions.abort_event.wait(timeout=0.15)
+                abort = self.captions.abort_event.is_set()
+                if not abort:
+                    with self.captions._lock:
+                        latest = self.captions._current_text.strip()
+                    # Check if caption text grew with NEW content beyond the prompt.
+                    # Use "ends with" to avoid false positives from the wake phrase
+                    # prefix (prompt is post-wake, _current_text includes it).
+                    latest_norm = _normalize_for_match(latest)
+                    if latest_norm and not latest_norm.endswith(prompt_norm):
+                        log.info(
+                            f"TIMING abort_text_grew — finalized=\"{prompt[:40]}\" "
+                            f"current=\"{latest[:40]}\""
+                        )
+                        abort = True
+                if abort:
+                    with self.captions._lock:
+                        updated_prompt = self.captions._current_text.strip()
+                    log.info(f"TIMING abort_triggered — re-processing with \"{updated_prompt[:60]}\"")
+                    # Re-process immediately with the full text instead of
+                    # returning to the capture loop (which would miss it due
+                    # to the capture_start timing gap).
+                    return self._finalize_prompt(updated_prompt, speculative=None, caption_mode=True)
 
             # --- Step 5: Response plays ---
             self._latency_probe.set_active(False)
             t_play = time.time()
-            log.info("TIMING response_play_start")
+            log.info(f"TIMING response_play_start gap_since_filler_done={t_play - t_ready_to_play:.3f}s")
             self.tts.play_audio(wav_result[0])
+            response_played = True
             t_done = time.time()
-            log.info(f"TIMING response_play_done elapsed={t_done - t_play:.2f}s")
+            log.info(f"TIMING response_play_done elapsed={t_done - t_play:.3f}s")
             log.info(
                 f"TIMING end_to_end — "
-                f"llm_wait: {t_synth_start - t_finalized:.2f}s | "
-                f"synthesis: {synth_elapsed:.2f}s | "
-                f"filler_wait: {filler_wait_elapsed:.2f}s | "
-                f"speak: {t_done - t_play:.2f}s | "
-                f"total_from_finalized: {t_done - t_finalized:.2f}s"
+                f"llm_wait: {t_synth_start - t_finalized:.3f}s | "
+                f"synthesis: {synth_elapsed:.3f}s | "
+                f"filler_wait: {filler_wait_elapsed:.3f}s | "
+                f"speak: {t_done - t_play:.3f}s | "
+                f"total_from_finalized: {t_done - t_finalized:.3f}s"
             )
 
         except Exception as e:
             log.error(f"Pipeline error: {e}", exc_info=True)
         finally:
-            time.sleep(config.ECHO_GUARD_SECONDS)
+            # Wait for filler to finish before resuming captions — its audio
+            # plays through BlackHole and would create "You" echo captions.
+            filler_done.wait()
+            if response_played:
+                time.sleep(config.ECHO_GUARD_SECONDS)
             self._latency_probe.set_active(True)
             if caption_mode:
                 self.captions.is_speaking = False
@@ -798,6 +888,7 @@ class AgentRunner:
                 log.info("Echo prevention: resumed audio ingestion")
 
         self.conv.set_idle()
+        return True
 
     def _make_speculative_callback(self, spec: _SpeculativeResult):
         """Return an on_first_silence callback that kicks off speculative processing."""

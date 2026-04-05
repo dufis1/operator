@@ -134,12 +134,17 @@ class TTSClient:
             with open(debug_path, "wb") as f:
                 f.write(audio_bytes)
             log.info(f"TTS debug: synthesis saved to {debug_path}")
+        t_mpv_start = time.time()
         proc = subprocess.Popen(
             ["mpv", "--no-terminal", f"--audio-device={self._output_device}", "--", "-"],
             stdin=subprocess.PIPE,
         )
+        t_mpv_spawned = time.time()
+        log.info(f"TIMING mpv_spawned elapsed={t_mpv_spawned - t_mpv_start:.3f}s")
         proc.stdin.write(audio_bytes)
         proc.stdin.close()
+        t_mpv_piped = time.time()
+        log.info(f"TIMING mpv_audio_piped elapsed={t_mpv_piped - t_mpv_spawned:.3f}s")
         rc = proc.wait()
         if rc != 0:
             log.error(f"TTS play_audio: mpv exited with code {rc}")

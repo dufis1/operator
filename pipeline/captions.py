@@ -76,6 +76,10 @@ class CaptionProcessor:
         # Echo guard: pause processing while bot is speaking
         self.is_speaking = False
 
+        # Abort signal: set when a non-"You" caption arrives during is_speaking,
+        # indicating the user is still talking after premature finalization.
+        self.abort_event = threading.Event()
+
         # Optional callback for ALL caption text (for transcript context)
         self._transcript_callback = None
 
@@ -107,6 +111,9 @@ class CaptionProcessor:
         firing (~3/sec during speech). Must be fast — no blocking.
         """
         if self.is_speaking:
+            if speaker.lower() != "you" and not self.abort_event.is_set():
+                log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
+                self.abort_event.set()
             log.debug(f"caption: dropped while speaking [{speaker}] {text[:60]}")
             return
 
