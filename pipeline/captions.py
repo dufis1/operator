@@ -27,10 +27,6 @@ _WAKE_RE = re.compile(
 SPECULATIVE_SECONDS  = config.CAPTION_SPECULATIVE_SECONDS   # default 1.0
 FINALIZATION_SECONDS = config.CAPTION_FINALIZATION_SECONDS   # default 1.5
 
-# If ASR hasn't added terminal punctuation by this time, finalize anyway.
-# Prevents indefinite hold for commands/fragments that ASR never punctuates.
-FINALIZATION_HARD_TIMEOUT = FINALIZATION_SECONDS * 2.5  # default 3.75s
-
 # How often the silence-detection loop checks for gaps
 _POLL_INTERVAL = 0.1  # 100ms — fast enough to catch 1.0s speculative threshold
 
@@ -79,7 +75,6 @@ class CaptionProcessor:
         # Abort signal: set when a non-"You" caption arrives during is_speaking,
         # indicating the user is still talking after premature finalization.
         self.abort_event = threading.Event()
-        self._filler_done_at = 0.0  # monotonic time when filler playback finished
 
         # Optional callback for ALL caption text (for transcript context)
         self._transcript_callback = None
@@ -113,16 +108,8 @@ class CaptionProcessor:
         """
         if self.is_speaking:
             if speaker.lower() != "you" and not self.abort_event.is_set():
-                # Grace period: ignore non-"You" captions until 1s after
-                # filler playback finishes. Filler audio is sometimes
-                # misattributed to the previous human speaker by Google Meet,
-                # and captions arrive ~0.3-0.5s after the audio plays.
-                filler_grace_remaining = (self._filler_done_at + 1.0) - time.monotonic()
-                if filler_grace_remaining <= 0:
-                    log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
-                    self.abort_event.set()
-                else:
-                    log.debug(f"caption: ignored abort (filler grace {filler_grace_remaining:.2f}s left) [{speaker}] {text[:60]}")
+                log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
+                self.abort_event.set()
             log.debug(f"caption: dropped while speaking [{speaker}] {text[:60]}")
             return
 
@@ -262,15 +249,10 @@ class CaptionProcessor:
                         except Exception as e:
                             log.error(f"Speculative callback error: {e}")
 
-                # Finalization at FINALIZATION_SECONDS — but require terminal punctuation
-                # to avoid cutting off mid-sentence when ASR emits words in slow batches.
-                # Hard timeout overrides if ASR never adds punctuation (e.g. bare commands).
+                # Finalization at FINALIZATION_SECONDS. The LLM's INCOMPLETE
+                # classification (Step 5) replaces the old punctuation heuristic.
                 if gap >= FINALIZATION_SECONDS and active:
-                    # Check raw caption text (not extracted prompt — that has punctuation stripped)
-                    raw_tail = self._current_text.rstrip()
-                    prompt_complete = bool(raw_tail) and raw_tail[-1] in '.?!'
-                    if prompt_complete or gap >= FINALIZATION_HARD_TIMEOUT:
-                        self._do_finalize("silence", prompt_override=None if require_wake else current_prompt)
+                    self._do_finalize("silence", prompt_override=None if require_wake else current_prompt)
 
             # If wake was retracted, restart the wake wait (only in wake-required mode)
             if require_wake and not self._wake_detected and not self._finalized_event.is_set():

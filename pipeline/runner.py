@@ -47,6 +47,7 @@ class _SpeculativeResult:
         self.llm_reply = None         # LLM reply (None if not yet done or failed)
         self.synth_bytes = None       # Pre-rendered TTS audio (bytes), if available
         self.for_assistant = None     # classifier result (True/False/None=not run)
+        self.is_incomplete = False    # True when classifier returns INCOMPLETE
         self.was_soft_pass = False    # True when this cycle follows a soft PASS
         self.llm_done = threading.Event()  # set when LLM reply + classification available
         self.ready = threading.Event()
@@ -487,6 +488,8 @@ class AgentRunner:
             # only a second consecutive PASS exits conversation mode.
             log.info("Entering conversation mode")
             soft_pass_active = False
+            incomplete_count = 0          # cap INCOMPLETE re-fires (Step 7)
+            _MAX_INCOMPLETE_REFIRES = 3
             while self.captions.capturing and not self._stop_event.is_set():
                 self.conv.set_listening("Listening...")
                 spec = _SpeculativeResult()
@@ -509,7 +512,21 @@ class AgentRunner:
                 # --- RESPOND path (happy path) ---
                 if spec.for_assistant is not False:
                     soft_pass_active = False
+                    incomplete_count = 0
                     self._finalize_prompt(followup, speculative=spec, caption_mode=True)
+                    continue
+
+                # --- INCOMPLETE path: speaker still forming thought, keep listening ---
+                if spec.is_incomplete:
+                    incomplete_count += 1
+                    if incomplete_count > _MAX_INCOMPLETE_REFIRES:
+                        log.info(f"Conversation mode: INCOMPLETE cap reached ({_MAX_INCOMPLETE_REFIRES}) — treating as RESPOND")
+                        soft_pass_active = False
+                        self._finalize_prompt(followup, speculative=spec, caption_mode=True)
+                        continue
+                    log.info(f"Conversation mode: INCOMPLETE ({incomplete_count}/{_MAX_INCOMPLETE_REFIRES}) — keep listening (prompt=\"{followup[:40]}\")")
+                    # Reset speculative so it re-fires on the next silence gap
+                    self.captions._speculative_fired = False
                     continue
 
                 # --- PASS path: two-strike logic ---
@@ -529,8 +546,22 @@ class AgentRunner:
                         self._finalize_prompt(followup, speculative=None, caption_mode=True)
                         continue
 
-                # Second strike → hard exit
+                # Second strike → hard exit, unless text grew since last PASS
                 if soft_pass_active:
+                    with self.captions._lock:
+                        latest_text = self.captions._current_text.strip()
+                    latest_norm = _normalize_for_match(latest_text)
+                    followup_norm = _normalize_for_match(followup)
+                    if latest_text and latest_norm and not latest_norm.endswith(followup_norm):
+                        log.info(
+                            f"Conversation mode: second PASS but text grew — "
+                            f"finalized=\"{followup[:40]}\" current=\"{latest_text[:40]}\""
+                        )
+                        if self._reclassify_full_text(latest_text):
+                            log.info("Conversation mode: extended text flipped second PASS→RESPOND")
+                            soft_pass_active = False
+                            self._finalize_prompt(latest_text, speculative=None, caption_mode=True)
+                            continue
                     log.info("Conversation mode: second PASS — returning to idle")
                     break
 
@@ -606,13 +637,24 @@ class AgentRunner:
                     f"[Instruction] You are in a live meeting with multiple participants. "
                     f"You just answered a question. Decide: is this new utterance a follow-up "
                     f"directed at you, or has the speaker moved on — e.g. addressing another "
-                    f"participant, changing the subject, or continuing the meeting without you? "
-                    f"If it is for you, respond normally. "
-                    f"If it is NOT for you, respond with only the word PASS."
+                    f"participant, changing the subject, or continuing the meeting without you?\n"
+                    f"- If the utterance is an INCOMPLETE sentence — it ends with a preposition, "
+                    f"conjunction, article, dangling question word, or trailing thought (e.g. "
+                    f"\"What about?\", \"How about the\", \"And then\") — respond with only the "
+                    f"word INCOMPLETE. The speaker is still forming their thought.\n"
+                    f"- If it is a complete utterance directed at you, respond normally.\n"
+                    f"- If it is NOT for you, respond with only the word PASS."
                 )
                 spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
-                spec.for_assistant = not spec.llm_reply.strip().upper().startswith("PASS")
-                log.info(f"TIMING caption_combined_classify for_assistant={spec.for_assistant}")
+                reply_upper = spec.llm_reply.strip().upper()
+                if reply_upper.startswith("INCOMPLETE"):
+                    spec.for_assistant = False
+                    spec.is_incomplete = True
+                elif reply_upper.startswith("PASS"):
+                    spec.for_assistant = False
+                else:
+                    spec.for_assistant = True
+                log.info(f"TIMING caption_combined_classify for_assistant={spec.for_assistant} incomplete={spec.is_incomplete}")
             else:
                 spec.full_prompt = (
                     f"[Meeting transcript so far]\n{context}\n\n"
@@ -710,7 +752,6 @@ class AgentRunner:
         # Echo guard: pause ingestion so the bot's own speech doesn't re-trigger
         if caption_mode:
             self.captions.abort_event.clear()
-            self.captions._filler_done_at = float('inf')  # grace active until filler finishes
             self.captions.is_speaking = True
             log.info("Echo prevention: paused caption processing")
         else:
@@ -728,6 +769,7 @@ class AgentRunner:
         )
 
         response_played = False
+        aborted = False
         filler_done = threading.Event()
         try:
             t_finalized = time.time()
@@ -761,16 +803,12 @@ class AgentRunner:
                 self._latency_probe.set_active(False)
                 def _play_filler():
                     self.tts.play_clip(clip)
-                    if caption_mode:
-                        self.captions._filler_done_at = time.monotonic()
                     log.info("TIMING filler_play_done")
                     filler_done.set()
                 threading.Thread(target=_play_filler, daemon=True, name="filler").start()
             else:
                 if allow_abort and not spec_ready:
                     log.info(f"Filler: no clips for bucket={filler_bucket}, skipping")
-                if caption_mode:
-                    self.captions._filler_done_at = time.monotonic()
                 filler_done.set()
 
             # --- Step 1: Resolve LLM — speculative only, no duplicate call ---
@@ -866,7 +904,7 @@ class AgentRunner:
             # is_speaking, or (2) caption text grew beyond the finalized prompt
             # in the gap between finalization and is_speaking being set.
             if caption_mode and allow_abort:
-                self.captions.abort_event.wait(timeout=0.15)
+                self.captions.abort_event.wait(timeout=0.4)
                 abort = self.captions.abort_event.is_set()
                 if not abort:
                     with self.captions._lock:
@@ -887,6 +925,8 @@ class AgentRunner:
                     log.info(f"TIMING abort_triggered — re-processing with \"{updated_prompt[:60]}\"")
                     # Re-process with allow_abort=False to prevent infinite
                     # loops from filler echo being misattributed by Google Meet.
+                    # The recursive call handles its own finally cleanup.
+                    aborted = True
                     return self._finalize_prompt(updated_prompt, speculative=None,
                                                  caption_mode=True, allow_abort=False)
 
@@ -910,19 +950,20 @@ class AgentRunner:
         except Exception as e:
             log.error(f"Pipeline error: {e}", exc_info=True)
         finally:
-            # Wait for filler to finish before resuming captions — its audio
-            # plays through BlackHole and would create "You" echo captions.
-            filler_done.wait()
-            if response_played:
-                time.sleep(config.ECHO_GUARD_SECONDS)
-            self._latency_probe.set_active(True)
-            if caption_mode:
-                self.captions.is_speaking = False
-                log.info("Echo prevention: resumed caption processing")
-            else:
-                self.audio.drain_audio_buffer()
-                self.audio.is_speaking = False
-                log.info("Echo prevention: resumed audio ingestion")
+            if not aborted:
+                # Wait for filler to finish before resuming captions — its audio
+                # plays through BlackHole and would create "You" echo captions.
+                filler_done.wait()
+                if response_played:
+                    time.sleep(config.ECHO_GUARD_SECONDS)
+                self._latency_probe.set_active(True)
+                if caption_mode:
+                    self.captions.is_speaking = False
+                    log.info("Echo prevention: resumed caption processing")
+                else:
+                    self.audio.drain_audio_buffer()
+                    self.audio.is_speaking = False
+                    log.info("Echo prevention: resumed audio ingestion")
 
         self.conv.set_idle()
         return True
