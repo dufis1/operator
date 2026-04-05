@@ -41,8 +41,7 @@ IDLE_TIMEOUT_SECONDS      = _config["connector"].get("idle_timeout_seconds", 600
 
 # Captions
 _captions = _config.get("captions", {})
-CAPTION_FINALIZATION_SECONDS = _captions.get("finalization_seconds", 1.5)
-CAPTION_SPECULATIVE_SECONDS  = _captions.get("speculative_seconds", 1.0)
+CAPTION_SILENCE_SECONDS = _captions.get("silence_seconds", 0.7)
 
 # Diagnostics
 _diagnostics = _config.get("diagnostics", {})

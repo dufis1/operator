@@ -23,12 +23,11 @@ _WAKE_RE = re.compile(
     r"[,\s]+".join(re.escape(w) for w in config.WAKE_PHRASE.split())
 )
 
-# Configurable thresholds (from config.yaml)
-SPECULATIVE_SECONDS  = config.CAPTION_SPECULATIVE_SECONDS   # default 1.0
-FINALIZATION_SECONDS = config.CAPTION_FINALIZATION_SECONDS   # default 1.5
+# Configurable threshold (from config.yaml)
+SILENCE_SECONDS = config.CAPTION_SILENCE_SECONDS  # default 0.7
 
 # How often the silence-detection loop checks for gaps
-_POLL_INTERVAL = 0.1  # 100ms — fast enough to catch 1.0s speculative threshold
+_POLL_INTERVAL = 0.1  # 100ms — fast enough to catch 0.7s silence threshold
 
 # Maximum prompt length (chars) to prevent indefinite accumulation
 _MAX_PROMPT_CHARS = 2000
@@ -58,8 +57,6 @@ class CaptionProcessor:
         # Wake detection state
         self._wake_detected = False
         self._wake_position = -1       # char index where wake phrase ends
-        self._speculative_fired = False
-
         # Signalling between caption updates and the blocking capture call
         self._wake_event = threading.Event()        # set when wake phrase first found
         self._finalized_event = threading.Event()    # set when prompt is finalized
@@ -159,20 +156,16 @@ class CaptionProcessor:
                         log.info("TIMING caption_wake_retracted (ASR correction removed wake phrase)")
                         self._wake_detected = False
                         self._wake_position = -1
-                        self._speculative_fired = False
                         self._wake_event.clear()
 
     # ── Blocking API for the runner ─────────────────────────────────
 
-    def capture_next_wake_utterance(self, no_speech_timeout=None, on_speculative=None, require_wake=True):
+    def capture_next_wake_utterance(self, no_speech_timeout=None, require_wake=True):
         """Block until wake phrase detected (or first caption in follow-up mode) + silence confirmed.
 
         Args:
             no_speech_timeout: seconds to wait for ANY caption activity before
                                giving up (used for conversation follow-up mode).
-            on_speculative:    callback(prompt_text: str) fired at SPECULATIVE_SECONDS
-                               of silence after wake detection. Same role as
-                               AudioProcessor's on_first_silence.
             require_wake:      if False, skip wake phrase detection and treat the
                                first caption update as the start of a prompt. Used
                                for conversation follow-up so participants don't need
@@ -241,29 +234,15 @@ class CaptionProcessor:
                     current_prompt = self._current_text.strip()
                     active = bool(current_prompt)
 
-                # Speculative callback at SPECULATIVE_SECONDS
-                if gap >= SPECULATIVE_SECONDS and not self._speculative_fired and active:
-                    self._speculative_fired = True
-                    log.info(
-                        f"TIMING caption_speculative_fire gap={gap:.2f}s "
-                        f"prompt=\"{current_prompt[:60]}\""
-                    )
-                    if on_speculative:
-                        try:
-                            on_speculative(current_prompt)
-                        except Exception as e:
-                            log.error(f"Speculative callback error: {e}")
-
-                # Finalization at FINALIZATION_SECONDS. The LLM's INCOMPLETE
-                # classification (Step 5) replaces the old punctuation heuristic.
-                if gap >= FINALIZATION_SECONDS and active:
+                # Finalization at SILENCE_SECONDS — single threshold.
+                # The LLM's INCOMPLETE classification handles incomplete thoughts.
+                if gap >= SILENCE_SECONDS and active:
                     self._do_finalize("silence", prompt_override=None if require_wake else current_prompt)
 
             # If wake was retracted, restart the wake wait (only in wake-required mode)
             if require_wake and not self._wake_detected and not self._finalized_event.is_set():
                 return self.capture_next_wake_utterance(
                     no_speech_timeout=no_speech_timeout,
-                    on_speculative=on_speculative,
                     require_wake=require_wake,
                 )
 
@@ -290,7 +269,6 @@ class CaptionProcessor:
         with self._lock:
             self._wake_detected = False
             self._wake_position = -1
-            self._speculative_fired = False
             self._result_speaker = None
             self._result_prompt = None
             # Don't clear _current_speaker/_current_text/_last_update_time —
