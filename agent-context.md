@@ -18,10 +18,14 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Startup performance optimized and live-tested.
+**Phase:** Caption-scraping refactor — C.6 complete. Startup and interaction latency optimized.
 **Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
 
-**What was built this session (April 4, 2026, session 24):**
+**What was built this session (April 4, 2026, session 25):**
+- **Interaction latency audit and speculative TTS optimization.** Analyzed full post-startup interaction pipeline with magnifying-glass precision. Identified TTS synthesis (0.70s) as the largest shaveable bottleneck after speculative LLM already covered LLM wait. Added `synth_bytes` field to `_SpeculativeResult`. `_run_caption_speculative` now runs Kokoro TTS synthesis immediately after the speculative LLM returns, caching WAV bytes. `_finalize_prompt` checks for cached audio and skips synthesis on speculative hit. Live-tested: `total_from_finalized` dropped from 4.27s→3.72s, `synthesis` column shows 0.00s on speculative hit. The 0.15s gap (TTS tail bleeding into `llm_wait` because `spec.ready` gates both LLM and TTS) was evaluated and intentionally left — splitting into two events adds threading complexity for negligible perceptual gain.
+- **Improved end_to_end TIMING log.** Added `filler_wait` as a fourth column (was previously hidden). Fixed timing variables so `llm_wait + synthesis + filler_wait + speak ≈ total_from_finalized` — no unmeasured slivers. `filler_wait` measured from the moment both LLM and TTS are resolved to when filler finishes, showing the actual delay filler imposes on response playback.
+
+**What was built last session (April 4, 2026, session 24):**
 - **Live-tested and debugged startup optimizations from session 23.** Startup confirmed at **4s** (down from 30s baseline — 87% reduction).
 - **Granular TIMING logs** across entire startup pipeline: `browser_launch`, `navigation`, `pre_join_ready`, `detect_page_state`, `camera_toggle`, `join_click`, `in_meeting_wait`, `mic_check`, `captions_escape_overlays`, `captions_enable`, `caption_observer_inject`, `tts_kokoro_import`, `tts_kokoro_pipeline`. All grep-able via `grep TIMING /tmp/operator.log`.
 - **Join button race** — replaced sequential 5s-timeout-per-button loop with `.or_()` race across Join now / Ask to join / Switch here. Eliminated 5s waste on guest joins.

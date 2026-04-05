@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 24)*
+*Last updated: April 4, 2026 (session 25)*
 
-> **Current status: Startup live-tested and confirmed at 4s (down from 30s — 87% reduction).** Caption toggle, shutdown, and join button bugs fixed. Next: Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
+> **Current status: Interaction latency audited and optimized.** Speculative TTS cuts synthesis from hot path (4.27s→3.72s end-to-end, synthesis: 0.70s→0.00s). Startup at 4s. Next: Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
 
 ---
 

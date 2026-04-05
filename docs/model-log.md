@@ -237,26 +237,32 @@ Echo prevention: paused caption processing      # caption mode: ignore captions 
 TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization
 LLM ask model=gpt-4.1-mini history_turns=N utterance="..."        # logged before API call
 LLM reply="..."                                 # logged on successful response
+TIMING caption_speculative_llm_done reply="..."  # speculative LLM result
+TIMING caption_speculative_tts_start             # speculative TTS synthesis begins (overlaps finalization wait)
+TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s (logged inside tts.py)
+TIMING caption_speculative_tts_done bytes=N      # speculative TTS cached WAV ready
 TIMING llm_speculative_hit waited=N.NNs reply="..."  # speculative result used (waited=0.00s if already done)
 State → speaking (Speaking...)
-TIMING tts_synthesis_start
+TIMING tts_speculative_hit bytes=N               # cached WAV used, synthesis skipped (0.00s)
 TIMING filler_play_done                         # filler finishes (concurrent with LLM + TTS)
-TIMING tts_synth_done (N.NNs)                  # typical Kokoro: 0.5-1.5s (logged inside tts.py)
-TIMING tts_synthesis_done elapsed=N.NNs        # logged by runner after synthesis thread signals
 TIMING response_play_start
 TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID  # logged before mpv launch
 TTS play_audio: done                            # logged after mpv exits cleanly
 TIMING response_play_done elapsed=N.NNs
-TIMING end_to_end — llm_wait: N.NNs | synthesis: N.NNs | speak: N.NNs | total_from_finalized: N.NNs
+TIMING end_to_end — llm_wait: N.NNs | synthesis: N.NNs | filler_wait: N.NNs | speak: N.NNs | total_from_finalized: N.NNs
 Echo prevention: resumed caption processing      # caption mode
 State → idle (Listening for 'operator'...)
 ```
 
 **LLM resolution variants** (one of these appears per interaction):
 - `TIMING llm_speculative_hit waited=0.00s reply="..."` — speculative done before finalization, used immediately
-- `TIMING llm_speculative_hit waited=N.NNs reply="..."` — speculative still in-flight at finalization, waited for it
+- `TIMING llm_speculative_hit waited=N.NNs reply="..."` — speculative still in-flight at finalization, waited for it (includes speculative TTS time)
 - `TIMING llm_speculative_miss reason=<transcript_mismatch|no_reply> waited=N.NNs` — speculative failed or mismatched; fresh call follows
 - `TIMING llm_request_sent` + `TIMING llm_response_received elapsed=N.NNs reply="..."` — fresh call (no speculative, or after miss)
+
+**TTS resolution variants** (one of these appears per interaction):
+- `TIMING tts_speculative_hit bytes=N` — speculative TTS cached audio used, synthesis skipped (0.00s)
+- `TIMING tts_synthesis_start` + `TIMING tts_synthesis_done elapsed=N.NNs` — fresh synthesis (speculative miss or no speculative)
 
 **What to check:**
 - `LLM ask` present but no `LLM reply` → API call hung or raised; check for `LLM API call failed` error below it
@@ -495,8 +501,8 @@ CaptionsAdapter: left meeting
 | Silence wait (post-speech) | 1.0-1.5s | >2s (threshold or noise floor issue) |
 | Whisper transcription | ~0.1-0.5s | >1s |
 | LLM response | 0.8-1.7s | >3s |
-| Kokoro synthesis | 0.5-1.5s | >3s |
-| Full pipeline (prompt→done) | 5-8s | >12s |
+| Kokoro synthesis | 0.5-1.5s (0.0s on speculative hit) | >3s |
+| Full pipeline (prompt→done) | 3.5-7s | >12s |
 
 ---
 
