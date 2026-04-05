@@ -54,6 +54,8 @@ CAPTION_OBSERVER_JS = """
     let lastSpeaker = "Unknown";
     let nextNodeId = 1;
     const nodeState = new WeakMap();
+    let lastSent = "";
+    let lastSentTime = 0;
 
     const getSpeaker = (node) => {
         const badge = node.querySelector(BADGE_SEL);
@@ -81,7 +83,13 @@ CAPTION_OBSERVER_JS = """
         state.lastText = txt;
         lastSpeaker = spk;
 
-        window.__onCaption(spk, txt, performance.now());
+        const key = spk + "\0" + txt;
+        const now = performance.now();
+        if (lastSent === key && now - lastSentTime < 50) return;
+        lastSent = key;
+        lastSentTime = now;
+
+        window.__onCaption(spk, txt, now);
     };
 
     // Batch DOM mutations per animation frame to avoid flooding Python.
