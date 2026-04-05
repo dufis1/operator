@@ -65,23 +65,31 @@ class TTSClient:
     def _init_kokoro(self):
         try:
             import warnings
+            t0 = time.monotonic()
             # Suppress noisy-but-harmless warnings from Kokoro's dependencies:
             #   - HF Hub: unauthenticated download notice (cosmetic)
             #   - PyTorch: LSTM dropout with num_layers=1 (no-op in model arch)
             #   - PyTorch: weight_norm deprecation (upstream library issue)
-            hf_logger = logging.getLogger("huggingface_hub")
-            prev_hf_level = hf_logger.level
-            hf_logger.setLevel(logging.ERROR)
+            # The unauthenticated-request warning is emitted by the child
+            # logger huggingface_hub.utils._http, so suppress the whole tree.
+            for _hf_name in ("huggingface_hub", "huggingface_hub.utils._http"):
+                logging.getLogger(_hf_name).setLevel(logging.ERROR)
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*dropout option adds dropout.*")
                 warnings.filterwarnings("ignore", message=".*torch.nn.utils.weight_norm.*")
                 from kokoro import KPipeline
+                t_import = time.monotonic()
+                log.info(f"TIMING tts_kokoro_import={t_import - t0:.1f}s")
                 voice_id = _KOKORO_VOICES[config.TTS_LOCAL_VOICE]
                 lang_code = "b" if voice_id.startswith("b") else "a"
                 self._kokoro_pipeline = KPipeline(lang_code=lang_code, repo_id="hexgrad/Kokoro-82M")
-            hf_logger.setLevel(prev_hf_level)
+                t_pipeline = time.monotonic()
+                log.info(f"TIMING tts_kokoro_pipeline={t_pipeline - t_import:.1f}s")
+            # Restore HF loggers (only cosmetic — these loggers aren't used after init)
+            for _hf_name in ("huggingface_hub", "huggingface_hub.utils._http"):
+                logging.getLogger(_hf_name).setLevel(logging.WARNING)
             self._kokoro_voice = voice_id
-            log.info(f"STARTUP Kokoro TTS ready (voice={voice_id})")
+            log.info(f"STARTUP Kokoro TTS ready (voice={voice_id}) total={time.monotonic() - t0:.1f}s")
         except ImportError:
             log.warning(
                 "Kokoro not installed (requires Python 3.10–3.12 and: pip install kokoro soundfile). "

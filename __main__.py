@@ -11,8 +11,10 @@ Note: `python -m operator` conflicts with Python's built-in `operator` module.
       It will work correctly once the package is installed via pyproject.toml (Step 8.1).
 """
 import argparse
+import os
 import subprocess
 import sys
+
 
 # ── Prevent Ctrl+C from killing child processes ────────────────────
 # Playwright's Node.js driver and Chrome are child processes in our
@@ -125,8 +127,13 @@ def _run_macos_terminal(meeting_url=None, force=False):
     )
 
     poller = None
+    _shutdown_called = False
 
     def _shutdown(signum=None, frame=None):
+        nonlocal _shutdown_called
+        if _shutdown_called:
+            return
+        _shutdown_called = True
         reason_file = os.path.join(config.BROWSER_PROFILE_DIR, ".operator.kill_reason")
         try:
             with open(reason_file) as _f:

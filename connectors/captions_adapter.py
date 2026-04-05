@@ -163,6 +163,37 @@ CAPTION_OBSERVER_JS = """
 """
 
 
+def _diagnose_overlay(page, context):
+    """Fires only on failure — logs what's covering the UI and saves a snapshot.
+
+    Checks for common Meet overlays (dialogs, popups, tooltips) that might
+    be intercepting clicks or keyboard shortcuts.  Zero cost on the happy path.
+    """
+    try:
+        overlays = page.evaluate("""() => {
+            const found = [];
+            // Modal dialogs
+            for (const d of document.querySelectorAll('[role="dialog"], [role="alertdialog"]')) {
+                if (d.offsetParent !== null)
+                    found.push({type: 'dialog', text: d.innerText.slice(0, 120)});
+            }
+            // High z-index overlays covering the viewport
+            for (const el of document.querySelectorAll('[style*="z-index"]')) {
+                const z = parseInt(getComputedStyle(el).zIndex);
+                if (z > 1000 && el.offsetWidth > 200 && el.offsetHeight > 100)
+                    found.push({type: 'overlay', z, tag: el.tagName, text: el.innerText.slice(0, 80)});
+            }
+            return found;
+        }""")
+        if overlays:
+            log.warning(f"CaptionsAdapter: UI blocked at '{context}' — overlays detected: {overlays}")
+        else:
+            log.warning(f"CaptionsAdapter: UI blocked at '{context}' — no overlays found (may be a timing issue)")
+        save_debug(page, f"blocked_{context}")
+    except Exception as e:
+        log.warning(f"CaptionsAdapter: overlay diagnosis failed at '{context}': {e}")
+
+
 class CaptionsAdapter(MeetingConnector):
     """Caption-based connector for Google Meet on macOS.
 
@@ -178,6 +209,7 @@ class CaptionsAdapter(MeetingConnector):
         self._auth_state_file = auth_state_file
         self._force = force
         self._leave_event = threading.Event()
+        self._browser_closed = threading.Event()  # signals browser.close() done
         self._caption_callback = None  # set via set_caption_callback()
         self._page = None              # set once in-meeting (for echo guard)
         self._js_time_offset = None    # maps performance.now() → wall clock time
@@ -237,15 +269,12 @@ class CaptionsAdapter(MeetingConnector):
 
     def leave(self):
         self._leave_event.set()
-        # Wait for the browser thread to run browser.close() — without this,
-        # the main thread exits, the daemon thread is killed, and Chrome is
-        # orphaned (stays in the meeting for 30-60s until the broken pipe
-        # propagates through the Playwright driver).
+        # Wait for browser.close() to finish — not for the full browser thread,
+        # which can hang in `with sync_playwright()` teardown for 20s+.
         if self._browser_thread and self._browser_thread.is_alive():
             log.info("CaptionsAdapter: waiting for browser to close...")
-            self._browser_thread.join(timeout=20)
-            if self._browser_thread.is_alive():
-                log.warning("CaptionsAdapter: browser thread did not finish in 20s")
+            if not self._browser_closed.wait(timeout=10):
+                log.warning("CaptionsAdapter: browser close timed out (10s)")
         if self._blackhole_rec_proc:
             self._blackhole_rec_proc.terminate()
             try:
@@ -294,6 +323,7 @@ class CaptionsAdapter(MeetingConnector):
         js = self.join_status
         browser = None
         try:
+            t_start = time.monotonic()
             with sync_playwright() as p:
                 browser = p.chromium.launch_persistent_context(
                     user_data_dir=BROWSER_PROFILE,
@@ -301,204 +331,243 @@ class CaptionsAdapter(MeetingConnector):
                     executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                     args=["--use-fake-ui-for-media-stream", "--headless=new", "--mute-audio"],
                 )
+                t_browser = time.monotonic()
+                log.info(f"TIMING browser_launch={t_browser - t_start:.1f}s")
                 page = browser.pages[0] if browser.pages else browser.new_page()
 
-                # Register the Python callback BEFORE any navigation so
-                # expose_function is available when the observer JS runs.
-                page.expose_function("__onCaption", self._on_caption_from_js)
-
-                page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
-                # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s.
-                # CDP fires a DOM mutation the instant any of these appear.
                 try:
-                    page.wait_for_selector(
-                        'button:has-text("Join now"), '
-                        'button:has-text("Ask to join"), '
-                        'button[aria-label*="Turn off camera"], '
-                        'button[aria-label*="Turn on camera"], '
-                        'button[aria-label*="Sign in"]',
-                        timeout=15000,
-                    )
-                except Exception:
-                    log.warning("CaptionsAdapter: no pre-join element detected — proceeding anyway")
+                    # Register the Python callback BEFORE any navigation so
+                    # expose_function is available when the observer JS runs.
+                    page.expose_function("__onCaption", self._on_caption_from_js)
 
-                if config.DEBUG_AUDIO:
-                    save_debug(page, "initial_load")
+                    page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                    t_nav = time.monotonic()
+                    log.info(f"TIMING navigation={t_nav - t_browser:.1f}s")
+                    # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s.
+                    # CDP fires a DOM mutation the instant any of these appear.
+                    try:
+                        page.wait_for_selector(
+                            'button:has-text("Join now"), '
+                            'button:has-text("Ask to join"), '
+                            'button[aria-label*="Turn off camera"], '
+                            'button[aria-label*="Turn on camera"], '
+                            'button[aria-label*="Sign in"]',
+                            timeout=15000,
+                        )
+                    except Exception:
+                        log.warning("CaptionsAdapter: no pre-join element detected — proceeding anyway")
+                    log.info(f"TIMING pre_join_ready={time.monotonic() - t_nav:.1f}s")
 
-                # --- Session recovery (same as MacOSAdapter) ---
-                state = detect_page_state(page)
+                    if config.DEBUG_AUDIO:
+                        save_debug(page, "initial_load")
 
-                if state == "logged_out":
-                    log.warning("CaptionsAdapter: session expired — attempting cookie recovery")
-                    auth = validate_auth_state(self._auth_state_file)
-                    if auth and inject_cookies(browser, auth):
-                        page.reload(wait_until="domcontentloaded", timeout=30000)
-                        try:
-                            page.wait_for_selector(
-                                'button:has-text("Join now"), '
-                                'button:has-text("Ask to join"), '
-                                'button[aria-label*="Turn off camera"]',
-                                timeout=15000,
-                            )
-                        except Exception:
-                            pass
-                        state = detect_page_state(page)
-                        if state == "pre_join":
-                            log.info("CaptionsAdapter: session recovered via cookie injection")
+                    # --- Session recovery (same as MacOSAdapter) ---
+                    t_state = time.monotonic()
+                    state = detect_page_state(page)
+                    log.info(f"TIMING detect_page_state={time.monotonic() - t_state:.1f}s (state={state})")
+
+                    if state == "logged_out":
+                        log.warning("CaptionsAdapter: session expired — attempting cookie recovery")
+                        auth = validate_auth_state(self._auth_state_file)
+                        if auth and inject_cookies(browser, auth):
+                            page.reload(wait_until="domcontentloaded", timeout=30000)
+                            try:
+                                page.wait_for_selector(
+                                    'button:has-text("Join now"), '
+                                    'button:has-text("Ask to join"), '
+                                    'button[aria-label*="Turn off camera"]',
+                                    timeout=15000,
+                                )
+                            except Exception:
+                                pass
+                            state = detect_page_state(page)
+                            if state == "pre_join":
+                                log.info("CaptionsAdapter: session recovered via cookie injection")
+                            else:
+                                log.error(f"CaptionsAdapter: recovery failed — state: {state}")
+                                save_debug(page, "recovery_fail")
+                                js.signal_failure("session_expired")
+                                return
                         else:
-                            log.error(f"CaptionsAdapter: recovery failed — state: {state}")
-                            save_debug(page, "recovery_fail")
+                            log.error("CaptionsAdapter: no valid auth_state for recovery")
+                            save_debug(page, "no_auth_state")
                             js.signal_failure("session_expired")
                             return
-                    else:
-                        log.error("CaptionsAdapter: no valid auth_state for recovery")
-                        save_debug(page, "no_auth_state")
-                        js.signal_failure("session_expired")
+
+                    if state == "cant_join":
+                        log.error("CaptionsAdapter: 'can't join this video call'")
+                        save_debug(page, "cant_join")
+                        js.signal_failure("cant_join")
                         return
 
-                if state == "cant_join":
-                    log.error("CaptionsAdapter: 'can't join this video call'")
-                    save_debug(page, "cant_join")
-                    js.signal_failure("cant_join")
-                    return
-
-                # --- Pre-join screen ---
-                try:
-                    not_now = page.get_by_role("button", name="Not now")
-                    not_now.wait_for(timeout=3000)
-                    not_now.click()
-                    page.wait_for_timeout(500)
-                    log.debug("CaptionsAdapter: dismissed notifications popup")
-                except Exception:
-                    pass
-
-                # Race both camera states — resolves instantly when one already exists
-                cam_off = page.get_by_role("button", name="Turn off camera")
-                cam_on = page.get_by_role("button", name="Turn on camera")
-                try:
-                    cam_off.or_(cam_on).wait_for(timeout=3000)
-                    if cam_off.is_visible():
-                        cam_off.click()
-                        log.debug("CaptionsAdapter: camera turned off")
-                    else:
-                        log.debug("CaptionsAdapter: camera already off")
-                except Exception:
-                    log.debug("CaptionsAdapter: camera button not found")
-
-                if config.DEBUG_AUDIO:
-                    save_debug(page, "pre_join")
-
-                clicked_label = None
-                for label in ["Join now", "Ask to join", "Switch here"]:
+                    # --- Pre-join screen ---
+                    # Camera: wait briefly for the button, then click if visible.
+                    # We run headless so there's no real camera, but Meet may
+                    # still show a black feed to other participants.
+                    t_prejoin = time.monotonic()
+                    cam_off = page.get_by_role("button", name="Turn off camera")
+                    cam_on = page.get_by_role("button", name="Turn on camera")
                     try:
-                        btn = page.get_by_role("button", name=label)
-                        btn.wait_for(timeout=5000)
-                        btn.click()
-                        clicked_label = label
-                        log.debug(f"CaptionsAdapter: clicked {label!r}")
-                        break
+                        cam_off.or_(cam_on).wait_for(timeout=2000)
+                        if cam_off.is_visible():
+                            cam_off.click()
+                            log.debug("CaptionsAdapter: camera turned off")
+                        else:
+                            log.debug("CaptionsAdapter: camera already off")
                     except Exception:
-                        continue
+                        log.debug("CaptionsAdapter: camera button not found")
+                    log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
 
-                if clicked_label is None:
-                    save_debug(page, "join_fail")
-                    log.warning("CaptionsAdapter: could not find join button")
-                    js.signal_failure("no_join_button")
-                    return
+                    if config.DEBUG_AUDIO:
+                        save_debug(page, "pre_join")
 
-                if clicked_label == "Ask to join":
-                    if not self._wait_for_admission(page):
-                        save_debug(page, "admission_fail")
-                        js.signal_failure("admission_timeout")
+                    t_join = time.monotonic()
+                    # Race all join buttons — avoids 5s timeout per missing button
+                    join_now = page.get_by_role("button", name="Join now")
+                    ask_join = page.get_by_role("button", name="Ask to join")
+                    switch_here = page.get_by_role("button", name="Switch here")
+                    clicked_label = None
+                    try:
+                        join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
+                        for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
+                            if btn.is_visible():
+                                btn.click()
+                                clicked_label = label
+                                log.debug(f"CaptionsAdapter: clicked {label!r}")
+                                break
+                    except Exception:
+                        pass
+                    log.info(f"TIMING join_click={time.monotonic() - t_join:.1f}s ({clicked_label})")
+
+                    if clicked_label is None:
+                        _diagnose_overlay(page, "join_button")
+                        log.warning("CaptionsAdapter: could not find join button")
+                        js.signal_failure("no_join_button")
                         return
 
-                log.info("CaptionsAdapter: joined meeting successfully")
+                    if clicked_label == "Ask to join":
+                        if not self._wait_for_admission(page):
+                            save_debug(page, "admission_fail")
+                            js.signal_failure("admission_timeout")
+                            return
 
-                # Event-driven: wait for in-meeting UI instead of sleeping 3s.
-                # "Leave call" only exists once we're in the meeting.
-                try:
-                    page.wait_for_selector(
-                        'button[aria-label*="Leave call"]',
-                        timeout=15000,
-                    )
-                except Exception:
-                    log.warning("CaptionsAdapter: in-meeting indicator not detected — proceeding anyway")
+                    log.info("CaptionsAdapter: joined meeting successfully")
 
-                # Race both mic states — resolves instantly when mic is already on (common case)
-                mic_on_btn = page.get_by_role("button", name="Turn on microphone")
-                mic_off_btn = page.get_by_role("button", name="Turn off microphone")
-                try:
-                    mic_on_btn.or_(mic_off_btn).wait_for(timeout=3000)
-                    if mic_on_btn.is_visible():
-                        mic_on_btn.click()
-                        log.debug("CaptionsAdapter: microphone unmuted")
-                    else:
-                        log.debug("CaptionsAdapter: mic already on")
-                except Exception:
-                    log.debug("CaptionsAdapter: mic button not found")
+                    # Brief wait for in-meeting UI to settle before enabling
+                    # captions — Meet needs a moment after join for Shift+C
+                    # to register.
+                    t_in_meeting = time.monotonic()
+                    try:
+                        page.wait_for_selector(
+                            'button[aria-label*="Leave call"]',
+                            timeout=5000,
+                        )
+                    except Exception:
+                        log.warning("CaptionsAdapter: in-meeting indicator not detected — proceeding anyway")
+                    log.info(f"TIMING in_meeting_wait={time.monotonic() - t_in_meeting:.1f}s")
 
-                # --- Enable captions and inject observer ---
-                if not self._enable_captions(page):
-                    save_debug(page, "captions_enable_fail")
-                    js.signal_failure("captions_enable_failed")
-                    return
+                    # Mic unmute
+                    t_mic = time.monotonic()
+                    mic_on_btn = page.get_by_role("button", name="Turn on microphone")
+                    mic_off_btn = page.get_by_role("button", name="Turn off microphone")
+                    try:
+                        mic_on_btn.or_(mic_off_btn).wait_for(timeout=3000)
+                        if mic_on_btn.is_visible():
+                            mic_on_btn.click()
+                            log.debug("CaptionsAdapter: microphone unmuted")
+                        else:
+                            log.debug("CaptionsAdapter: mic already on")
+                    except Exception:
+                        log.debug("CaptionsAdapter: mic button not found")
+                    log.info(f"TIMING mic_check={time.monotonic() - t_mic:.1f}s")
 
-                page.evaluate(CAPTION_OBSERVER_JS)
-                log.info("CaptionsAdapter: caption observer injected")
-                if config.DEBUG_AUDIO:
-                    save_debug(page, "in_meeting")
+                    # --- Enable captions and inject observer ---
+                    t_cap = time.monotonic()
+                    if not self._enable_captions(page):
+                        _diagnose_overlay(page, "captions_enable")
+                        js.signal_failure("captions_enable_failed")
+                        return
+                    log.info(f"TIMING captions_enable={time.monotonic() - t_cap:.1f}s")
 
-                self._page = page
-                js.signal_success()
+                    t_obs = time.monotonic()
+                    page.evaluate(CAPTION_OBSERVER_JS)
+                    log.info(f"TIMING caption_observer_inject={time.monotonic() - t_obs:.1f}s")
+                    log.info("CaptionsAdapter: caption observer injected")
+                    if config.DEBUG_AUDIO:
+                        save_debug(page, "in_meeting")
 
-                # Hold until leave() or inactivity timeout (arms on first caption)
-                idle_timeout = config.IDLE_TIMEOUT_SECONDS
-                last_health = time.time()
-                while not self._leave_event.is_set():
-                    # Use Playwright's own wait (pumps the CDP event loop) rather than
-                    # time.sleep() which blocks it — expose_function callbacks won't fire
-                    # unless the Playwright event loop is being pumped.
-                    page.wait_for_timeout(1000)
+                    self._page = page
+                    js.signal_success()
 
-                    now = time.time()
+                    # Hold until leave() or inactivity timeout (arms on first caption)
+                    idle_timeout = config.IDLE_TIMEOUT_SECONDS
+                    last_health = time.time()
+                    while not self._leave_event.is_set():
+                        # Use Playwright's own wait (pumps the CDP event loop) rather than
+                        # time.sleep() which blocks it — expose_function callbacks won't fire
+                        # unless the Playwright event loop is being pumped.
+                        page.wait_for_timeout(1000)
 
-                    # Inactivity check — only armed after first caption
-                    if self._last_caption_time is not None:
-                        idle_secs = now - self._last_caption_time
-                        if idle_secs >= idle_timeout:
-                            log.info(f"CaptionsAdapter: no captions for {idle_secs:.0f}s — leaving meeting")
-                            self._leave_event.set()
-                            break
+                        now = time.time()
 
-                    if now - last_health >= 300:
-                        last_health = now
+                        # Inactivity check — only armed after first caption
+                        if self._last_caption_time is not None:
+                            idle_secs = now - self._last_caption_time
+                            if idle_secs >= idle_timeout:
+                                log.info(f"CaptionsAdapter: no captions for {idle_secs:.0f}s — leaving meeting")
+                                self._leave_event.set()
+                                break
+
+                        if now - last_health >= 300:
+                            last_health = now
+                            try:
+                                current_url = page.url
+                                if "meet.google.com" not in current_url:
+                                    log.warning(f"CaptionsAdapter: health check — unexpected URL: {current_url}")
+                            except Exception:
+                                log.warning("CaptionsAdapter: health check — page not accessible")
+
+                finally:
+                    # ── Clean leave — runs on ALL exit paths ──────────
+                    # Navigate away so Meet fires the leave signal, then
+                    # close the browser before the `with` block exits.
+                    try:
+                        page.goto("about:blank", timeout=5000)
+                        log.info("CaptionsAdapter: navigated away — left meeting cleanly")
+                    except Exception:
+                        pass
+                    def _close_browser():
                         try:
-                            current_url = page.url
-                            if "meet.google.com" not in current_url:
-                                log.warning(f"CaptionsAdapter: health check — unexpected URL: {current_url}")
+                            browser.close()
                         except Exception:
-                            log.warning("CaptionsAdapter: health check — page not accessible")
-
-                # ── Clean leave (inside `with sync_playwright()`) ────
-                # Navigate away so Meet's JS fires the leave signal.
-                # Must happen before the `with` block exits, which kills
-                # the Playwright driver.
-                try:
-                    page.goto("about:blank", timeout=5000)
-                    log.info("CaptionsAdapter: navigated away — left meeting cleanly")
-                except Exception as e:
-                    log.info(f"CaptionsAdapter: navigate-away failed: {e}")
-                try:
-                    browser.close()
-                    log.info("CaptionsAdapter: browser closed")
-                except Exception as e:
-                    log.info(f"CaptionsAdapter: browser.close() failed: {e}")
+                            pass
+                    close_t = threading.Thread(target=_close_browser, daemon=True)
+                    close_t.start()
+                    close_t.join(timeout=5)
+                    if close_t.is_alive():
+                        log.warning("CaptionsAdapter: browser.close() timed out (5s) — forcing exit")
+                    else:
+                        log.info("CaptionsAdapter: browser closed")
+                    # Signal leave() that the browser is closed — don't make
+                    # it wait for `with sync_playwright()` teardown to finish.
+                    self._browser_closed.set()
+                    # Suppress Playwright teardown noise (greenlet/asyncio)
+                    import asyncio, io, sys
+                    try:
+                        loop = asyncio.get_event_loop()
+                        loop.set_exception_handler(lambda _loop, _ctx: None)
+                    except Exception:
+                        pass
+                    self._orig_stderr = sys.stderr
+                    sys.stderr = io.StringIO()
 
         except Exception as e:
             log.error(f"CaptionsAdapter: browser session error: {e}")
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
+            if hasattr(self, "_orig_stderr"):
+                sys.stderr = self._orig_stderr
             self._page = None
             pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
             try:
@@ -579,35 +648,49 @@ class CaptionsAdapter(MeetingConnector):
 
     # ── Caption enable ───────────────────────────────────────────────
 
+    def _captions_are_on(self, page):
+        """Check if captions are currently enabled (non-blocking)."""
+        try:
+            # "Turn off captions" button only exists when captions are on
+            off_btn = page.locator('button[aria-label*="Turn off captions"]')
+            if off_btn.is_visible(timeout=300):
+                return True
+        except Exception:
+            pass
+        try:
+            # Caption region with attached state (may be zero-height when empty)
+            region = page.locator('[role="region"][aria-label*="Captions"]')
+            if region.count() > 0:
+                return True
+        except Exception:
+            pass
+        return False
+
     def _enable_captions(self, page):
         """Enable captions once at join. Never toggle again."""
-        # Dismiss any overlays (no pre-sleep needed — post-join wait already event-driven)
-        for _ in range(5):
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(100)
+        # Check if captions are already on before toggling — the persistent
+        # browser profile often retains caption state.  Pressing Shift+C
+        # when captions are already on would turn them OFF.
+        if self._captions_are_on(page):
+            log.info("CaptionsAdapter: captions already enabled (pre-check)")
+            return True
 
-        # Try Shift+C shortcut (up to 10 attempts)
+        # Try Shift+C shortcut — only press when captions are confirmed off
         for i in range(10):
+            t_attempt = time.monotonic()
             log.debug(f"CaptionsAdapter: caption enable attempt {i+1} via Shift+C")
             page.keyboard.down("Shift")
             page.keyboard.press("c")
             page.keyboard.up("Shift")
 
-            try:
-                page.locator('[role="region"][aria-label*="Captions"]').wait_for(timeout=1500)
-                log.info("CaptionsAdapter: captions enabled via Shift+C")
+            # Wait a moment for Meet to process the shortcut
+            page.wait_for_timeout(500)
+
+            if self._captions_are_on(page):
+                log.info(f"CaptionsAdapter: captions enabled via Shift+C (attempt took {time.monotonic() - t_attempt:.1f}s)")
                 return True
-            except Exception:
-                pass
 
-            try:
-                off_btn = page.locator('button[aria-label*="Turn off captions"]')
-                if off_btn.is_visible(timeout=500):
-                    log.info("CaptionsAdapter: captions already enabled")
-                    return True
-            except Exception:
-                pass
-
+            # Captions are still off — wait before next attempt
             page.wait_for_timeout(500)
 
         # Fallback: hover to reveal bottom bar, click CC button
