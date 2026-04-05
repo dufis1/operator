@@ -48,6 +48,7 @@ class _SpeculativeResult:
         self.synth_bytes = None       # Pre-rendered TTS audio (bytes), if available
         self.for_assistant = None     # classifier result (True/False/None=not run)
         self.was_soft_pass = False    # True when this cycle follows a soft PASS
+        self.llm_done = threading.Event()  # set when LLM reply + classification available
         self.ready = threading.Event()
 
 
@@ -498,10 +499,11 @@ class AgentRunner:
                 if not followup:
                     log.info("Conversation mode: capture ended — returning to idle")
                     break
-                # Wait for speculative thread (classifier result lives inside it).
+                # Wait for classifier verdict (lives inside speculative thread).
+                # Only need LLM, not TTS — TTS is used opportunistically later.
                 # Timeout handles the case where utterance finalized (e.g. via
                 # speaker-change) before the speculative threshold was reached.
-                if not spec.ready.wait(timeout=3.0):
+                if not spec.llm_done.wait(timeout=3.0):
                     log.info("Conversation mode: speculative never fired — treating as RESPOND")
 
                 # --- RESPOND path (happy path) ---
@@ -619,6 +621,7 @@ class AgentRunner:
                 spec.llm_reply = self.llm.ask(spec.full_prompt, record=False)
 
             log.info(f"TIMING caption_speculative_llm_done reply=\"{spec.llm_reply[:60]}\"")
+            spec.llm_done.set()
 
             # Speculative TTS: synthesize audio while waiting for finalization.
             # If the prompt doesn't change, _finalize_prompt skips synthesis entirely.
@@ -635,6 +638,7 @@ class AgentRunner:
         except Exception as e:
             log.error(f"Speculative caption LLM error: {e}", exc_info=True)
         finally:
+            spec.llm_done.set()  # ensure runner never deadlocks
             spec.ready.set()
 
     def _reclassify_full_text(self, full_text: str) -> bool:
@@ -737,9 +741,18 @@ class AgentRunner:
                           and _normalize_for_match(speculative.transcript or "") == prompt_norm
                           and speculative.llm_reply
                           and speculative.synth_bytes)
-            skip_filler = not allow_abort or spec_ready
+            # Also skip filler when LLM is done and TTS is in-flight — it'll
+            # finish by the time we reach Step 2 (we wait for it there).
+            spec_tts_inflight = (not spec_ready
+                                 and speculative
+                                 and speculative.llm_done.is_set()
+                                 and speculative.llm_reply
+                                 and _normalize_for_match(speculative.transcript or "") == prompt_norm)
+            skip_filler = not allow_abort or spec_ready or spec_tts_inflight
             if spec_ready:
                 log.info("TIMING filler_skipped — speculative LLM+TTS already complete")
+            elif spec_tts_inflight:
+                log.info("TIMING filler_skipped — speculative LLM done, TTS in-flight")
             filler_bucket = fillers.classify(prompt)
             filler_clips = fillers.get_clips(filler_bucket) if not skip_filler else []
             if filler_clips:
@@ -765,17 +778,17 @@ class AgentRunner:
             reply = None
 
             if (speculative
-                    and speculative.ready.is_set()
+                    and speculative.llm_done.is_set()
                     and _normalize_for_match(speculative.transcript or "") == prompt_norm
                     and speculative.llm_reply):
                 # Already done before we got here
                 reply = speculative.llm_reply
                 self.llm.record_exchange(speculative.full_prompt, reply)
                 log.info(f"TIMING llm_speculative_hit waited=0.00s reply=\"{reply[:60]}\"")
-            elif speculative and not speculative.ready.is_set():
-                # In-flight — wait for it, however long it takes
+            elif speculative and not speculative.llm_done.is_set():
+                # In-flight — wait for LLM only, TTS checked separately in Step 2
                 t_wait_start = time.time()
-                speculative.ready.wait()
+                speculative.llm_done.wait()
                 t_waited = time.time() - t_wait_start
                 if _normalize_for_match(speculative.transcript or "") == prompt_norm and speculative.llm_reply:
                     reply = speculative.llm_reply
@@ -804,6 +817,15 @@ class AgentRunner:
             # --- Step 2: TTS synthesis (skip if speculative TTS already rendered) ---
             self.conv.set_speaking()
             t_synth_start = time.time()
+
+            # If speculative LLM matched but TTS is still in-flight, wait for it
+            # rather than starting a redundant fresh synthesis.
+            if (speculative
+                    and not speculative.synth_bytes
+                    and speculative.llm_done.is_set()
+                    and not speculative.ready.is_set()
+                    and _normalize_for_match(speculative.transcript or "") == prompt_norm):
+                speculative.ready.wait()
 
             if (speculative
                     and speculative.synth_bytes
@@ -936,6 +958,7 @@ class AgentRunner:
         except Exception as e:
             log.debug(f"Speculative processing error: {e}")
         finally:
+            spec.llm_done.set()
             spec.ready.set()
 
     def _play_acknowledgment(self):
