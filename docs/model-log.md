@@ -42,8 +42,24 @@ STARTUP connecting to APIs...                   # OpenAI client init
 STARTUP initializing TTS (background)...       # TTS init runs in background thread
 STARTUP joining meeting <url>
 CaptionsAdapter: joining <url>                  # caption connector join
-STARTUP TTS ready (background)                 # Kokoro load finished (overlaps with browser)
-CaptionsAdapter: captions enabled via Shift+C   # or "via button fallback"
+TIMING browser_launch=0.9s                     # Chromium cold start
+TIMING navigation=0.8s                         # page.goto to Meet URL
+TIMING pre_join_ready=0.5s                     # wait for pre-join DOM elements
+TIMING detect_page_state=0.0s (state=pre_join) # auth/session state check
+TIMING tts_kokoro_import=3.0s                  # background: from kokoro import KPipeline
+CaptionsAdapter: camera turned off              # or "camera already off"
+TIMING camera_toggle=0.5s                      # wait + click camera button
+CaptionsAdapter: clicked 'Join now'             # or 'Ask to join' or 'Switch here'
+TIMING join_click=0.1s (Join now)              # join button race
+CaptionsAdapter: joined meeting successfully
+TIMING tts_kokoro_pipeline=2.2s                # background: KPipeline instantiation
+STARTUP Kokoro TTS ready (voice=af_heart) total=5.1s  # background TTS init done
+STARTUP TTS ready (background)
+TIMING in_meeting_wait=0.5s                    # wait for "Leave call" button
+TIMING mic_check=0.1s                          # mic state race
+CaptionsAdapter: captions enabled via Shift+C   # or "already enabled (pre-check)" or "via button fallback"
+TIMING captions_enable=0.5s                    # Shift+C + state detection
+TIMING caption_observer_inject=0.0s            # JS evaluate (instant)
 CaptionsAdapter: caption observer injected      # MutationObserver scoped to caption region
 STARTUP caption processing active
 LatencyProbe: input device = 'MacBook Pro Microphone'  # system default mic; must NOT be Display Audio or BlackHole

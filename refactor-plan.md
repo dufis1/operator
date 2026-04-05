@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 23)*
+*Last updated: April 4, 2026 (session 24)*
 
-> **Current status: Startup performance optimized — event-driven waits replace fixed sleeps, TTS init parallelized.** Expected ~15-20s savings off 30s startup. Needs live verification. Next: Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
+> **Current status: Startup live-tested and confirmed at 4s (down from 30s — 87% reduction).** Caption toggle, shutdown, and join button bugs fixed. Next: Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
 
 ---
 
