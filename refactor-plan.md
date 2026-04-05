@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 36)*
+*Last updated: April 5, 2026 (session 37)*
 
-> **Current status: Single-threshold consolidation complete.** Merged speculative (0.5s) + finalization (0.7s) into single `silence_seconds: 0.7` threshold. Removed ~230 lines of speculative machinery. Classifier, two-strike PASS, INCOMPLETE re-fire, and abort systems preserved. Needs live verification next session.
+> **Current status: Streaming classifier redesign planned.** Session 37 live-tested the single-threshold consolidation, fixed 3 bugs (abort duplication, speaker bleed, echo misattribution), and designed a new architecture: streaming first-token classification, playback-only abort, interruption handling, classification-based conversation exit. Implementation begins next session.
 
 ---
 

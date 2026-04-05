@@ -259,13 +259,22 @@ Echo prevention: resumed caption processing      # caption mode
 State → idle (Listening for 'operator'...)
 ```
 
+**Echo diagnostics** (every caption during `is_speaking`, added session 37):
+```
+DIAG echo_caption speaker="<name>" you=<True|False> text="..." tts="..."           # all captions during is_speaking
+DIAG echo_caption speaker="<name>" you=<True|False> [ECHO-MATCH] text="..." tts="..." # caption matches TTS output
+DIAG echo_false_abort_suppressed — caption matches TTS output                       # non-You echo correctly suppressed
+caption: rejected echo-suspect during abort — prev="..." new="..."                  # continuity guard rejected discontinuous text
+```
+`[ECHO-MATCH]` fires when caption text overlaps with `_tts_text` (substring match or 60%+ word overlap). `echo_false_abort_suppressed` means a non-"You" caption was recognized as bot echo and did not trigger abort.
+
 **Abort sequence** (appears instead of response playback when user keeps talking after premature finalization):
 ```
-TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption during is_speaking (signal 1)
+TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption during is_speaking (signal 1, only if not echo-matched)
 TIMING abort_text_grew — finalized="..." current="..."     # caption text grew beyond prompt (signal 2)
 TIMING abort_triggered — re-processing with "..."          # discards response, re-calls _finalize_prompt
 ```
-Either or both signals may fire. After abort, `_finalize_prompt` retries with `allow_abort=False` — no filler on retry, no further aborts possible.
+Either or both signals may fire. After abort, `_finalize_prompt` retries with `allow_abort=False` — no filler on retry, no further aborts possible. Speaker bleed guard: only the speaker who triggered the abort (`_abort_speaker`) can update `_current_text` during the abort window.
 
 **LLM resolution variants** (one of these appears per interaction):
 - `TIMING llm_precomputed reply="..."` — classifier already produced a valid response (conversation mode RESPOND path)

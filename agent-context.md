@@ -18,10 +18,16 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor — all 9 steps verified live. Single-threshold consolidation complete — needs live verification.
-**Next action:** Review the consolidation changes for correctness, then live-test in Google Meet. Key areas to verify: (1) wake→response path works without speculative, (2) conversation-mode classifier (PASS/INCOMPLETE/RESPOND) works inline, (3) abort system still fires correctly, (4) filler always plays during LLM wait.
+**Phase:** Streaming classifier redesign — architecture agreed, implementation pending.
+**Next action:** Implement streaming first-token classification. See `handoff.md` for full architecture and implementation order.
 
-**What was built this session (April 5, 2026, session 36):**
+**What was built this session (April 5, 2026, session 37):**
+- **Code review + 3 bug fixes.** (1) Abort re-fire duplication: `prompt + " " + new_text` duplicated prompt because `_current_text` is full text not delta; fixed to use `new_text` directly. (2) Speaker bleed: any non-"You" speaker could overwrite `_current_text` during `is_speaking`; added `_abort_speaker` tracking. (3) Echo misattribution: Google sometimes captions bot TTS as human speaker; added continuity guard (reject discontinuous text) + echo fingerprinting (`_tts_text` comparison).
+- **Echo diagnostics.** Every caption during `is_speaking` logs `DIAG echo_caption` with speaker, you flag, `[ECHO-MATCH]` tag, caption text, and TTS text.
+- **Live testing.** Two runs in Google Meet. Run 1: echo misattribution reproduced and fixed. Run 2: wake/follow-up/conversation all passed. "Capital of France" failed due to INCOMPLETE race condition (text grew during 1.3s classifier call).
+- **Architectural redesign agreed.** Streaming first-token classification replaces blocking classifier. INCOMPLETE removed. Abort moved to playback-only. Interruption handling via same-speaker continuity + stream-classify. Classification-based conversation exit replaces timeout. See `handoff.md` for full spec.
+
+**What was built last session (April 5, 2026, session 36):**
 - **Single-threshold consolidation — all 11 steps implemented.** Merged speculative (0.5s) + finalization (0.7s) into single `silence_seconds: 0.7` threshold. Removed: `_SpeculativeResult` class, `_run_caption_speculative()`, `_make_caption_speculative_callback()`, `_run_speculative()`, `_make_speculative_callback()`, `_speculative_fired` flag, all speculative hit/miss branching in `_finalize_prompt()`, `on_first_silence` from audio.py, `on_speculative` from captions.py. Net ~230 lines removed.
 - **New `_classify_followup()` method.** Conversation-mode classifier now runs inline after finalization instead of speculatively before it. Same prompt, same PASS/INCOMPLETE/RESPOND logic, just sequential instead of threaded. Returns `(for_assistant, is_incomplete, llm_reply)` tuple.
 - **`_finalize_prompt()` simplified.** Removed `speculative` parameter. Added `precomputed_reply` parameter so classifier responses (which are valid LLM replies) skip redundant LLM calls. Filler always plays (except abort retries). TTS always synthesizes fresh.
@@ -1152,6 +1158,12 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 **Google ASR rewrites during `is_speaking` trigger false aborts.** After finalization, Meet sometimes cosmetically rewrites the caption (e.g., "two plus two" → "2 + 2", capitalization changes). The abort mechanism sees a non-"You" caption arrive and fires, causing a redundant LLM round-trip + ~1s latency. The content is semantically identical. Planned fix: normalize both finalized prompt and incoming caption at the abort trigger point (captions.py line 110) and only fire `abort_event` if content actually differs.
 
 **Log string truncation mimics data bugs.** `utterance[:80]` in INFO-level logging truncated the displayed prompt mid-word (e.g., "Now, what about F"), making it look like the LLM received incomplete input. Actual API calls were unaffected — full prompts were sent. Cost several hours of investigation across sessions before being identified as display-only. Fix: metadata at INFO (`prompt_chars=N`), full payload at DEBUG only.
+
+**Abort re-fire duplicates prompt via `_current_text` concatenation.** The abort path in `_finalize_prompt` concatenated `prompt + " " + new_text` where `new_text` was `self.captions._current_text` — the full live caption text, not a delta. If original prompt was "What is two plus two" and `_current_text` grew to "What is two plus two and three plus three", the re-fired prompt became "What is two plus two What is two plus two and three plus three". Fix: use `_current_text` directly as the updated prompt (it already contains the full utterance).
+
+**Google Meet nondeterministically attributes bot TTS to the human speaker.** During `is_speaking`, the bot's TTS plays through BlackHole → meeting mic. Google sometimes captions this audio as the previous human speaker (e.g., `[Jojo Shapiro] Yep. 12 Right.`) instead of `[You]`. This overwrites `_current_text` with echo garbage, poisoning the abort re-fire path. The misattribution is transient and not reproducible — same audio routing produces correct `[You]` labels most of the time. Fix: two-layer defense — (1) continuity guard rejects updates where normalized text doesn't extend the previous value (catches discontinuous echo blocks), (2) echo fingerprinting compares incoming caption text against `_tts_text` and suppresses false aborts on match.
+
+**INCOMPLETE race condition loses speech that arrives during classifier LLM call.** User says "What's the capital of..." [0.7s pause] "...France?" — finalized at "capital of?", classifier fires (~1.3s round-trip), "France" arrives via caption 690ms later but classifier is already in-flight with stale text. Classifier returns INCOMPLETE (correct for what it saw). New capture cycle starts but "France" was already consumed by the previous cycle. User experiences silence and has to repeat. Root cause: blocking classifier creates a ~1.3s blind window where caption growth is invisible. Planned fix: streaming first-token classification eliminates the blocking window entirely.
 
 ---
 
