@@ -235,6 +235,7 @@ After a prompt is finalized, the pipeline calls LLM and synthesizes speech:
 ```
 Echo prevention: paused caption processing      # caption mode: ignore captions while bot speaks
 TIMING filler_skipped — speculative LLM+TTS already complete       # filler not needed; response ready to play immediately
+TIMING filler_skipped — speculative LLM done, TTS in-flight        # LLM done, TTS still running; will wait for it in Step 2
 TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization (skipped if speculative ready or abort retry)
 LLM ask model=gpt-4.1-mini history_turns=N utterance="..."        # logged before API call
 LLM reply="..."                                 # logged on successful response

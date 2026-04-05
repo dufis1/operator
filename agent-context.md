@@ -18,10 +18,13 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Log audit identified 5 issues to fix.
-**Next action:** Fix 5 issues from log audit (see handoff.md for ordered list): duplicate caption events, LLM history truncation, premature speculative finalization, double echo-resume log, runner pickup delay in conversation mode.
+**Phase:** Caption-scraping refactor — C.6 complete. Log audit: 1 of 5 issues fixed.
+**Next action:** Fix remaining 4 issues from log audit (see handoff.md): duplicate caption events, LLM history truncation, premature speculative finalization, double echo-resume log.
 
-**What was built this session (April 4, 2026, session 28):**
+**What was built this session (April 4, 2026, session 29):**
+- **Conversation-mode runner pickup delay fix.** Root cause: `spec.ready.wait(timeout=3.0)` in the conversation-mode loop blocked until speculative LLM+TTS both finished before the runner could proceed. In wake mode, `_finalize_prompt` was called immediately. Fix: added `llm_done` event to `_SpeculativeResult`, set after LLM returns (before TTS). Conversation loop waits on `llm_done` instead of `ready`. `_finalize_prompt` Step 1 (LLM resolution) checks `llm_done` instead of `ready`. Step 2 (TTS) waits for in-flight speculative TTS when LLM matched, instead of starting redundant fresh synthesis. Filler skip logic recognizes "LLM done, TTS in-flight" as a skip condition. Result: pickup delay reduced from 0.8-1.3s to 0.2-0.3s. All speculative TTS hits preserved. Verified across 3 live test runs.
+
+**What was built last session (April 4, 2026, session 28):**
 - **Audio buffer race condition fix.** Moved debug WAV write inside `_audio_lock` in `feed_audio()` — was writing outside the lock, creating a race with the connector thread.
 - **Stale buffer drain on conversation re-entry.** Added `drain_audio_buffer()` at top of `capture_next_utterance()` when `no_speech_timeout` is set. Conversation follow-ups that time out left stale PCM in the buffer; next capture cycle would Whisper old data. Guard scoped to only fire on conversation follow-ups (line 437 in runner.py), not ambient wake (line 401) or initial prompt (line 421).
 - **Log audit of live session.** Analyzed 6-question caption-mode session. Found 5 issues: (1) duplicate caption events from MutationObserver, (2) LLM history truncated mid-word, (3) premature speculative finalization on mid-sentence pauses, (4) double echo-resume log in abort path, (5) ~1s runner pickup delay in conversation mode that accidentally masks filler need.
@@ -1104,6 +1107,8 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 **Google ASR rewrites captions between speculative and finalization.** The same utterance can appear as "What's two plus two" at speculative time and "what's 2 + 2" at finalization — case change, number word↔digit swap, symbol substitution. Exact string matching causes speculative misses on the first question every time. Fix: `_normalize_for_match()` that canonicalizes both sides (digits, symbols, case, punctuation).
 
 **Abort text-grew false positive from wake phrase prefix.** In wake-triggered mode, `prompt` is post-wake extraction ("what's 2 + 2") but `_current_text` includes the full caption region ("Hey operator, what's 2 + 2"). Comparing with `!=` always triggers abort. Fix: use `endswith` — if the normalized current text ends with the normalized prompt, no new content was added.
+
+**Splitting speculative events exposes TTS regression.** When separating `llm_done` from `ready` to unblock the runner earlier, `_finalize_prompt` still checked `speculative.ready.is_set()` for both LLM and TTS resolution. This meant the runner unblocked faster but then started redundant fresh TTS synthesis (speculative TTS was still in-flight). The filler skip logic also broke — `spec_ready` was false (TTS not done), so fillers played unnecessarily. Fix: Step 1 checks `llm_done` for LLM resolution; Step 2 detects in-flight speculative TTS (LLM done + `ready` not set) and waits for it; filler skip adds `spec_tts_inflight` condition.
 
 **Filler echo infinite loop via Google Meet speaker misattribution.** Google Meet nondeterministically attributes filler audio (human-voice clips like "Yeah", "Right") to the previous human speaker's caption bubble instead of creating a new "[You]" bubble. This set `abort_event` in `on_caption_update`, triggering an abort→retry→new filler→misattributed again→abort loop. Each cycle took ~1.2s and played an audible filler, burning LLM tokens with duplicate requests. The misattribution is not timing-dependent — identical gaps between user speech and filler produced correct "[You]" attribution 3/4 times, then failed on the 4th. Root cause is in Google's server-side caption rendering, not our audio routing (mpv explicitly targets BlackHole). Fix: dynamic grace period (`_filler_done_at + 1.0s`), `allow_abort=False` on recursive retry, no filler on retries.
 
