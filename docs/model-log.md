@@ -1,6 +1,6 @@
 # Model Log Reference
 
-Last updated: 2026-04-04
+Last updated: 2026-04-05
 Captured from: macOS headless, Kokoro TTS, Whisper base model (audio mode) / Meet captions (caption mode)
 
 This is the gold-standard reference for what Operator's logs should look like during
@@ -327,7 +327,7 @@ happens in real-time on every DOM update (~330ms), not after full utterance tran
 
 ```
 TIMING caption_capture_start (timeout=None require_wake=True)   # initial wake listen
-caption: [Alice] Hey operator what is the plan  [bridge_lag=Nms]   # raw caption + JS→Python bridge lag
+caption: [Alice] Hey operator what is the plan  [bridge_lag=Nms batch_delay=Nms]   # raw caption + bridge lag + setTimeout batch delay
 TIMING caption_wake_detected speaker=Alice prompt_so_far="what is the plan"  # wake found mid-speech
 TIMING caption_wake_confirmed — entering silence detection
 TIMING caption_speculative_fire gap=1.04s prompt="what is the plan"  # speculative LLM at 1.0s of silence
@@ -359,10 +359,19 @@ TIMING caption_finalized reason=speaker_change ...  # previous speaker's prompt 
 caption: dropped while speaking [You] On it. 2 + 2 = 4.    # is_speaking=True gate active; normal during response
 ```
 
+**DOM timing instrumentation** — raw mutation timestamps logged before setTimeout batching.
+Fires for addedNodes, characterData, and text node mutations. Use these to distinguish
+Meet ASR delays from our batching overhead:
+```
+CaptionsAdapter: JS diagnostic — dom_raw mutation_gap=0.0ms text=Hey.           # first mutation (gap=0)
+CaptionsAdapter: JS diagnostic — dom_raw mutation_gap=334.0ms text=Hey Operator. # ~333ms = Meet's render cadence
+CaptionsAdapter: JS diagnostic — dom_raw mutation_gap=505.7ms text=Hey Operator. What's  # longer gap = natural speech pause
+```
+
 **What to check:**
 - No `caption_wake_detected` when someone says "hey operator" → check caption observer injection, check captions are enabled
 - `caption_wake_retracted` frequently → ASR is unstable for "hey operator", may need wake phrase tuning
-- `caption_speculative_fire` gap >> 1.0s → DOM updates stalled, check Playwright event loop
+- `caption_speculative_fire` gap >> 0.5s → DOM updates stalled, check Playwright event loop
 - No `caption:` lines at all → caption callback not wired, check adapter/processor connection
 - Caption finalization hangs (no `caption_finalized` after user stops talking) → check if all captions showing `[You]` speaker label; Meet occasionally relabels user speech — is_speaking gate and wake anchoring handle this correctly
 
@@ -436,9 +445,10 @@ Conversation mode: capture ended — returning to idle
 
 ---
 
-## Section 5b: Perceived Latency Probe (caption mode only)
+## Section 5b: Perceived Latency Probe (caption mode only, DEBUG level)
 
-Interspersed with caption and pipeline events. These measure the gap between acoustic speech end and pipeline events.
+**These log at DEBUG level** — not visible in standard INFO logs. Enable DEBUG logging to see them.
+Interspersed with caption and pipeline events. Measure the gap between acoustic speech end and pipeline events.
 
 ```
 TIMING perceived_speech_start                                   # mic RMS crosses threshold — user started talking

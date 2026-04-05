@@ -18,10 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor — all 9 steps verified live. Abort-path hardening in progress.
-**Next action:** Replace 0.5s abort settle delay with semantic diff at abort trigger point (captions.py line 110). When non-"You" caption arrives during `is_speaking`, normalize it and compare against finalized prompt — only fire `abort_event` if content actually changed. This eliminates both the hacky sleep and false aborts from ASR rewrites. Then update `docs/model-log.md` with changed log lines.
+**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor — all 9 steps verified live. Single-threshold consolidation planned.
+**Next action:** Implement the 11-step single-threshold consolidation plan (see `handoff.md`). Merge the two-threshold system (speculative at 0.5s + finalization at 0.7s) into a single configurable `silence_seconds: 0.7` threshold. This eliminates speculative misses, wasted LLM calls, and ~200 lines of bifurcated code.
 
-**What was built this session (April 5, 2026, session 34):**
+**What was built this session (April 5, 2026, session 35):**
+- **DOM timing instrumentation.** Added unbatched `dom_raw` mutation timing logs to the caption observer JS — logs raw `performance.now()` timestamps for `addedNodes`, `characterData`, and text node mutations before `setTimeout` batching. Added `batch_delay` measurement to every caption log line. Confirmed: `batch_delay` is 1-3ms (our batching adds nothing), and Meet's ASR renders at a consistent ~333ms cadence. The 0.5s speculative threshold fires after just 1.5 render cycles, which frequently catches incomplete text.
+- **Latency probe moved to DEBUG.** `perceived_speech_start` and `perceived_acoustic_silence_end` are purely diagnostic — moved from `log.info` to `log.debug` to declutter INFO logs.
+- **Single-threshold consolidation plan.** Drafted 11-step plan to merge speculative (0.5s) + finalization (0.7s) into one `silence_seconds: 0.7` threshold. Eliminates: `_SpeculativeResult` class, `_run_caption_speculative()`, `_make_caption_speculative_callback()`, `_speculative_fired` flag, hit/miss matching logic in `_finalize_prompt()`, and audio-mode speculative equivalents. Conversation-mode classifier call moves inline after finalization. Plan in `handoff.md`.
+
+**What was built last session (April 5, 2026, session 34):**
 - **Live verification of all 9 finalization refactor steps.** Tested in Google Meet with stress cases: rapid Q&A, mid-sentence pauses, drawn-out "How about... Belgium" follow-ups. Results: Steps 1,2,4,5,6,7,8,9 confirmed PASS. Step 3 (abort window widening) not exercised (bridge lag was clean). Step 5 (INCOMPLETE) was the star — 6 correct classifications. Step 7 (re-fire cap) hit 3/3 cleanly on Belgium sequence.
 - **Abort path fix: stale text.** Root cause: `_current_text` was never updated during `is_speaking` (early return at captions.py line 114). Fix: update `_current_text` and `_current_speaker` for non-"You" speakers during `is_speaking`. Added 0.5s settle delay in abort path so partial captions ("German.") settle to full words ("Germany.") before reading.
 - **Abort path fix: lost prompt context.** Root cause: abort read `_current_text` which was just the new caption block ("Germany."), losing the original prompt ("What's the capital of"). Fix: concatenate `prompt + " " + new_text` in abort path. Always concatenate regardless of speaker — LLM needs full context either way.

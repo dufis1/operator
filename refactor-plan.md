@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 34)*
+*Last updated: April 5, 2026 (session 35)*
 
-> **Current status: Live verification of 9-step refactor complete.** All steps confirmed working in live Meet session. Three abort-path bugs found and fixed: stale text on abort, missing prompt context on abort concatenation, false INCOMPLETE from caption punctuation. One known issue remains: ASR rewrites during is_speaking trigger false aborts (semantic diff needed at abort trigger point).
+> **Current status: Single-threshold consolidation planned.** DOM timing instrumentation confirmed Google Meet renders captions at ~333ms cadence. The 0.5s speculative threshold fires after just 1.5 render cycles, frequently catching incomplete text. Decision: merge speculative (0.5s) + finalization (0.7s) into a single 0.7s threshold. 11-step consolidation plan in `handoff.md`. Latency probe moved to DEBUG.
 
 ---
 
