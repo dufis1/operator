@@ -18,10 +18,15 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Filler echo loop fixed, filler skip optimization added.
-**Next action:** Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
+**Phase:** Caption-scraping refactor — C.6 complete. Log audit identified 5 issues to fix.
+**Next action:** Fix 5 issues from log audit (see handoff.md for ordered list): duplicate caption events, LLM history truncation, premature speculative finalization, double echo-resume log, runner pickup delay in conversation mode.
 
-**What was built this session (April 4, 2026, session 27):**
+**What was built this session (April 4, 2026, session 28):**
+- **Audio buffer race condition fix.** Moved debug WAV write inside `_audio_lock` in `feed_audio()` — was writing outside the lock, creating a race with the connector thread.
+- **Stale buffer drain on conversation re-entry.** Added `drain_audio_buffer()` at top of `capture_next_utterance()` when `no_speech_timeout` is set. Conversation follow-ups that time out left stale PCM in the buffer; next capture cycle would Whisper old data. Guard scoped to only fire on conversation follow-ups (line 437 in runner.py), not ambient wake (line 401) or initial prompt (line 421).
+- **Log audit of live session.** Analyzed 6-question caption-mode session. Found 5 issues: (1) duplicate caption events from MutationObserver, (2) LLM history truncated mid-word, (3) premature speculative finalization on mid-sentence pauses, (4) double echo-resume log in abort path, (5) ~1s runner pickup delay in conversation mode that accidentally masks filler need.
+
+**What was built last session (April 4, 2026, session 27):**
 - **Filler echo loop fix.** Google Meet sometimes misattributes filler audio (played through BlackHole) to the previous human speaker instead of "You". This caused the abort mechanism to trigger in an infinite loop — each retry played a new filler, which got misattributed again. Three-layer fix: (1) Dynamic grace period on `_filler_done_at` — ignores non-"You" captions until 1s after filler playback finishes, adapting to any filler clip length. (2) `allow_abort=False` on recursive `_finalize_prompt` calls — hard cap at one retry. (3) No filler on abort retries — prevents double-filler awkwardness.
 - **Filler skip when speculative ready.** In conversation-mode follow-ups, `spec.ready.wait()` in the loop often completes before `_finalize_prompt` runs, meaning LLM reply and TTS audio are both already cached. Previously, `_finalize_prompt` played a filler anyway (~0.8s delay), then discovered the speculative hit and skipped synthesis. Now checks `speculative.ready.is_set() and speculative.synth_bytes` before starting filler — goes straight to playback when everything is ready.
 

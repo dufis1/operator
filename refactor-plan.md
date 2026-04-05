@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 27)*
+*Last updated: April 4, 2026 (session 28)*
 
-> **Current status: Filler echo loop fixed, filler skip optimization added.** Fixed infinite filler loop caused by Google Meet misattributing filler audio to the human speaker. Added dynamic grace period, abort recursion guard, and filler skip when speculative LLM+TTS already complete (saves ~0.8s on conversation-mode follow-ups). Next: Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
+> **Current status: Log audit complete — 5 issues identified.** Fixed audio buffer race condition and stale drain. Live session log analysis found: duplicate caption events, LLM history truncation, premature speculative finalization, double echo-resume log, and ~1s runner pickup delay in conversation mode. Attacking these one at a time before Phase 8.
 
 ---
 
