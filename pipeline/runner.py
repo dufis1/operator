@@ -747,6 +747,10 @@ class AgentRunner:
             self._last_utterance = prompt
             self._last_reply = reply
 
+            # Set TTS text for echo detection in caption handler
+            if caption_mode:
+                self.captions._tts_text = reply
+
             # --- TTS synthesis ---
             self.conv.set_speaking()
             t_synth_start = time.time()
@@ -794,8 +798,9 @@ class AgentRunner:
                 if abort:
                     time.sleep(0.5)
                     with self.captions._lock:
-                        new_text = self.captions._current_text.strip()
-                    updated_prompt = prompt + " " + new_text
+                        updated_prompt = self.captions._current_text.strip()
+                    if not updated_prompt:
+                        updated_prompt = prompt
                     log.info(f"TIMING abort_triggered — re-processing with \"{updated_prompt[:60]}\"")
                     aborted = True
                     return self._finalize_prompt(updated_prompt,
@@ -830,6 +835,8 @@ class AgentRunner:
                 self._latency_probe.set_active(True)
                 if caption_mode:
                     self.captions.is_speaking = False
+                    self.captions._abort_speaker = None
+                    self.captions._tts_text = ""
                     log.info("Echo prevention: resumed caption processing")
                 else:
                     self.audio.drain_audio_buffer()

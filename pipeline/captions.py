@@ -17,6 +17,13 @@ import config
 
 log = logging.getLogger(__name__)
 
+
+def _normalize_for_match(text: str) -> str:
+    """Lowercase, strip punctuation, collapse whitespace for comparison."""
+    t = text.lower().strip()
+    t = re.sub(r"[^\w\s]", "", t)
+    return re.sub(r"\s+", " ", t).strip()
+
 # Compile wake phrase pattern tolerant of punctuation between words.
 # "hey operator" → r'hey[,\s]+operator' — matches "hey operator", "hey, operator", etc.
 _WAKE_RE = re.compile(
@@ -68,10 +75,12 @@ class CaptionProcessor:
 
         # Echo guard: pause processing while bot is speaking
         self.is_speaking = False
+        self._tts_text = ""  # last TTS output text, for echo detection
 
         # Abort signal: set when a non-"You" caption arrives during is_speaking,
         # indicating the user is still talking after premature finalization.
         self.abort_event = threading.Event()
+        self._abort_speaker = None  # speaker who triggered the abort
 
         # Optional callback for ALL caption text (for transcript context)
         self._transcript_callback = None
@@ -104,15 +113,55 @@ class CaptionProcessor:
         firing (~3/sec during speech). Must be fast — no blocking.
         """
         if self.is_speaking:
-            if speaker.lower() != "you":
+            # --- Echo diagnostics: log ALL captions during is_speaking ---
+            is_echo = False
+            if self._tts_text:
+                tts_norm = _normalize_for_match(self._tts_text)
+                cap_norm = _normalize_for_match(text)
+                # Check if caption content matches TTS output (substring in either direction)
+                if tts_norm and cap_norm and (cap_norm in tts_norm or tts_norm in cap_norm):
+                    is_echo = True
+                # Also check individual words overlap (Google fragments TTS into partial captions)
+                elif tts_norm and cap_norm:
+                    cap_words = set(cap_norm.split())
+                    tts_words = set(tts_norm.split())
+                    overlap = cap_words & tts_words
+                    if len(overlap) >= max(1, len(cap_words) * 0.6):
+                        is_echo = True
+
+            echo_tag = " [ECHO-MATCH]" if is_echo else ""
+            is_you = speaker.lower() == "you"
+            log.info(
+                f"DIAG echo_caption speaker=\"{speaker}\" you={is_you}{echo_tag} "
+                f"text=\"{text[:60]}\" tts=\"{self._tts_text[:60]}\""
+            )
+
+            if not is_you:
                 if not self.abort_event.is_set():
-                    log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
-                    self.abort_event.set()
-                # Keep _current_text updated so abort path reads fresh text
-                with self._lock:
-                    self._current_text = text
-                    self._current_speaker = speaker
-            log.debug(f"caption: dropped while speaking [{speaker}] {text[:60]}")
+                    if is_echo:
+                        log.info(f"DIAG echo_false_abort_suppressed — caption matches TTS output")
+                    else:
+                        log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
+                        self.abort_event.set()
+                        self._abort_speaker = speaker
+                # Only update _current_text if (a) same speaker who triggered
+                # abort AND (b) new text extends the existing text. Google
+                # sometimes misattributes the bot's audio back to the human
+                # speaker — this creates a discontinuous caption block (e.g.
+                # "What's the capital of?" → "Yep. 12 Right.") that would
+                # poison the abort re-fire.
+                if speaker == self._abort_speaker and not is_echo:
+                    with self._lock:
+                        prev = _normalize_for_match(self._current_text)
+                        curr = _normalize_for_match(text)
+                        if not prev or curr.startswith(prev) or prev.startswith(curr):
+                            self._current_text = text
+                            self._current_speaker = speaker
+                        else:
+                            log.info(
+                                f"caption: rejected echo-suspect during abort — "
+                                f"prev=\"{self._current_text[:40]}\" new=\"{text[:40]}\""
+                            )
             return
 
         with self._lock:
