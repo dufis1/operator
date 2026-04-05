@@ -241,18 +241,31 @@ TIMING caption_speculative_llm_done reply="..."  # speculative LLM result
 TIMING caption_speculative_tts_start             # speculative TTS synthesis begins (overlaps finalization wait)
 TIMING tts_synth_done (N.NNs)                   # typical Kokoro: 0.5-1.5s (logged inside tts.py)
 TIMING caption_speculative_tts_done bytes=N      # speculative TTS cached WAV ready
-TIMING llm_speculative_hit waited=N.NNs reply="..."  # speculative result used (waited=0.00s if already done)
+TIMING llm_speculative_hit waited=N.NNNs reply="..."  # speculative result used (waited=0.000s if already done)
+TIMING llm_resolved elapsed_from_finalized=N.NNNs    # wall-clock from finalization to LLM answer ready
 State → speaking (Speaking...)
 TIMING tts_speculative_hit bytes=N               # cached WAV used, synthesis skipped (0.00s)
+TIMING tts_resolved elapsed_from_finalized=N.NNNs    # wall-clock from finalization to audio bytes ready
 TIMING filler_play_done                         # filler finishes (concurrent with LLM + TTS)
-TIMING response_play_start
+TIMING filler_wait_done elapsed=N.NNNs           # how long we blocked waiting for filler after TTS ready
+TIMING response_play_start gap_since_filler_done=N.NNNs  # includes 150ms abort grace period
 TTS play_audio: N bytes → device=coreaudio/BlackHole2ch_UID  # logged before mpv launch
+TIMING mpv_spawned elapsed=N.NNNs               # subprocess.Popen overhead (~28ms typical)
+TIMING mpv_audio_piped elapsed=N.NNNs            # stdin.write + close overhead (~130ms typical)
 TTS play_audio: done                            # logged after mpv exits cleanly
-TIMING response_play_done elapsed=N.NNs
-TIMING end_to_end — llm_wait: N.NNs | synthesis: N.NNs | filler_wait: N.NNs | speak: N.NNs | total_from_finalized: N.NNs
+TIMING response_play_done elapsed=N.NNNs
+TIMING end_to_end — llm_wait: N.NNNs | synthesis: N.NNNs | filler_wait: N.NNNs | speak: N.NNNs | total_from_finalized: N.NNNs
 Echo prevention: resumed caption processing      # caption mode
 State → idle (Listening for 'operator'...)
 ```
+
+**Abort sequence** (appears instead of response playback when user keeps talking after premature finalization):
+```
+TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption during is_speaking (signal 1)
+TIMING abort_text_grew — finalized="..." current="..."     # caption text grew beyond prompt (signal 2)
+TIMING abort_triggered — re-processing with "..."          # discards response, re-calls _finalize_prompt
+```
+Either or both signals may fire. After abort, a new `filler_play_start` + full response pipeline follows with the updated text.
 
 **LLM resolution variants** (one of these appears per interaction):
 - `TIMING llm_speculative_hit waited=0.00s reply="..."` — speculative done before finalization, used immediately

@@ -18,14 +18,23 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Startup and interaction latency optimized.
-**Next action:** Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
+**Phase:** Caption-scraping refactor — C.6 complete. Finalization tuned, abort mechanism implemented.
+**Next action:** Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
 
-**What was built this session (April 4, 2026, session 25):**
-- **Interaction latency audit and speculative TTS optimization.** Analyzed full post-startup interaction pipeline with magnifying-glass precision. Identified TTS synthesis (0.70s) as the largest shaveable bottleneck after speculative LLM already covered LLM wait. Added `synth_bytes` field to `_SpeculativeResult`. `_run_caption_speculative` now runs Kokoro TTS synthesis immediately after the speculative LLM returns, caching WAV bytes. `_finalize_prompt` checks for cached audio and skips synthesis on speculative hit. Live-tested: `total_from_finalized` dropped from 4.27s→3.72s, `synthesis` column shows 0.00s on speculative hit. The 0.15s gap (TTS tail bleeding into `llm_wait` because `spec.ready` gates both LLM and TTS) was evaluated and intentionally left — splitting into two events adds threading complexity for negligible perceptual gain.
-- **Improved end_to_end TIMING log.** Added `filler_wait` as a fourth column (was previously hidden). Fixed timing variables so `llm_wait + synthesis + filler_wait + speak ≈ total_from_finalized` — no unmeasured slivers. `filler_wait` measured from the moment both LLM and TTS are resolved to when filler finishes, showing the actual delay filler imposes on response playback.
+**What was built this session (April 4, 2026, session 26):**
+- **Aggressive finalization tuning.** Reduced `finalization_seconds` 1.5s→0.7s, `speculative_seconds` 1.0s→0.5s. Tried 0.3s/0.5s first — too aggressive, caused speculative misses (fired before captions settled) and premature finalization cutting off mid-sentence (Ecuador→France bug). Settled on 0.5s/0.7s as the sweet spot.
+- **Abort mechanism.** Two-signal system prevents wrong answers from premature finalization: (1) `abort_event` on `CaptionProcessor` — set when a non-"You" caption arrives during `is_speaking`, indicating user is still talking. (2) Text-grew check — compares live `_current_text` against finalized prompt using `endswith` after normalization, catching captions that arrived in the ~1s gap between finalization and echo prevention being set. On abort, `_finalize_prompt` re-processes immediately with the updated text (no round-trip through capture loop, avoiding the `capture_start` timing crack). Filler echo protection: `finally` block calls `filler_done.wait()` before resuming captions. Echo guard sleep skipped on abort (no response was played). `_finalize_prompt` returns bool so callers know whether to enter conversation mode.
+- **Speculative match normalization.** `_normalize_for_match()` handles Google ASR rewrites: lowercases, expands symbols (`+`→`plus`, `=`→`equals`, `-`→`minus`), converts number words to digits (`two`→`2`, etc.), strips punctuation, collapses whitespace. Fixed "What's two plus two" vs "what's 2 + 2" mismatch that caused speculative misses on first question every time.
+- **Soft PASS text-grew check.** After a soft PASS, peeks at live `_current_text` to detect late-arriving words (e.g. "How about?" finalized, "How about France?" arrived 98ms later). If text grew, re-classifies with full text before committing to PASS.
+- **`spec.ready.wait()` timeout.** Added 3s timeout to prevent infinite hang when utterance finalizes via speaker-change before speculative threshold. Root cause: filler echo after abort created "You" captions that triggered speaker-change finalization at 0.34s (below 0.5s speculative threshold), so no speculative thread launched and `spec.ready` was never set.
+- **Millisecond TIMING logs.** Console timestamps now `HH:MM:SS.mmm`. All TIMING lines in the response path use `.3f`. New markers: `llm_resolved`, `tts_resolved`, `filler_wait_done`, `response_play_start gap_since_filler_done`, `mpv_spawned`, `mpv_audio_piped`, `abort_caption_detected`, `abort_text_grew`, `abort_triggered`.
+- **Investigated pre-spawned mpv** — not viable (stdin is single-use, process exits on EOF). Only 28ms of the ~160ms overhead is eliminable. Not worth the complexity.
 
-**What was built last session (April 4, 2026, session 24):**
+**What was built last session (April 4, 2026, session 25):**
+- **Interaction latency audit and speculative TTS optimization.** Identified TTS synthesis (0.70s) as the largest shaveable bottleneck. `_run_caption_speculative` now synthesizes Kokoro audio immediately after LLM returns, caching WAV bytes in `synth_bytes`. `_finalize_prompt` skips synthesis on hit. Live-tested: `total_from_finalized` dropped from 4.27s→3.72s.
+- **Improved end_to_end TIMING log.** Added `filler_wait` as a fourth column. Fixed timing variables so columns add up.
+
+**What was built session 24 (April 4, 2026):**
 - **Live-tested and debugged startup optimizations from session 23.** Startup confirmed at **4s** (down from 30s baseline — 87% reduction).
 - **Granular TIMING logs** across entire startup pipeline: `browser_launch`, `navigation`, `pre_join_ready`, `detect_page_state`, `camera_toggle`, `join_click`, `in_meeting_wait`, `mic_check`, `captions_escape_overlays`, `captions_enable`, `caption_observer_inject`, `tts_kokoro_import`, `tts_kokoro_pipeline`. All grep-able via `grep TIMING /tmp/operator.log`.
 - **Join button race** — replaced sequential 5s-timeout-per-button loop with `.or_()` race across Join now / Ask to join / Switch here. Eliminated 5s waste on guest joins.
@@ -1074,6 +1083,18 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 - **Guest join:** Locked default. "Ask to join" — host admits the bot. Authenticated join via `auth_state.json` is opt-in only. Existing connector join logic is unchanged.
 - **Demo strategy:** Invite-based, not link-paste. Users cannot just paste an instant meeting link to try the product — Google Meet blocks headless/unauthenticated bots. Instead, we provide the bot's Google account email and the user invites it to their meeting. This is the same model as Otter.ai/Fireflies. A pre-configured "demo bot" account must be running and ready for people to invite.
 - **Platform scope:** Google Meet only for v1. Zoom and Teams are v2.
+
+---
+
+## Hard Won Knowledge
+
+**Filler echo after abort causes speaker-change hang.** When the abort mechanism discards a response, the filler audio is still playing through BlackHole. If caption processing resumes before the filler finishes, the filler's "You" captions trigger a speaker-change finalization on the next capture cycle — at a gap shorter than the speculative threshold. Since no speculative thread launches, `spec.ready.wait()` blocks forever. Fix: `finally` block calls `filler_done.wait()` before resuming captions, and `spec.ready.wait()` has a 3s timeout as a safety net.
+
+**`capture_start` timing crack drops late captions.** `capture_next_wake_utterance` sets `capture_start = time.time()` at the top. In follow-up mode, it waits for `_last_update_time > capture_start`. If a caption arrives between the previous capture returning and the new one starting (~100-200ms of classifier/PASS logic), its timestamp is before `capture_start` and the new capture never sees it. Fix: check live `_current_text` before entering new capture cycles (soft PASS text-grew check and abort re-process).
+
+**Google ASR rewrites captions between speculative and finalization.** The same utterance can appear as "What's two plus two" at speculative time and "what's 2 + 2" at finalization — case change, number word↔digit swap, symbol substitution. Exact string matching causes speculative misses on the first question every time. Fix: `_normalize_for_match()` that canonicalizes both sides (digits, symbols, case, punctuation).
+
+**Abort text-grew false positive from wake phrase prefix.** In wake-triggered mode, `prompt` is post-wake extraction ("what's 2 + 2") but `_current_text` includes the full caption region ("Hey operator, what's 2 + 2"). Comparing with `!=` always triggers abort. Fix: use `endswith` — if the normalized current text ends with the normalized prompt, no new content was added.
 
 ---
 

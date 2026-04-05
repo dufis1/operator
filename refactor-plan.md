@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 25)*
+*Last updated: April 4, 2026 (session 26)*
 
-> **Current status: Interaction latency audited and optimized.** Speculative TTS cuts synthesis from hot path (4.27s→3.72s end-to-end, synthesis: 0.70s→0.00s). Startup at 4s. Next: Phase 7.5 TTS reliability, `captions.finalization_seconds` tuning, or Phase 8 open-source packaging.
+> **Current status: Finalization tuned and abort mechanism implemented.** Finalization 1.5s→0.7s, speculative 1.0s→0.5s. Abort mechanism catches premature finalization via two signals (caption arrival during echo prevention + text-grew comparison). Speculative matching normalized for Google ASR rewrites (number words, symbols, case). Live-tested with good results. Next: Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
 
 ---
 
