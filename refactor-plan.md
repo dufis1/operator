@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 29)*
+*Last updated: April 4, 2026 (session 30)*
 
-> **Current status: 1 of 5 log-audit issues fixed.** Resolved ~1s conversation-mode runner pickup delay (now ~0.25s). Four remaining: duplicate caption events, LLM history truncation, premature speculative finalization, double echo-resume log. Attacking one at a time before Phase 8.
+> **Current status: 2 of 5 log-audit issues fixed.** Resolved duplicate caption events (global text dedup in JS observer). Three remaining: LLM history truncation, premature speculative finalization, double echo-resume log. Attacking one at a time before Phase 8.
 
 ---
 

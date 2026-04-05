@@ -18,10 +18,13 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Log audit: 1 of 5 issues fixed.
-**Next action:** Fix remaining 4 issues from log audit (see handoff.md): duplicate caption events, LLM history truncation, premature speculative finalization, double echo-resume log.
+**Phase:** Caption-scraping refactor — C.6 complete. Log audit: 2 of 5 issues fixed.
+**Next action:** Fix remaining 3 issues from log audit (see handoff.md): LLM history truncation, premature speculative finalization, double echo-resume log.
 
-**What was built this session (April 4, 2026, session 29):**
+**What was built this session (April 4, 2026, session 30):**
+- **Duplicate caption event fix.** Root cause: MutationObserver configured with `subtree: true` fires `childList` records for both parent div and child span when Meet inserts a caption subtree. Both are different DOM nodes, so the per-node `nodeState` WeakMap dedup didn't catch them. `getText()` on either returns the same text → two identical callbacks to Python. Fix: added global `(speaker + text)` dedup with 50ms window in the JS `send()` function, before the `__onCaption` bridge call. Catches duplicates regardless of mutation source. Verified zero duplicates in live meeting.
+
+**What was built last session (April 4, 2026, session 29):**
 - **Conversation-mode runner pickup delay fix.** Root cause: `spec.ready.wait(timeout=3.0)` in the conversation-mode loop blocked until speculative LLM+TTS both finished before the runner could proceed. In wake mode, `_finalize_prompt` was called immediately. Fix: added `llm_done` event to `_SpeculativeResult`, set after LLM returns (before TTS). Conversation loop waits on `llm_done` instead of `ready`. `_finalize_prompt` Step 1 (LLM resolution) checks `llm_done` instead of `ready`. Step 2 (TTS) waits for in-flight speculative TTS when LLM matched, instead of starting redundant fresh synthesis. Filler skip logic recognizes "LLM done, TTS in-flight" as a skip condition. Result: pickup delay reduced from 0.8-1.3s to 0.2-0.3s. All speculative TTS hits preserved. Verified across 3 live test runs.
 
 **What was built last session (April 4, 2026, session 28):**
