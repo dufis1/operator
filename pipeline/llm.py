@@ -35,7 +35,8 @@ class LLMClient:
             *self._history,
             {"role": "user", "content": utterance},
         ]
-        log.info(f"LLM ask model={config.LLM_MODEL} history_turns={len(self._history)//2} utterance=\"{utterance[:80]}\"")
+        log.info(f"LLM ask model={config.LLM_MODEL} history_turns={len(self._history)//2} prompt_chars={len(utterance)}")
+        log.debug(f"LLM utterance: {utterance}")
         try:
             response = self._client.chat.completions.create(
                 model=config.LLM_MODEL,
