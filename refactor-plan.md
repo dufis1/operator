@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 31)*
+*Last updated: April 5, 2026 (session 34)*
 
-> **Current status: Pipeline finalization refactor complete (all 9 steps implemented).** Steps 1-3 done in session 32, steps 4-9 done in sessions 32-33. Live verification test pending next session.
+> **Current status: Live verification of 9-step refactor complete.** All steps confirmed working in live Meet session. Three abort-path bugs found and fixed: stale text on abort, missing prompt context on abort concatenation, false INCOMPLETE from caption punctuation. One known issue remains: ASR rewrites during is_speaking trigger false aborts (semantic diff needed at abort trigger point).
 
 ---
 
