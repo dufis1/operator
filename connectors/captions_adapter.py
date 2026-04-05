@@ -57,6 +57,12 @@ CAPTION_OBSERVER_JS = """
     let lastSent = "";
     let lastSentTime = 0;
 
+    // ── DOM timing instrumentation ──
+    // Logs raw mutation timestamps (unbatched) so we can measure
+    // how much delay comes from Meet's ASR vs our setTimeout batching.
+    let lastMutationRawTime = 0;
+    let lastMutationRawText = "";
+
     const getSpeaker = (node) => {
         const badge = node.querySelector(BADGE_SEL);
         return badge?.textContent?.trim() || lastSpeaker;
@@ -89,7 +95,9 @@ CAPTION_OBSERVER_JS = """
         lastSent = key;
         lastSentTime = now;
 
-        window.__onCaption(spk, txt, now);
+        // Log batch delay: how long between raw mutation and send()
+        const batchDelay = now - (state.rawMutationTime || now);
+        window.__onCaption(spk, txt, now, batchDelay);
     };
 
     // Batch DOM mutations per animation frame to avoid flooding Python.
@@ -110,6 +118,7 @@ CAPTION_OBSERVER_JS = """
     const attachObserver = (root, label) => {
         new MutationObserver((mutations) => {
             totalMutations += mutations.length;
+            const mutRawTime = performance.now();
 
             // Emit a heartbeat every 10 mutations so Python can see the observer is alive
             if (totalMutations - lastMutationReport >= 10) {
@@ -117,23 +126,82 @@ CAPTION_OBSERVER_JS = """
                 window.__onCaption("__operator_diag__", "mutation_count=" + totalMutations, performance.now());
             }
 
+            // ── Raw mutation timing (unbatched) ──
+            // Read text directly in the observer callback, before setTimeout.
+            // This gives us the true wall-clock time Meet updated the DOM.
+            for (const m of mutations) {
+                // addedNodes — new DOM elements
+                for (const n of m.addedNodes) {
+                    if (n instanceof HTMLElement) {
+                        const rawTxt = getText(n);
+                        if (rawTxt && rawTxt !== lastMutationRawText) {
+                            const gap = lastMutationRawTime > 0 ? mutRawTime - lastMutationRawTime : 0;
+                            window.__onCaption("__operator_diag__",
+                                "dom_raw mutation_gap=" + gap.toFixed(1) + "ms text=" + rawTxt.substring(0, 80),
+                                mutRawTime);
+                            lastMutationRawTime = mutRawTime;
+                            lastMutationRawText = rawTxt;
+                        }
+                    }
+                }
+                // characterData — text changes within existing nodes
+                if (m.type === "characterData" && m.target?.parentElement instanceof HTMLElement) {
+                    const rawTxt = getText(m.target.parentElement);
+                    if (rawTxt && rawTxt !== lastMutationRawText) {
+                        const gap = lastMutationRawTime > 0 ? mutRawTime - lastMutationRawTime : 0;
+                        window.__onCaption("__operator_diag__",
+                            "dom_raw mutation_gap=" + gap.toFixed(1) + "ms text=" + rawTxt.substring(0, 80),
+                            mutRawTime);
+                        lastMutationRawTime = mutRawTime;
+                        lastMutationRawText = rawTxt;
+                    }
+                }
+                // text node additions
+                for (const n of m.addedNodes) {
+                    if (n.nodeType === Node.TEXT_NODE && n.parentElement instanceof HTMLElement) {
+                        const rawTxt = getText(n.parentElement);
+                        if (rawTxt && rawTxt !== lastMutationRawText) {
+                            const gap = lastMutationRawTime > 0 ? mutRawTime - lastMutationRawTime : 0;
+                            window.__onCaption("__operator_diag__",
+                                "dom_raw mutation_gap=" + gap.toFixed(1) + "ms text=" + rawTxt.substring(0, 80),
+                                mutRawTime);
+                            lastMutationRawTime = mutRawTime;
+                            lastMutationRawText = rawTxt;
+                        }
+                    }
+                }
+            }
+
             for (const m of mutations) {
                 // Handle added HTMLElement nodes
                 for (const n of m.addedNodes) {
-                    if (n instanceof HTMLElement) pending.add(n);
+                    if (n instanceof HTMLElement) {
+                        // Stamp raw mutation time for batch delay measurement
+                        let st = nodeState.get(n);
+                        if (!st) { st = { id: nextNodeId++, lastText: null }; nodeState.set(n, st); }
+                        st.rawMutationTime = mutRawTime;
+                        pending.add(n);
+                    }
                 }
                 // Handle text node additions (Meet may wrap text in spans dynamically)
                 for (const n of m.addedNodes) {
                     if (n.nodeType === Node.TEXT_NODE && n.parentElement instanceof HTMLElement) {
+                        let st = nodeState.get(n.parentElement);
+                        if (!st) { st = { id: nextNodeId++, lastText: null }; nodeState.set(n.parentElement, st); }
+                        st.rawMutationTime = mutRawTime;
                         pending.add(n.parentElement);
                     }
                 }
                 // Handle characterData updates
                 if (m.type === "characterData" && m.target?.parentElement instanceof HTMLElement) {
+                    let st = nodeState.get(m.target.parentElement);
+                    if (st) st.rawMutationTime = mutRawTime;
                     pending.add(m.target.parentElement);
                 }
                 // Handle subtree attribute changes (e.g. aria-label updates carrying text)
                 if (m.type === "attributes" && m.target instanceof HTMLElement) {
+                    let st = nodeState.get(m.target);
+                    if (st) st.rawMutationTime = mutRawTime;
                     pending.add(m.target);
                 }
             }
@@ -721,7 +789,7 @@ class CaptionsAdapter(MeetingConnector):
 
     # ── JS → Python bridge ───────────────────────────────────────────
 
-    def _on_caption_from_js(self, speaker, text, js_timestamp):
+    def _on_caption_from_js(self, speaker, text, js_timestamp, batch_delay=0):
         """Called by the browser's MutationObserver on every caption update."""
         # Diagnostic sentinel from observer setup
         if speaker == "__operator_diag__":
@@ -747,7 +815,8 @@ class CaptionsAdapter(MeetingConnector):
             self._js_time_offset = py_now - js_timestamp / 1000.0
         timestamp = self._js_time_offset + js_timestamp / 1000.0
         bridge_lag = py_now - timestamp
-        log.info(f"caption: [{speaker}] {stripped[:80]}  [bridge_lag={bridge_lag*1000:.0f}ms]")
+        batch_ms = batch_delay if isinstance(batch_delay, (int, float)) else 0
+        log.info(f"caption: [{speaker}] {stripped[:80]}  [bridge_lag={bridge_lag*1000:.0f}ms batch_delay={batch_ms:.0f}ms]")
 
         self._last_caption_time = py_now
 

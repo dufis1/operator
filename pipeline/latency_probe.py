@@ -125,7 +125,7 @@ class LatencyProbe:
                         in_speech = True
                         speech_start = now
                         peak_rms = rms
-                        log.info("TIMING perceived_speech_start")
+                        log.debug("TIMING perceived_speech_start")
                 else:
                     if in_speech:
                         silence_count += 1
@@ -133,7 +133,7 @@ class LatencyProbe:
                             # Sustained silence — speech has ended
                             duration = now - (speech_start or now)
                             if duration >= _MIN_SPEECH_DURATION:
-                                log.info(
+                                log.debug(
                                     f"TIMING perceived_acoustic_silence_end "
                                     f"speech_duration={duration:.2f}s peak_rms={peak_rms:.4f}"
                                 )
