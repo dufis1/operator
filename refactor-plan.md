@@ -4,7 +4,7 @@
 
 *Last updated: April 4, 2026 (session 31)*
 
-> **Current status: Pipeline finalization refactor planned.** Issue #1 (LLM log truncation) fixed. Issue #2 (premature speculative finalization) root-caused via full pipeline audit. 9-step refactor plan drafted in `handoff.md`. Next session begins step 1: remove filler grace period.
+> **Current status: Pipeline finalization refactor complete (all 9 steps implemented).** Steps 1-3 done in session 32, steps 4-9 done in sessions 32-33. Live verification test pending next session.
 
 ---
 

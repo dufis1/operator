@@ -18,10 +18,16 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor planned (9 steps).
-**Next action:** Begin step 1 of finalization refactor: remove filler grace period. Full plan in `handoff.md`.
+**Phase:** Caption-scraping refactor — C.6 complete. Pipeline finalization refactor — all 9 steps implemented, live test pending.
+**Next action:** Live verification test of all 9 finalization refactor steps. Update `docs/model-log.md` with changed log lines afterward.
 
-**What was built this session (April 4, 2026, session 31):**
+**What was built this session (April 5, 2026, session 33):**
+- **Finalization refactor steps 4-9.** Step 4: second PASS text-growth check (re-classifies if caption text grew since speculative snapshot). Step 5: INCOMPLETE classification — LLM can now return INCOMPLETE for unfinished sentences ("What about?", "How about the"), keeping the bot listening instead of responding or PASSing. Step 6: removed punctuation gate from caption finalization — silence gap is now the only trigger, with LLM INCOMPLETE judgment replacing the `.?!` heuristic. Step 7: INCOMPLETE re-fire loop with cap of 3 — `_speculative_fired` resets after INCOMPLETE so speculative re-fires on next silence gap with longer text; counter prevents infinite loops. Step 8: echo guard reduced from 1.0s to 0.6s in config.yaml. Step 9: cleanup verified — no dead code from filler grace removal or punctuation gate removal, speculative TTS correctly gates on `for_assistant=True` (skips INCOMPLETE and PASS).
+
+**What was built last session (April 4-5, 2026, session 32):**
+- **Finalization refactor steps 1-3.** Step 1: removed filler grace period (`_filler_done_at` and 1.0s grace window). Step 2: fixed double "Echo prevention: resumed" log by adding `aborted` flag to skip `finally` cleanup on recursive `_finalize_prompt` calls. Step 3: widened abort window from 0.15s to 0.4s to accommodate caption bridge lag.
+
+**What was built last session (April 4, 2026, session 31):**
 - **Issue #1 fix (LLM log truncation).** Root cause: `utterance[:80]` in `llm.py:38` truncated the log display at INFO level, making it look like the LLM received truncated prompts. Actual API calls were unaffected. Fix: replaced with `prompt_chars=N` at INFO, full utterance at DEBUG.
 - **Full pipeline audit.** Inventoried 34 mechanisms across 7 groups (silence detection, speculative processing, conversation mode, echo prevention, abort, fillers, context management). Identified 4 conflicts: (A) filler grace blocks abort signals, (B) speculative classify locks in decisions on incomplete text, (C) ASR punctuation doesn't correlate with sentence completion, (D) echo guard adds dead time in rapid Q&A. Drafted 9-step refactor plan.
 
