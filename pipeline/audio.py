@@ -66,12 +66,12 @@ class AudioProcessor:
 
     def feed_audio(self, chunk):
         """Add raw PCM bytes to the buffer. Called by the connector's read loop."""
-        # Debug: write ALL audio before the is_speaking gate
-        if self._debug_wav is not None:
-            samples = np.frombuffer(chunk, dtype=np.float32)
-            self._debug_wav.write(samples)
-        if not self.is_speaking:
-            with self._audio_lock:
+        with self._audio_lock:
+            # Debug: write ALL audio (including echo) under lock
+            if self._debug_wav is not None:
+                samples = np.frombuffer(chunk, dtype=np.float32)
+                self._debug_wav.write(samples)
+            if not self.is_speaking:
                 self._audio_buffer += chunk
 
     def drain_audio_buffer(self):
@@ -91,6 +91,12 @@ class AudioProcessor:
                             Whisper + LLM processing while we wait for the second chunk
                             to confirm end-of-speech.
         """
+        # Conversation follow-ups (no_speech_timeout set) may re-enter after
+        # a timeout with stale audio in the buffer — drain it so we don't
+        # Whisper old data.  Other call sites need the buffered audio intact.
+        if no_speech_timeout:
+            self.drain_audio_buffer()
+
         speech_detected = False
         silence_count = 0
         first_silence_fired = False
