@@ -234,7 +234,8 @@ After a prompt is finalized, the pipeline calls LLM and synthesizes speech:
 
 ```
 Echo prevention: paused caption processing      # caption mode: ignore captions while bot speaks
-TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization
+TIMING filler_skipped — speculative LLM+TTS already complete       # filler not needed; response ready to play immediately
+TIMING filler_play_start clip=filler_NN.mp3 bucket=<neutral|...>  # filler starts immediately at finalization (skipped if speculative ready or abort retry)
 LLM ask model=gpt-4.1-mini history_turns=N utterance="..."        # logged before API call
 LLM reply="..."                                 # logged on successful response
 TIMING caption_speculative_llm_done reply="..."  # speculative LLM result
@@ -265,7 +266,7 @@ TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption d
 TIMING abort_text_grew — finalized="..." current="..."     # caption text grew beyond prompt (signal 2)
 TIMING abort_triggered — re-processing with "..."          # discards response, re-calls _finalize_prompt
 ```
-Either or both signals may fire. After abort, a new `filler_play_start` + full response pipeline follows with the updated text.
+Either or both signals may fire. `abort_caption_detected` has a grace period: non-"You" captions are ignored until 1s after filler playback finishes (Google Meet sometimes misattributes filler audio to the previous human speaker). After abort, `_finalize_prompt` retries with `allow_abort=False` — no filler on retry, no further aborts possible.
 
 **LLM resolution variants** (one of these appears per interaction):
 - `TIMING llm_speculative_hit waited=0.00s reply="..."` — speculative done before finalization, used immediately

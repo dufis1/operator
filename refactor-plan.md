@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 4, 2026 (session 26)*
+*Last updated: April 4, 2026 (session 27)*
 
-> **Current status: Finalization tuned and abort mechanism implemented.** Finalization 1.5s→0.7s, speculative 1.0s→0.5s. Abort mechanism catches premature finalization via two signals (caption arrival during echo prevention + text-grew comparison). Speculative matching normalized for Google ASR rewrites (number words, symbols, case). Live-tested with good results. Next: Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
+> **Current status: Filler echo loop fixed, filler skip optimization added.** Fixed infinite filler loop caused by Google Meet misattributing filler audio to the human speaker. Added dynamic grace period, abort recursion guard, and filler skip when speculative LLM+TTS already complete (saves ~0.8s on conversation-mode follow-ups). Next: Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
 
 ---
 

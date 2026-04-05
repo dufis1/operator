@@ -18,10 +18,14 @@
 
 ## Current Status
 
-**Phase:** Caption-scraping refactor — C.6 complete. Finalization tuned, abort mechanism implemented.
+**Phase:** Caption-scraping refactor — C.6 complete. Filler echo loop fixed, filler skip optimization added.
 **Next action:** Phase 7.5 TTS reliability, or Phase 8 open-source packaging.
 
-**What was built this session (April 4, 2026, session 26):**
+**What was built this session (April 4, 2026, session 27):**
+- **Filler echo loop fix.** Google Meet sometimes misattributes filler audio (played through BlackHole) to the previous human speaker instead of "You". This caused the abort mechanism to trigger in an infinite loop — each retry played a new filler, which got misattributed again. Three-layer fix: (1) Dynamic grace period on `_filler_done_at` — ignores non-"You" captions until 1s after filler playback finishes, adapting to any filler clip length. (2) `allow_abort=False` on recursive `_finalize_prompt` calls — hard cap at one retry. (3) No filler on abort retries — prevents double-filler awkwardness.
+- **Filler skip when speculative ready.** In conversation-mode follow-ups, `spec.ready.wait()` in the loop often completes before `_finalize_prompt` runs, meaning LLM reply and TTS audio are both already cached. Previously, `_finalize_prompt` played a filler anyway (~0.8s delay), then discovered the speculative hit and skipped synthesis. Now checks `speculative.ready.is_set() and speculative.synth_bytes` before starting filler — goes straight to playback when everything is ready.
+
+**What was built last session (April 4, 2026, session 26):**
 - **Aggressive finalization tuning.** Reduced `finalization_seconds` 1.5s→0.7s, `speculative_seconds` 1.0s→0.5s. Tried 0.3s/0.5s first — too aggressive, caused speculative misses (fired before captions settled) and premature finalization cutting off mid-sentence (Ecuador→France bug). Settled on 0.5s/0.7s as the sweet spot.
 - **Abort mechanism.** Two-signal system prevents wrong answers from premature finalization: (1) `abort_event` on `CaptionProcessor` — set when a non-"You" caption arrives during `is_speaking`, indicating user is still talking. (2) Text-grew check — compares live `_current_text` against finalized prompt using `endswith` after normalization, catching captions that arrived in the ~1s gap between finalization and echo prevention being set. On abort, `_finalize_prompt` re-processes immediately with the updated text (no round-trip through capture loop, avoiding the `capture_start` timing crack). Filler echo protection: `finally` block calls `filler_done.wait()` before resuming captions. Echo guard sleep skipped on abort (no response was played). `_finalize_prompt` returns bool so callers know whether to enter conversation mode.
 - **Speculative match normalization.** `_normalize_for_match()` handles Google ASR rewrites: lowercases, expands symbols (`+`→`plus`, `=`→`equals`, `-`→`minus`), converts number words to digits (`two`→`2`, etc.), strips punctuation, collapses whitespace. Fixed "What's two plus two" vs "what's 2 + 2" mismatch that caused speculative misses on first question every time.
@@ -1095,6 +1099,8 @@ Google Meet reaction button ARIA label: "Send a reaction" — click it, then cli
 **Google ASR rewrites captions between speculative and finalization.** The same utterance can appear as "What's two plus two" at speculative time and "what's 2 + 2" at finalization — case change, number word↔digit swap, symbol substitution. Exact string matching causes speculative misses on the first question every time. Fix: `_normalize_for_match()` that canonicalizes both sides (digits, symbols, case, punctuation).
 
 **Abort text-grew false positive from wake phrase prefix.** In wake-triggered mode, `prompt` is post-wake extraction ("what's 2 + 2") but `_current_text` includes the full caption region ("Hey operator, what's 2 + 2"). Comparing with `!=` always triggers abort. Fix: use `endswith` — if the normalized current text ends with the normalized prompt, no new content was added.
+
+**Filler echo infinite loop via Google Meet speaker misattribution.** Google Meet nondeterministically attributes filler audio (human-voice clips like "Yeah", "Right") to the previous human speaker's caption bubble instead of creating a new "[You]" bubble. This set `abort_event` in `on_caption_update`, triggering an abort→retry→new filler→misattributed again→abort loop. Each cycle took ~1.2s and played an audible filler, burning LLM tokens with duplicate requests. The misattribution is not timing-dependent — identical gaps between user speech and filler produced correct "[You]" attribution 3/4 times, then failed on the 4th. Root cause is in Google's server-side caption rendering, not our audio routing (mpv explicitly targets BlackHole). Fix: dynamic grace period (`_filler_done_at + 1.0s`), `allow_abort=False` on recursive retry, no filler on retries.
 
 ---
 
