@@ -686,7 +686,7 @@ class AgentRunner:
     # Prompt handling
     # ------------------------------------------------------------------
 
-    def _finalize_prompt(self, prompt, speculative=None, caption_mode=False):
+    def _finalize_prompt(self, prompt, speculative=None, caption_mode=False, allow_abort=True):
         """Resolve the LLM reply and speak it, playing fillers while synthesis runs.
 
         Returns True if the response was played, False if aborted.
@@ -706,6 +706,7 @@ class AgentRunner:
         # Echo guard: pause ingestion so the bot's own speech doesn't re-trigger
         if caption_mode:
             self.captions.abort_event.clear()
+            self.captions._filler_done_at = float('inf')  # grace active until filler finishes
             self.captions.is_speaking = True
             log.info("Echo prevention: paused caption processing")
         else:
@@ -728,26 +729,40 @@ class AgentRunner:
             t_finalized = time.time()
 
             # --- Step 3: Start filler immediately, concurrent with LLM wait ---
+            # Skip filler when: (a) abort retry — user already heard one, or
+            # (b) speculative LLM+TTS already finished — nothing to wait for.
+            prompt_norm = _normalize_for_match(prompt)
+            spec_ready = (speculative
+                          and speculative.ready.is_set()
+                          and _normalize_for_match(speculative.transcript or "") == prompt_norm
+                          and speculative.llm_reply
+                          and speculative.synth_bytes)
+            skip_filler = not allow_abort or spec_ready
+            if spec_ready:
+                log.info("TIMING filler_skipped — speculative LLM+TTS already complete")
             filler_bucket = fillers.classify(prompt)
-            filler_clips = fillers.get_clips(filler_bucket)
+            filler_clips = fillers.get_clips(filler_bucket) if not skip_filler else []
             if filler_clips:
                 clip = filler_clips[0]
                 log.info(f"TIMING filler_play_start clip={os.path.basename(clip)} bucket={filler_bucket}")
                 self._latency_probe.set_active(False)
                 def _play_filler():
                     self.tts.play_clip(clip)
+                    if caption_mode:
+                        self.captions._filler_done_at = time.monotonic()
                     log.info("TIMING filler_play_done")
                     filler_done.set()
                 threading.Thread(target=_play_filler, daemon=True, name="filler").start()
             else:
-                log.info(f"Filler: no clips for bucket={filler_bucket}, skipping")
+                if allow_abort and not spec_ready:
+                    log.info(f"Filler: no clips for bucket={filler_bucket}, skipping")
+                if caption_mode:
+                    self.captions._filler_done_at = time.monotonic()
                 filler_done.set()
 
             # --- Step 1: Resolve LLM — speculative only, no duplicate call ---
             t0 = time.time()
             reply = None
-
-            prompt_norm = _normalize_for_match(prompt)
 
             if (speculative
                     and speculative.ready.is_set()
@@ -828,7 +843,7 @@ class AgentRunner:
             # Two signals: (1) abort_event set by a non-"You" caption during
             # is_speaking, or (2) caption text grew beyond the finalized prompt
             # in the gap between finalization and is_speaking being set.
-            if caption_mode:
+            if caption_mode and allow_abort:
                 self.captions.abort_event.wait(timeout=0.15)
                 abort = self.captions.abort_event.is_set()
                 if not abort:
@@ -848,10 +863,10 @@ class AgentRunner:
                     with self.captions._lock:
                         updated_prompt = self.captions._current_text.strip()
                     log.info(f"TIMING abort_triggered — re-processing with \"{updated_prompt[:60]}\"")
-                    # Re-process immediately with the full text instead of
-                    # returning to the capture loop (which would miss it due
-                    # to the capture_start timing gap).
-                    return self._finalize_prompt(updated_prompt, speculative=None, caption_mode=True)
+                    # Re-process with allow_abort=False to prevent infinite
+                    # loops from filler echo being misattributed by Google Meet.
+                    return self._finalize_prompt(updated_prompt, speculative=None,
+                                                 caption_mode=True, allow_abort=False)
 
             # --- Step 5: Response plays ---
             self._latency_probe.set_active(False)

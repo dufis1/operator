@@ -79,6 +79,7 @@ class CaptionProcessor:
         # Abort signal: set when a non-"You" caption arrives during is_speaking,
         # indicating the user is still talking after premature finalization.
         self.abort_event = threading.Event()
+        self._filler_done_at = 0.0  # monotonic time when filler playback finished
 
         # Optional callback for ALL caption text (for transcript context)
         self._transcript_callback = None
@@ -112,8 +113,16 @@ class CaptionProcessor:
         """
         if self.is_speaking:
             if speaker.lower() != "you" and not self.abort_event.is_set():
-                log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
-                self.abort_event.set()
+                # Grace period: ignore non-"You" captions until 1s after
+                # filler playback finishes. Filler audio is sometimes
+                # misattributed to the previous human speaker by Google Meet,
+                # and captions arrive ~0.3-0.5s after the audio plays.
+                filler_grace_remaining = (self._filler_done_at + 1.0) - time.monotonic()
+                if filler_grace_remaining <= 0:
+                    log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
+                    self.abort_event.set()
+                else:
+                    log.debug(f"caption: ignored abort (filler grace {filler_grace_remaining:.2f}s left) [{speaker}] {text[:60]}")
             log.debug(f"caption: dropped while speaking [{speaker}] {text[:60]}")
             return
 
