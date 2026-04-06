@@ -21,18 +21,17 @@ _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILLERS = {
     "neutral": [
         "On it!",
-        "Yeah.",
-        "Sure.",
-        "Alright.",
-        "Right...",
         "Let's see...",
-        "Yep!",
         "For sure.",
-        "Gotcha.",
-        "Cool.",
+        "I gotcha.",
         "Sure thing.",
         "I know this.",
-        "Gotchyu."
+        "Checking",
+        "Thinking",
+        "Let me check...",
+        "One moment...",
+        "One sec.",
+        "Hang on.",
     ],
     "cerebral": [
         "Let me think...",
@@ -41,22 +40,17 @@ FILLERS = {
         "Interesting...",
         "Let me check...",
         "One moment...",
-        "So...",
-        "I'm digging into this. Okay...",
+        "I'm digging into this.",
         "Composing my thoughts...",
         "I have an answer for you.",
         "Here's what I found."
-
     ],
     "empathetic": [
         "I hear you.",
         "Of course.",
-        "Gotcha.",
         "I know exactly what you mean.",
         "I get that.",
         "Totally.",
-        "Yeah... okay.",
-        "Sure.",
         "For sure.",
         "I get what you're saying."
     ],
@@ -65,7 +59,6 @@ FILLERS = {
         "One sec.",
         "Hang on.",
         "Got it.",
-        "Okay okay.",
         "Hold on.",
     ],
 }
