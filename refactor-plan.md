@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 39)*
+*Last updated: April 5, 2026 (session 40)*
 
-> **Current status: Live testing in progress — first round of bugs fixed.** Session 39 ran the first live Google Meet test of the streaming classifier. Three bugs found and fixed: (1) playback interruptions now gated through stream classification to prevent caption hallucinations/noise from killing responses, (2) removed `_wake_position` character slicing — full caption node text sent as prompt so pre-wake-phrase context is preserved, (3) fixed zombie classifier threads accumulating across prompt cycles. More live testing needed to validate fixes and cover remaining test scenarios.
+> **Current status: Live testing in progress — second and third rounds complete.** Session 39's three fixes (playback interrupt classification, wake position slicing removal, zombie thread cleanup) validated in sessions 39–40. Session 40 fixed a fourth bug: the playback interrupt classifier was reading stale prompt text instead of the actual triggering caption. Premature finalization at 0.7s silence threshold remains the top user-facing issue — causes mid-sentence cutoffs and unnecessary PASS classifications.
 
 ---
 
