@@ -1,6 +1,6 @@
 # Model Log Reference
 
-Last updated: 2026-04-05 (session 39)
+Last updated: 2026-04-05 (session 41)
 Captured from: macOS headless, Kokoro TTS, Whisper base model (audio mode) / Meet captions (caption mode)
 
 This is the gold-standard reference for what Operator's logs should look like during
@@ -25,8 +25,10 @@ STARTUP STT provider=mlx model=base             # provider and model from config
 STARTUP Whisper model loaded                   # ~0.4s on Apple Silicon
 STARTUP connecting to APIs...                  # OpenAI client init
 STARTUP initializing TTS (background)...       # TTS init runs in background thread
+STARTUP warming LLM connection (background)... # warmup thread fires 1-token dummy request
 STARTUP joining meeting <url>                  # only if meeting_url provided
 MacOSAdapter: joining <url>                    # connector-level join
+LLM warmup complete                            # TCP/TLS connection pool established (~1.3s after startup)
 STARTUP TTS ready (background)                 # Kokoro load finished (overlaps with browser)
 MacOSAdapter: Swift helper launched            # audio capture binary started
 AgentRunner: audio capture started
@@ -40,9 +42,11 @@ STARTUP begin
 STARTUP mode=captions (DOM-based, no Whisper)   # no Whisper model load
 STARTUP connecting to APIs...                   # OpenAI client init
 STARTUP initializing TTS (background)...       # TTS init runs in background thread
+STARTUP warming LLM connection (background)... # warmup thread fires 1-token dummy request
 STARTUP joining meeting <url>
 CaptionsAdapter: joining <url>                  # caption connector join
 TIMING browser_launch=0.9s                     # Chromium cold start
+LLM warmup complete                            # TCP/TLS pool established (fires ~1.3s after startup, during browser launch)
 TIMING navigation=0.8s                         # page.goto to Meet URL
 TIMING pre_join_ready=0.5s                     # wait for pre-join DOM elements
 TIMING detect_page_state=0.0s (state=pre_join) # auth/session state check
