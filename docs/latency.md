@@ -124,3 +124,18 @@ The core intuition: a threshold that works well for someone who speaks in short 
 - **On-device Whisper (mlx, wake-only mode)**: Run mlx-whisper on short rolling audio windows (e.g. 1–2s) looking only for the wake phrase. Higher CPU cost than a dedicated wake engine but reuses existing infrastructure and needs no new dependency.
 
 **Tradeoff to evaluate:** The existing wake detection via captions has a useful property — it only triggers when Google Meet has attributed speech to the correct speaker. An audio-based detector has no speaker attribution; in a multi-participant meeting it could trigger on anyone saying "hey operator." Whether that matters depends on the use case (solo sessions vs. group meetings).
+
+---
+
+### 6. Trigger wake detection on partial caption ("Oper." / "Hey Oper.")
+
+**Observation from logs:** In every observed wake event, Google Meet emits a partial caption (`"Oper."` or `"Pay Oper."`) approximately 330ms before the full word appears (`"Operator."` / `"Hey Operator."`). This partial is a consistent predecessor — it appears to be Meet's ASR streaming an in-progress recognition result before committing to the complete word.
+
+**Idea:** Detect the partial form of the wake phrase (e.g. a regex matching `oper` as a standalone token) and begin the silence detection clock immediately, rather than waiting for the full `"Operator."` to be confirmed. If the partial is truly a near-100% reliable predictor of the full word, this could shave ~330ms from the finalization time.
+
+**What needs to be validated:**
+- **Consistency:** How often does `"Oper."` appear without being followed by `"Operator."`? False positives here would trigger the pipeline on non-wake speech (e.g. someone saying "operation", "operate").
+- **False positive rate:** The partial `oper` substring appears in common words. The match would need to be constrained (e.g. standalone word boundary, not mid-word) to avoid spurious triggers.
+- **Savings in practice:** If the silence threshold is 0.72s and the partial fires 330ms early, the net saving on finalization time is ~330ms — bringing wake-to-finalized from ~1,050ms down to ~720ms.
+
+**Low-risk way to test:** Log every occurrence of a partial-match without acting on it, and measure how reliably it predicts the full wake phrase. Only change the trigger logic once the false positive rate is confirmed acceptable.

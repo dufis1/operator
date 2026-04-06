@@ -34,7 +34,7 @@ _WAKE_RE = re.compile(
 SILENCE_SECONDS = config.CAPTION_SILENCE_SECONDS  # default 0.7
 
 # How often the silence-detection loop checks for gaps
-_POLL_INTERVAL = 0.1  # 100ms — fast enough to catch 0.7s silence threshold
+_POLL_INTERVAL = 0.001  # 1ms — tight poll to minimize overshoot on silence threshold
 
 # Maximum prompt length (chars) to prevent indefinite accumulation
 _MAX_PROMPT_CHARS = 2000
