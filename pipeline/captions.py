@@ -81,6 +81,7 @@ class CaptionProcessor:
         # indicating the user is still talking after premature finalization.
         self.abort_event = threading.Event()
         self._abort_speaker = None  # speaker who triggered the abort
+        self._abort_text = ""       # caption text that triggered the abort
 
         # Optional callback for ALL caption text (for transcript context)
         self._transcript_callback = None
@@ -142,8 +143,9 @@ class CaptionProcessor:
                         log.info(f"DIAG echo_false_abort_suppressed — caption matches TTS output")
                     else:
                         log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
-                        self.abort_event.set()
                         self._abort_speaker = speaker
+                        self._abort_text = text
+                        self.abort_event.set()
                 # Only update _current_text if (a) same speaker who triggered
                 # abort AND (b) new text extends the existing text. Google
                 # sometimes misattributes the bot's audio back to the human
@@ -157,6 +159,7 @@ class CaptionProcessor:
                         if not prev or curr.startswith(prev) or prev.startswith(curr):
                             self._current_text = text
                             self._current_speaker = speaker
+                            self._abort_text = text
                         else:
                             log.info(
                                 f"caption: rejected echo-suspect during abort — "

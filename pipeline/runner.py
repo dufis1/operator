@@ -555,6 +555,7 @@ class AgentRunner:
         # Echo guard: pause ingestion so the bot's own speech doesn't re-trigger
         if caption_mode:
             self.captions.abort_event.clear()
+            self.captions._abort_text = ""
             self.captions.is_speaking = True
             log.info("Echo prevention: paused caption processing")
         else:
@@ -749,6 +750,7 @@ class AgentRunner:
                             # Reset echo guard, re-process
                             self.captions.is_speaking = False
                             self.captions._abort_speaker = None
+                            self.captions._abort_text = ""
                             self.captions._tts_text = ""
                             self._finalize_prompt(
                                 updated_text, caption_mode=True, stream_classify=True,
@@ -760,6 +762,7 @@ class AgentRunner:
             # handled above. Only interruptions DURING playback should stop it.
             if caption_mode:
                 self.captions.abort_event.clear()
+                self.captions._abort_text = ""
             self._latency_probe.set_active(False)
             t_play = time.time()
             log.info(f"TIMING response_play_start gap_since_filler_done={t_play - t_ready_to_play:.3f}s")
@@ -777,7 +780,7 @@ class AgentRunner:
                     if playback_done.is_set():
                         return  # playback finished normally, nothing to classify
                     with self.captions._lock:
-                        interrupt_text = self.captions._current_text.strip()
+                        interrupt_text = self.captions._abort_text.strip()
                         interrupt_speaker = self.captions._abort_speaker
                     if not interrupt_text:
                         log.info("TIMING playback_interrupt_empty — no text, confirming interrupt")
@@ -834,6 +837,7 @@ class AgentRunner:
             if caption_mode:
                 self.captions.is_speaking = False
                 self.captions._abort_speaker = None
+                self.captions._abort_text = ""
                 self.captions._tts_text = ""
                 log.info("Echo prevention: resumed caption processing")
             else:
