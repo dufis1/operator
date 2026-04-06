@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 41)*
+*Last updated: April 6, 2026 (session 43)*
 
-> **Current status: Live testing in progress — second and third rounds complete.** Session 39's three fixes (playback interrupt classification, wake position slicing removal, zombie thread cleanup) validated in sessions 39–40. Session 40 fixed a fourth bug: the playback interrupt classifier was reading stale prompt text instead of the actual triggering caption. Session 41: LLM cold-start warmup added — 41% reduction in first-question latency. Premature finalization at 0.7s silence threshold remains the top user-facing issue.
+> **Current status: Live testing in progress — latency fully documented.** Sessions 42–43 were research: ASR lag measured (~407ms), full end-to-end pipeline table captured in `docs/latency.md`, five latency reduction ideas documented. No code changed. Premature finalization at 0.7s silence threshold remains the top user-facing issue.
 
 ---
 
