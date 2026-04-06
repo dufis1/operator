@@ -486,11 +486,10 @@ class AgentRunner:
                 # "Hey operator" resets to wake mode — treat as fresh wake trigger
                 m = _FULL_WAKE_RE.search(followup)
                 if m:
-                    wake_trailing = followup[m.end():].strip().strip(",.:?!")
                     log.info(f"Conversation mode: wake phrase detected — resetting to wake mode")
-                    if wake_trailing:
-                        # Inline prompt after "hey operator"
-                        self._finalize_prompt(wake_trailing, caption_mode=True, stream_classify=True)
+                    # Send full caption text — LLM gets full context including
+                    # any pre-wake-phrase content the user wants answered.
+                    self._finalize_prompt(followup, caption_mode=True, stream_classify=True)
                     # Exit conversation loop — outer loop will pick up fresh wake
                     break
 
@@ -765,9 +764,47 @@ class AgentRunner:
             t_play = time.time()
             log.info(f"TIMING response_play_start gap_since_filler_done={t_play - t_ready_to_play:.3f}s")
             if caption_mode:
-                completed = self.tts.play_audio(
-                    wav_result[0], interrupt_event=self.captions.abort_event,
+                # Gate interruptions through classification — don't kill
+                # playback for hallucinated captions or background noise.
+                confirmed_interrupt = threading.Event()
+                playback_done = threading.Event()
+
+                def _classify_playback_interrupt():
+                    """Watch for abort_event, classify, set confirmed_interrupt if real."""
+                    # Poll both events — exit if playback finishes or abort fires
+                    while not playback_done.is_set() and not self.captions.abort_event.is_set():
+                        self.captions.abort_event.wait(timeout=0.05)
+                    if playback_done.is_set():
+                        return  # playback finished normally, nothing to classify
+                    with self.captions._lock:
+                        interrupt_text = self.captions._current_text.strip()
+                        interrupt_speaker = self.captions._abort_speaker
+                    if not interrupt_text:
+                        log.info("TIMING playback_interrupt_empty — no text, confirming interrupt")
+                        confirmed_interrupt.set()
+                        return
+                    log.info(
+                        f"TIMING playback_interrupt_classifying "
+                        f"speaker={interrupt_speaker} text=\"{interrupt_text[:60]}\""
+                    )
+                    result = self._stream_classify_playback_interrupt(
+                        interrupt_text, reply
+                    )
+                    if result == "interrupt":
+                        log.info("TIMING playback_interrupt_confirmed — stopping playback")
+                        confirmed_interrupt.set()
+                    else:
+                        log.info("TIMING playback_interrupt_dismissed — continuing playback")
+
+                interrupt_classifier = threading.Thread(
+                    target=_classify_playback_interrupt, daemon=True
                 )
+                interrupt_classifier.start()
+
+                completed = self.tts.play_audio(
+                    wav_result[0], interrupt_event=confirmed_interrupt,
+                )
+                playback_done.set()  # signal classifier thread to exit
                 if not completed:
                     log.info("TIMING response_interrupted — user talked over playback")
             else:
@@ -866,6 +903,60 @@ class AgentRunner:
         except Exception as e:
             log.error(f"Interruption classify error: {e}", exc_info=True)
             return "respond"  # default to re-process on error
+
+    def _stream_classify_playback_interrupt(self, interrupt_text, bot_reply):
+        """Classify whether speech during playback is a real interruption.
+
+        Returns "interrupt" or "pass".
+        """
+        with self._transcript_lock:
+            context = "\n".join(self._transcript_lines[-20:-1]) if len(self._transcript_lines) > 1 else ""
+
+        last_exchange = ""
+        if self._last_utterance:
+            last_exchange = (
+                f"[Current exchange]\nThey asked: {self._last_utterance}\n"
+                f"You are currently responding: {bot_reply}\n\n"
+            )
+        full_prompt = (
+            f"[Meeting transcript so far]\n{context}\n\n"
+            f"{last_exchange}"
+            f"[Caption detected during your response]\n\"{interrupt_text}\"\n\n"
+            f"[Instruction] You are in a live meeting and currently speaking your "
+            f"response aloud. A caption was detected from another participant while "
+            f"you were talking.\n"
+            f"This could be:\n"
+            f"- A real interruption (someone deliberately cutting you off or saying "
+            f"\"stop\", \"never mind\", \"actually\", etc.)\n"
+            f"- Background noise or ambient speech picked up by their microphone\n"
+            f"- A caption hallucination from the speech recognition system (random "
+            f"short words like \"What?\", \"Yeah.\", \"Oh.\" that nobody actually said)\n\n"
+            f"If this looks like a REAL deliberate interruption, respond with only "
+            f"INTERRUPT.\n"
+            f"If this is likely noise, hallucination, or not directed at you, respond "
+            f"with only PASS."
+        )
+
+        try:
+            log.info("TIMING playback_interrupt_classify_start")
+            stream = self.llm.ask_stream(full_prompt)
+            first_token = ""
+            for token in stream:
+                first_token += token
+                if first_token.strip():
+                    break
+            # Drain
+            for _ in stream:
+                pass
+
+            token_val = first_token.strip().upper()
+            log.info(f"TIMING playback_interrupt_classify_done token=\"{token_val}\"")
+            if token_val.startswith("INTERRUPT"):
+                return "interrupt"
+            return "pass"
+        except Exception as e:
+            log.error(f"Playback interrupt classify error: {e}", exc_info=True)
+            return "interrupt"  # default to interrupt on error (safe side)
 
     def _play_interruption_filler(self):
         """Play an interruption-acknowledgment filler clip."""

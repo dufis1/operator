@@ -63,7 +63,7 @@ class CaptionProcessor:
 
         # Wake detection state
         self._wake_detected = False
-        self._wake_position = -1       # char index where wake phrase ends
+        # _wake_position removed — full caption node text is sent as prompt
         # Signalling between caption updates and the blocking capture call
         self._wake_event = threading.Event()        # set when wake phrase first found
         self._finalized_event = threading.Event()    # set when prompt is finalized
@@ -191,12 +191,10 @@ class CaptionProcessor:
                 if not self._wake_detected:
                     m = _WAKE_RE.search(text_lower)
                     if m:
-                        self._wake_position = m.end()
                         self._wake_detected = True
-                        prompt_so_far = text[self._wake_position:].strip().strip(",.:?!")
                         log.info(
                             f"TIMING caption_wake_detected speaker={speaker} "
-                            f"prompt_so_far=\"{prompt_so_far[:60]}\""
+                            f"prompt_so_far=\"{text[:60]}\""
                         )
                         self._wake_event.set()
                 else:
@@ -204,7 +202,6 @@ class CaptionProcessor:
                     if not _WAKE_RE.search(text_lower):
                         log.info("TIMING caption_wake_retracted (ASR correction removed wake phrase)")
                         self._wake_detected = False
-                        self._wake_position = -1
                         self._wake_event.clear()
 
     # ── Blocking API for the runner ─────────────────────────────────
@@ -317,7 +314,6 @@ class CaptionProcessor:
         """Clear all state for a new capture cycle."""
         with self._lock:
             self._wake_detected = False
-            self._wake_position = -1
             self._result_speaker = None
             self._result_prompt = None
             # Don't clear _current_speaker/_current_text/_last_update_time —
@@ -327,10 +323,10 @@ class CaptionProcessor:
         self._cancel_event.clear()
 
     def _extract_prompt(self):
-        """Extract the prompt text (everything after the wake phrase). Must hold _lock."""
-        if not self._wake_detected or self._wake_position < 0:
+        """Extract the full caption node text as the prompt. Must hold _lock."""
+        if not self._wake_detected:
             return ""
-        prompt = self._current_text[self._wake_position:].strip().strip(",.:?!")
+        prompt = self._current_text.strip()
         if len(prompt) > _MAX_PROMPT_CHARS:
             prompt = prompt[:_MAX_PROMPT_CHARS]
             log.warning(f"caption: prompt truncated to {_MAX_PROMPT_CHARS} chars")
