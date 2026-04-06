@@ -1,6 +1,6 @@
 # Model Log Reference
 
-Last updated: 2026-04-05 (session 38)
+Last updated: 2026-04-05 (session 39)
 Captured from: macOS headless, Kokoro TTS, Whisper base model (audio mode) / Meet captions (caption mode)
 
 This is the gold-standard reference for what Operator's logs should look like during
@@ -299,12 +299,20 @@ caption: rejected echo-suspect during abort — prev="..." new="..."            
 ```
 `[ECHO-MATCH]` fires when caption text overlaps with `_tts_text` (substring match or 60%+ word overlap). `echo_false_abort_suppressed` means a non-"You" caption was recognized as bot echo and did not trigger abort.
 
-**Playback interruption** (user talks over operator's response):
+**Playback interruption** (caption detected during operator's response):
 ```
-TIMING abort_caption_detected speaker=<name> text="..."    # non-"You" caption during is_speaking
-TTS play_audio: interrupted by user speech                 # mpv terminated mid-playback
+TIMING abort_caption_detected speaker=<name> text="..."                     # non-"You" caption during is_speaking
+TIMING playback_interrupt_classifying speaker=<name> text="..."             # classifier invoked on the caption
+TIMING playback_interrupt_classify_start                                    # LLM stream begins
+TIMING playback_interrupt_classify_done token="PASS"                        # noise/hallucination → continue playback
+TIMING playback_interrupt_dismissed — continuing playback                   # playback NOT interrupted
+
+TIMING playback_interrupt_classify_done token="INTERRUPT"                   # real interruption → stop playback
+TIMING playback_interrupt_confirmed — stopping playback                     # confirmed_interrupt event set
+TTS play_audio: interrupted by user speech                                  # mpv terminated mid-playback
 TIMING response_interrupted — user talked over playback
 ```
+Note: `playback_interrupt_empty` fires if abort has no associated text (fallback: confirms interrupt).
 
 **Processing-phase interruption** (speaker kept talking after finalization, before playback):
 ```

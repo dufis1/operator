@@ -2,9 +2,9 @@
 
 *Human-readable checklist. For technical detail and step-by-step instructions, give `agent-context.md` to a coding agent. For strategic rationale, see `next-steps.md`.*
 
-*Last updated: April 5, 2026 (session 38)*
+*Last updated: April 5, 2026 (session 39)*
 
-> **Current status: Streaming classifier redesign implemented, pending live test.** Session 38 implemented all 8 steps of the streaming classifier redesign: streaming LLM, first-token PASS/EXIT/respond classification for both wake and conversation mode, playback-only interruption, processing-phase interruption handling with stream-classify, wake phrase detection in conversation mode, classification-based exit, and interruption filler clips. Live testing in Google Meet is the next step.
+> **Current status: Live testing in progress — first round of bugs fixed.** Session 39 ran the first live Google Meet test of the streaming classifier. Three bugs found and fixed: (1) playback interruptions now gated through stream classification to prevent caption hallucinations/noise from killing responses, (2) removed `_wake_position` character slicing — full caption node text sent as prompt so pre-wake-phrase context is preserved, (3) fixed zombie classifier threads accumulating across prompt cycles. More live testing needed to validate fixes and cover remaining test scenarios.
 
 ---
 
