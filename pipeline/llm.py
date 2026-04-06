@@ -80,6 +80,21 @@ class LLMClient:
             if delta.content:
                 yield delta.content
 
+    def warmup(self):
+        """Fire a 1-token request to establish the TCP/TLS connection pool.
+
+        Not recorded to history. Call once at startup in a background thread.
+        """
+        try:
+            self._client.chat.completions.create(
+                model=config.LLM_MODEL,
+                max_tokens=1,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            log.info("LLM warmup complete")
+        except Exception as e:
+            log.warning(f"LLM warmup failed (non-fatal): {e}")
+
     def record_exchange(self, utterance: str, reply: str):
         """Commit a user/assistant exchange to history without an API call.
 

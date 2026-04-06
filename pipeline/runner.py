@@ -175,6 +175,9 @@ class AgentRunner:
             log.info("STARTUP TTS ready (background)")
         threading.Thread(target=_init_tts, daemon=True, name="tts-init").start()
 
+        log.info("STARTUP warming LLM connection (background)...")
+        threading.Thread(target=self.llm.warmup, daemon=True, name="llm-warmup").start()
+
         self.conv = ConversationState(on_state_change=self._on_state_change)
 
         if meeting_url:
