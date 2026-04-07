@@ -113,14 +113,27 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
     # Resolve chat mode from --chat flag or config
     use_chat = chat_mode or config.INTERACTION_MODE == "chat"
 
+    mcp = None  # only used in chat mode
+
     if use_chat:
         from openai import OpenAI
         from connectors.macos_adapter import MacOSAdapter
         from pipeline.chat_runner import ChatRunner
         from pipeline.llm import LLMClient
         connector = MacOSAdapter(force=force)
-        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY))
-        runner = ChatRunner(connector, llm)
+        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY), mode="chat")
+
+        if config.MCP_SERVERS:
+            from pipeline.mcp_client import MCPClient
+            mcp = MCPClient()
+            try:
+                tool_names = mcp.connect_all()
+                log.info(f"MCP tools discovered: {tool_names}")
+            except Exception as e:
+                log.error(f"MCP client startup failed: {e}")
+                mcp = None
+
+        runner = ChatRunner(connector, llm, mcp_client=mcp)
     else:
         from pipeline.runner import AgentRunner
         connector_type = config.CONNECTOR_TYPE
@@ -163,6 +176,8 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
             if signum:
                 log.info(f"Received signal {signum} — shutting down")
         runner.stop()
+        if mcp:
+            mcp.shutdown()
         if poller:
             poller.stop()
         connector.leave()
@@ -262,12 +277,25 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
     import config
     use_chat = chat_mode or config.INTERACTION_MODE == "chat"
 
+    mcp = None  # only used in chat mode
+
     if use_chat:
         from openai import OpenAI
         from pipeline.chat_runner import ChatRunner
         from pipeline.llm import LLMClient
-        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY))
-        runner = ChatRunner(connector, llm)
+        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY), mode="chat")
+
+        if config.MCP_SERVERS:
+            from pipeline.mcp_client import MCPClient
+            mcp = MCPClient()
+            try:
+                tool_names = mcp.connect_all()
+                log.info(f"MCP tools discovered: {tool_names}")
+            except Exception as e:
+                log.error(f"MCP client startup failed: {e}")
+                mcp = None
+
+        runner = ChatRunner(connector, llm, mcp_client=mcp)
     else:
         from pipeline.runner import AgentRunner
         runner = AgentRunner(
@@ -279,6 +307,8 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
         if signum:
             log.info(f"Received signal {signum} — shutting down")
         runner.stop()
+        if mcp:
+            mcp.shutdown()
         connector.leave()
 
     signal.signal(signal.SIGTERM, _shutdown)

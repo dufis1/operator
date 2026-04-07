@@ -4,6 +4,7 @@ LLM integration for Operator.
 Wraps OpenAI chat completions with a system prompt and per-session
 conversation history. No macOS imports.
 """
+import json
 import logging
 import config
 
@@ -17,40 +18,85 @@ class LLMClient:
         reply = client.ask("What's the plan?")
     """
 
-    def __init__(self, openai_client):
+    def __init__(self, openai_client, mode="voice"):
         self._client = openai_client
         self._history = []
+        self._mode = mode
         self._max_pairs = config.CHAT_HISTORY_TURNS  # user+assistant pairs to keep
+        if mode == "chat":
+            self._system_prompt = config.CHAT_SYSTEM_PROMPT
+            self._max_tokens = config.CHAT_MAX_TOKENS
+        else:
+            self._system_prompt = config.SYSTEM_PROMPT
+            self._max_tokens = 60
 
-    def ask(self, utterance, record=True):
-        """Send an utterance to GPT and return the reply string.
+    def ask(self, utterance, record=True, tools=None):
+        """Send an utterance to GPT and return the reply.
+
+        When tools is None (voice path, backward compat): returns a plain string.
+        When tools is provided (chat + MCP): returns a dict with either:
+          {"type": "text", "content": "..."}
+          {"type": "tool_call", "id": "...", "name": "...", "arguments": {...}}
 
         record=False: result is NOT added to conversation history.
         Call record_exchange() later if you decide to use the result.
         """
         messages = [
-            {"role": "system", "content": config.SYSTEM_PROMPT},
+            {"role": "system", "content": self._system_prompt},
             *self._history,
             {"role": "user", "content": utterance},
         ]
-        log.info(f"LLM ask model={config.LLM_MODEL} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
+        log.info(f"LLM ask model={config.LLM_MODEL} mode={self._mode} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(utterance)} tools={len(tools) if tools else 0}")
         log.debug(f"LLM utterance: {utterance}")
+
+        kwargs = {
+            "model": config.LLM_MODEL,
+            "max_tokens": self._max_tokens,
+            "messages": messages,
+        }
+        if tools:
+            kwargs["tools"] = tools
+
         try:
-            response = self._client.chat.completions.create(
-                model=config.LLM_MODEL,
-                max_tokens=60,
-                messages=messages,
-            )
+            response = self._client.chat.completions.create(**kwargs)
         except Exception as e:
             log.error(f"LLM API call failed: {e}", exc_info=True)
             raise
-        reply = response.choices[0].message.content
-        log.info(f"LLM reply=\"{reply[:80]}\"")
-        if record:
-            self._history.append({"role": "user", "content": utterance})
-            self._history.append({"role": "assistant", "content": reply})
-            self._trim_history()
-        return reply
+
+        message = response.choices[0].message
+
+        # No tools provided (voice path) — return plain string for backward compat
+        if not tools:
+            reply = message.content
+            log.info(f"LLM reply=\"{reply[:80]}\"")
+            if record:
+                self._history.append({"role": "user", "content": utterance})
+                self._history.append({"role": "assistant", "content": reply})
+                self._trim_history()
+            return reply
+
+        # Tools provided — check if model wants to call one
+        if message.tool_calls:
+            tc = message.tool_calls[0]
+            log.info(f"LLM tool_call name={tc.function.name}")
+            if record:
+                self._history.append({"role": "user", "content": utterance})
+                self._history.append(message.to_dict())
+                self._trim_history()
+            return {
+                "type": "tool_call",
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": json.loads(tc.function.arguments),
+            }
+        else:
+            reply = message.content
+            log.info(f"LLM reply=\"{reply[:80]}\"")
+            if record:
+                self._history.append({"role": "user", "content": utterance})
+                self._history.append({"role": "assistant", "content": reply})
+                self._trim_history()
+            return {"type": "text", "content": reply}
 
     def ask_stream(self, utterance):
         """Stream tokens from GPT. Yields token strings as they arrive.
@@ -58,16 +104,16 @@ class LLMClient:
         Does NOT record to history — call record_exchange() if you use the result.
         """
         messages = [
-            {"role": "system", "content": config.SYSTEM_PROMPT},
+            {"role": "system", "content": self._system_prompt},
             *self._history,
             {"role": "user", "content": utterance},
         ]
-        log.info(f"LLM ask_stream model={config.LLM_MODEL} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
+        log.info(f"LLM ask_stream model={config.LLM_MODEL} mode={self._mode} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
         log.debug(f"LLM utterance: {utterance}")
         try:
             response = self._client.chat.completions.create(
                 model=config.LLM_MODEL,
-                max_tokens=60,
+                max_tokens=self._max_tokens,
                 messages=messages,
                 stream=True,
             )
@@ -107,6 +153,37 @@ class LLMClient:
         """Add a message to history as context without triggering a response."""
         self._history.append({"role": "user", "content": text})
         self._trim_history()
+
+    def send_tool_result(self, tool_call_id: str, tool_name: str, result_content: str):
+        """Feed a tool result back to the model and get the summary response.
+
+        Call this after executing a tool call. The LLM will summarize the
+        result into a user-facing message.
+        """
+        self._history.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": result_content,
+        })
+        messages = [
+            {"role": "system", "content": self._system_prompt},
+            *self._history,
+        ]
+        log.info(f"LLM send_tool_result tool={tool_name} result_len={len(result_content)}")
+        try:
+            response = self._client.chat.completions.create(
+                model=config.LLM_MODEL,
+                max_tokens=self._max_tokens,
+                messages=messages,
+            )
+        except Exception as e:
+            log.error(f"LLM tool result call failed: {e}", exc_info=True)
+            raise
+        reply = response.choices[0].message.content
+        log.info(f"LLM tool summary=\"{reply[:80]}\"")
+        self._history.append({"role": "assistant", "content": reply})
+        self._trim_history()
+        return reply
 
     def _trim_history(self):
         """Keep only the most recent _max_pairs user/assistant pairs.

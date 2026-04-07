@@ -23,6 +23,14 @@ llm:
   provider: "openai"
   model: "gpt-4.1-mini"
   chat_history_turns: 4        # max user/assistant pairs kept in chat context
+  chat_max_tokens: 300         # max tokens for chat responses (voice uses 60)
+  chat_system_prompt: >
+    You are Operator, an AI assistant participating in a meeting via chat.
+    Keep responses concise — short paragraphs, not walls of text.
+    You may use brief markdown formatting when it helps readability.
+    Be direct. No preamble, no filler.
+    When you have access to tools, describe what you can do if asked.
+    If you decide to use a tool, explain what you're about to do.
 
 tts:
   provider: "local"             # local | openai | elevenlabs
@@ -53,3 +61,18 @@ captions:
 diagnostics:
   latency_probe: true            # set false to disable mic monitoring (suppresses PortAudio input monitoring feedback)
   debug_audio: false             # set true to save TTS WAV + BlackHole recording to debug/ for dropout diagnosis
+
+# MCP tool servers — Operator connects to these at startup and offers their tools to the LLM.
+# Each server runs as a subprocess (stdio transport). Env values like ${VAR} resolve from .env.
+# Uncomment a server to enable it.
+mcp_servers: {}
+  # linear:
+  #   command: "npx"
+  #   args: ["-y", "@linear/mcp-server"]
+  #   env:
+  #     LINEAR_API_KEY: "${LINEAR_API_KEY}"
+  # github:
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-github"]
+  #   env:
+  #     GITHUB_TOKEN: "${GITHUB_TOKEN}"

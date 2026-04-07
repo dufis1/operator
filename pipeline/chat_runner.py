@@ -20,14 +20,17 @@ POLL_INTERVAL = 1.5  # seconds between read_chat() calls
 class ChatRunner:
     """Polls meeting chat and responds to messages."""
 
-    def __init__(self, connector, llm):
+    def __init__(self, connector, llm, mcp_client=None):
         self._connector = connector
         self._llm = llm
+        self._mcp = mcp_client
         self._stop_event = threading.Event()
         # Track messages we've sent so we can ignore our own echoes
         self._own_messages: set[str] = set()
         # Track message IDs we've already processed
         self._seen_ids: set[str] = set()
+        # Pending tool call awaiting user confirmation
+        self._pending_tool_call: dict | None = None
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
@@ -101,6 +104,11 @@ class ChatRunner:
 
                 log.info(f"ChatRunner: new message sender={sender!r} id={msg_id!r} text={text!r}")
 
+                # If we're waiting for tool confirmation, any message is a response
+                if self._pending_tool_call:
+                    self._handle_confirmation(text)
+                    continue
+
                 # Wake phrase gating: only respond when message contains the wake phrase
                 wake = config.CHAT_WAKE_PHRASE.lower()
                 lower = text.lower()
@@ -122,14 +130,96 @@ class ChatRunner:
     def _handle_message(self, text):
         """Process a single chat message via LLM."""
         try:
-            reply = self._llm.ask(text)
+            tools = self._mcp.get_openai_tools() if self._mcp else None
+            result = self._llm.ask(text, tools=tools)
         except Exception as e:
             log.error(f"ChatRunner: LLM call failed: {e}")
             return
-        log.info(f"ChatRunner: sending reply={reply!r}")
-        self._own_messages.add(reply)
+
+        # No tools path — plain string (backward compat)
+        if isinstance(result, str):
+            self._send(result)
+            return
+
+        if result["type"] == "text":
+            self._send(result["content"])
+        elif result["type"] == "tool_call":
+            self._request_confirmation(result)
+
+    def _request_confirmation(self, tool_call):
+        """Ask user for confirmation before executing a tool."""
+        self._pending_tool_call = tool_call
+        name = tool_call["name"]
+        args = tool_call["arguments"]
+
+        # "linear__create_issue" -> tool "create_issue", server "linear"
+        parts = name.split("__", 1)
+        display_server = parts[0] if len(parts) == 2 else ""
+        display_tool = parts[1] if len(parts) == 2 else name
+
+        arg_summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:5])
+
+        msg = f"I'd like to run {display_tool}"
+        if display_server:
+            msg += f" via {display_server}"
+        msg += f" with: {arg_summary}. OK?"
+        log.info(f"ChatRunner: requesting confirmation for {name}")
+        self._send(msg)
+
+    def _handle_confirmation(self, text):
+        """Process user's yes/no response to a pending tool call."""
+        lower = text.lower()
+
+        affirmative = any(w in lower for w in
+                          ("yes", "ok", "sure", "go ahead", "do it",
+                           "approve", "confirmed", "yep", "yeah"))
+        negative = any(w in lower for w in
+                       ("no", "cancel", "don't", "stop", "nope",
+                        "nah", "nevermind"))
+
+        tc = self._pending_tool_call
+
+        if negative:
+            self._pending_tool_call = None
+            self._send("OK, cancelled.")
+            try:
+                self._llm.send_tool_result(
+                    tc["id"], tc["name"], "User cancelled this action.")
+            except Exception as e:
+                log.warning(f"ChatRunner: cancel result call failed: {e}")
+            return
+
+        if not affirmative:
+            # Ambiguous — ask again
+            self._send("Please confirm: yes to proceed, no to cancel.")
+            return
+
+        # User confirmed — execute the tool
+        self._pending_tool_call = None
         try:
-            self._connector.send_chat(reply)
+            tool_result = self._mcp.execute_tool(tc["name"], tc["arguments"])
+        except Exception as e:
+            log.error(f"ChatRunner: tool execution failed: {e}")
+            self._send(f"Tool call failed: {e}")
+            try:
+                self._llm.send_tool_result(tc["id"], tc["name"], f"Error: {e}")
+            except Exception:
+                pass
+            return
+
+        # Feed result back to LLM for summarization
+        try:
+            summary = self._llm.send_tool_result(tc["id"], tc["name"], tool_result)
+            self._send(summary)
+        except Exception as e:
+            log.error(f"ChatRunner: LLM summary failed: {e}")
+            self._send("Tool succeeded but I couldn't summarize the result.")
+
+    def _send(self, text):
+        """Send a chat message and track it as our own."""
+        self._own_messages.add(text)
+        try:
+            self._connector.send_chat(text)
         except Exception as e:
             log.error(f"ChatRunner: send_chat failed: {e}")
-            self._own_messages.discard(reply)
+            self._own_messages.discard(text)

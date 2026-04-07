@@ -9,6 +9,7 @@ numpy                  # audio buffer math (used by faster-whisper and audio pro
 soundfile              # reading/writing audio files (WAV, MP3, etc.)
 sounddevice            # audio playback and recording via PortAudio
 playwright             # controls headless/headed Chrome for joining Google Meet
+mcp                    # Model Context Protocol client for tool-use integration
 
 # ── macOS-only dependencies ───────────────────────────────────────────────────
 # These only install and run on macOS. They will not be included in the Docker

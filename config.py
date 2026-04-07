@@ -20,6 +20,8 @@ ECHO_GUARD_SECONDS   = _config["agent"].get("echo_guard_seconds", 1.0)
 LLM_PROVIDER         = _config["llm"]["provider"]
 LLM_MODEL            = _config["llm"]["model"]
 CHAT_HISTORY_TURNS   = _config["llm"].get("chat_history_turns", 20)
+CHAT_MAX_TOKENS      = _config["llm"].get("chat_max_tokens", 300)
+CHAT_SYSTEM_PROMPT   = _config["llm"].get("chat_system_prompt", _config["agent"]["system_prompt"])
 
 # TTS
 TTS_PROVIDER     = _config["tts"]["provider"]
@@ -49,6 +51,25 @@ CAPTION_SILENCE_SECONDS = _captions.get("silence_seconds", 0.7)
 _diagnostics = _config.get("diagnostics", {})
 LATENCY_PROBE_ENABLED = _diagnostics.get("latency_probe", True)
 DEBUG_AUDIO           = _diagnostics.get("debug_audio", False)
+
+# MCP Servers
+def _resolve_env_vars(env_dict):
+    """Replace ${VAR} references with os.environ values."""
+    resolved = {}
+    for k, v in env_dict.items():
+        if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
+            resolved[k] = os.environ.get(v[2:-1], "")
+        else:
+            resolved[k] = v
+    return resolved
+
+MCP_SERVERS = {}
+for _name, _srv in _config.get("mcp_servers", {}).items():
+    MCP_SERVERS[_name] = {
+        "command": _srv["command"],
+        "args": _srv.get("args", []),
+        "env": _resolve_env_vars(_srv.get("env", {})),
+    }
 
 # Secrets from .env
 OPENAI_API_KEY     = os.environ["OPENAI_API_KEY"]
