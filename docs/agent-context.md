@@ -18,9 +18,11 @@
 ## Current Status
 
 **Phase:** Chat-first MVP (Phase 8 in roadmap).
-**What just happened (session 45, April 6, 2026):** Strategic pivot from voice-first to chat-first interaction. Root directory reorganized (docs consolidated into `docs/`, benchmarks into `benchmarks/`, stray files rehomed). Docs consolidated from 7 files to 5: `roadmap.md` (merged next-steps + refactor-plan + pivot-plan), trimmed `agent-context.md`, `handoff.md`, `latency.md`, `product-strategy.md`. `model-log.md` moved to `debug/`.
+**What just happened (session 46, April 6, 2026):** Chat I/O implemented and verified in live Google Meet sessions. Both MacOS and Linux adapters now have working `send_chat()` and `read_chat()` methods using verified DOM selectors. Key issues solved: Playwright threading constraint (queue-based cross-thread communication), chat panel toggle flapping (check-before-click), message text extraction (target `div[jsname="dTKtvb"]` to avoid tooltip UI junk). Test scripts and DOM spike scripts added to `scripts/`.
 
-**Next action:** Phase 8.1 — Chat I/O proof of concept. Investigate how Google Chat works within a Meet session from the Playwright browser context. Build a reader (DOM observation) and writer (inject messages). Echo test in a live meeting.
+**MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 11 unless a real user needs it.
+
+**Next action:** Build `ChatRunner` in `pipeline/chat_runner.py` — a polling loop that calls `read_chat()` every 1-2s, and for the echo test, echoes messages back via `send_chat()`. Then wire it into `__main__.py`. After echo test passes, wire in `LLMClient` for step 8.2.
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
 
@@ -84,6 +86,9 @@
 - **Playback interrupt classifier reads stale text.** Fix: `_abort_text` field set at abort time.
 - **Caption hallucinations trigger false playback aborts.** Fix: gate through stream classification.
 - **INCOMPLETE race condition loses speech during classifier call.** Fix: streaming first-token classification.
+- **Playwright is single-threaded (greenlet).** `send_chat()`/`read_chat()` called from the main thread crash with "Cannot switch to a different thread". Fix: queue commands from main thread, execute them in the browser thread's idle loop. Both adapters use `_chat_queue` + `_process_chat_queue()`.
+- **Google Meet chat button is a toggle.** "Chat with everyone" opens AND closes the panel. Clicking it when already open closes it, hiding the textarea. Fix: `_ensure_chat_open()` checks textarea visibility before clicking.
+- **Google Meet chat selectors (verified April 2026):** Chat button: `get_by_role("button", name="Chat with everyone")`. Input: `textarea[aria-label="Send a message"]`. Messages: `div[data-message-id]`. Message text: `div[jsname="dTKtvb"]` inside message div. Send button: `aria-label="Send a message"` (disabled until text entered; use `fill()` + `Enter` instead).
 
 ---
 
