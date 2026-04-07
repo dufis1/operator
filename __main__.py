@@ -60,12 +60,17 @@ def main():
         action="store_true",
         help="Kill any existing Operator session and start a new one",
     )
+    parser.add_argument(
+        "--chat",
+        action="store_true",
+        help="Run in chat-only mode (no voice pipeline)",
+    )
     args = parser.parse_args()
 
     if sys.platform == "darwin":
-        _run_macos_terminal(args.meeting_url, force=args.force)
+        _run_macos_terminal(args.meeting_url, force=args.force, chat_mode=args.chat)
     else:
-        _run_linux(args.meeting_url, force=args.force)
+        _run_linux(args.meeting_url, force=args.force, chat_mode=args.chat)
 
 
 def _run_macos():
@@ -74,7 +79,7 @@ def _run_macos():
     OperatorApp().run()
 
 
-def _run_macos_terminal(meeting_url=None, force=False):
+def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
     """Run from terminal on macOS — calendar polling or direct URL.
 
     Keeps the main thread in Python code so SIGINT (Ctrl+C) is handled
@@ -102,29 +107,39 @@ def _run_macos_terminal(meeting_url=None, force=False):
     log = logging.getLogger("operator")
 
     import config
-    from pipeline.runner import AgentRunner
 
     BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
-    connector_type = config.CONNECTOR_TYPE
 
-    # Resolve "auto" → default to meet-captions on macOS
-    if connector_type == "auto":
-        connector_type = "meet-captions"
+    # Resolve chat mode from --chat flag or config
+    use_chat = chat_mode or config.INTERACTION_MODE == "chat"
 
-    if connector_type == "meet-captions":
-        from connectors.captions_adapter import CaptionsAdapter
-        connector = CaptionsAdapter(force=force)
-    elif connector_type == "audio":
+    if use_chat:
         from connectors.macos_adapter import MacOSAdapter
+        from pipeline.chat_runner import ChatRunner
         connector = MacOSAdapter(force=force)
+        runner = ChatRunner(connector)
     else:
-        log.error(f"Unknown connector type: {connector_type}")
-        sys.exit(1)
+        from pipeline.runner import AgentRunner
+        connector_type = config.CONNECTOR_TYPE
 
-    runner = AgentRunner(
-        connector=connector,
-        tts_output_device=BLACKHOLE_DEVICE,
-    )
+        # Resolve "auto" → default to meet-captions on macOS
+        if connector_type == "auto":
+            connector_type = "meet-captions"
+
+        if connector_type == "meet-captions":
+            from connectors.captions_adapter import CaptionsAdapter
+            connector = CaptionsAdapter(force=force)
+        elif connector_type == "audio":
+            from connectors.macos_adapter import MacOSAdapter
+            connector = MacOSAdapter(force=force)
+        else:
+            log.error(f"Unknown connector type: {connector_type}")
+            sys.exit(1)
+
+        runner = AgentRunner(
+            connector=connector,
+            tts_output_device=BLACKHOLE_DEVICE,
+        )
 
     poller = None
     _shutdown_called = False
@@ -156,6 +171,11 @@ def _run_macos_terminal(meeting_url=None, force=False):
         if meeting_url:
             log.info(f"Starting Operator — joining {meeting_url}")
             runner.run(meeting_url)
+        elif use_chat:
+            log.error("Chat mode requires a meeting URL")
+            print("\n❌ Chat mode requires a meeting URL:\n")
+            print("   python __main__.py --chat <meet-url>\n")
+            sys.exit(1)
         else:
             from pipeline.calendar_poller import CalendarPoller
             meeting_queue = queue.Queue()
@@ -168,7 +188,7 @@ def _run_macos_terminal(meeting_url=None, force=False):
         _shutdown()
 
 
-def _run_linux(meeting_url, force=False):
+def _run_linux(meeting_url, force=False, chat_mode=False):
     """Run preflight checks then start the agent on Linux."""
     import logging
     import os
@@ -232,14 +252,22 @@ def _run_linux(meeting_url, force=False):
 
     # Start the agent
     from connectors.linux_adapter import LinuxAdapter
-    from pipeline.runner import AgentRunner
 
     log.info(f"Starting Operator (Linux) — joining {meeting_url}")
     connector = LinuxAdapter()
-    runner = AgentRunner(
-        connector=connector,
-        tts_output_device="pulse/MeetingOutput",
-    )
+
+    import config
+    use_chat = chat_mode or config.INTERACTION_MODE == "chat"
+
+    if use_chat:
+        from pipeline.chat_runner import ChatRunner
+        runner = ChatRunner(connector)
+    else:
+        from pipeline.runner import AgentRunner
+        runner = AgentRunner(
+            connector=connector,
+            tts_output_device="pulse/MeetingOutput",
+        )
 
     def _shutdown(signum=None, frame=None):
         if signum:

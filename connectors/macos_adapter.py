@@ -38,6 +38,8 @@ class MacOSAdapter(MeetingConnector):
         self._auth_state_file = auth_state_file
         self._force = force
         self._leave_event = threading.Event()
+        self._browser_closed = threading.Event()
+        self._browser_thread = None
         self._capture_proc = None
         self._blackhole_rec_proc = None
         self._page = None
@@ -52,15 +54,17 @@ class MacOSAdapter(MeetingConnector):
         """Start a browser session and join the meeting. Returns immediately;
         browser runs in a background thread until leave() is called."""
         self._leave_event.clear()
+        self._browser_closed.clear()
         self.join_status = JoinStatus()
         if config.DEBUG_AUDIO:
             self._start_blackhole_recording()
-        threading.Thread(
+        self._browser_thread = threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
             daemon=True,
             name="MacOSAdapter-browser",
-        ).start()
+        )
+        self._browser_thread.start()
         log.info(f"MacOSAdapter: joining {meeting_url}")
 
     def get_audio_stream(self):
@@ -172,6 +176,11 @@ class MacOSAdapter(MeetingConnector):
     def leave(self):
         """Signal the browser session to close and stop audio capture."""
         self._leave_event.set()
+        # Wait for browser.close() to finish (same pattern as CaptionsAdapter)
+        if self._browser_thread and self._browser_thread.is_alive():
+            log.info("MacOSAdapter: waiting for browser to close...")
+            if not self._browser_closed.wait(timeout=10):
+                log.warning("MacOSAdapter: browser close timed out (10s)")
         if self._blackhole_rec_proc:
             self._blackhole_rec_proc.terminate()
             try:
@@ -238,7 +247,7 @@ class MacOSAdapter(MeetingConnector):
                     user_data_dir=BROWSER_PROFILE,
                     headless=False,
                     executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                    args=["--use-fake-ui-for-media-stream", "--headless=new"],
+                    args=["--use-fake-ui-for-media-stream", "--headless=new", "--mute-audio"],
                 )
                 page = browser.pages[0] if browser.pages else browser.new_page()
                 self._page = page
@@ -349,61 +358,81 @@ class MacOSAdapter(MeetingConnector):
                 log.info("MacOSAdapter: joined meeting successfully")
                 js.signal_success(recovered=recovered)
 
-                # Event-driven: wait for in-meeting UI instead of sleeping 3s
                 try:
-                    page.wait_for_selector(
-                        'button[aria-label*="Leave call"]',
-                        timeout=15000,
-                    )
-                except Exception:
-                    log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
+                    # Event-driven: wait for in-meeting UI instead of sleeping 3s
+                    try:
+                        page.wait_for_selector(
+                            'button[aria-label*="Leave call"]',
+                            timeout=15000,
+                        )
+                    except Exception:
+                        log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
 
-                # Race both mic states — resolves instantly when mic is already on
-                mic_on_btn = page.get_by_role("button", name="Turn on microphone")
-                mic_off_btn = page.get_by_role("button", name="Turn off microphone")
-                try:
-                    mic_on_btn.or_(mic_off_btn).wait_for(timeout=3000)
-                    if mic_on_btn.is_visible():
-                        mic_on_btn.click()
-                        log.debug("MacOSAdapter: microphone unmuted")
-                    else:
-                        log.debug("MacOSAdapter: mic already on")
-                except Exception:
-                    log.debug("MacOSAdapter: mic button not found")
+                    # Race both mic states — resolves instantly when mic is already on
+                    mic_on_btn = page.get_by_role("button", name="Turn on microphone")
+                    mic_off_btn = page.get_by_role("button", name="Turn off microphone")
+                    try:
+                        mic_on_btn.or_(mic_off_btn).wait_for(timeout=3000)
+                        if mic_on_btn.is_visible():
+                            mic_on_btn.click()
+                            log.debug("MacOSAdapter: microphone unmuted")
+                        else:
+                            log.debug("MacOSAdapter: mic already on")
+                    except Exception:
+                        log.debug("MacOSAdapter: mic button not found")
 
-                log.info("MacOSAdapter: in meeting — holding browser open")
+                    log.info("MacOSAdapter: in meeting — holding browser open")
 
-                # Hold until leave() signals or 4-hour hard cap.
-                # Loop every 1s to service chat queue promptly.
-                deadline = time.time() + 4 * 3600
-                last_health = time.time()
-                while not self._leave_event.is_set() and time.time() < deadline:
-                    self._process_chat_queue(page)
-                    time.sleep(1)
-                    # In-meeting health check every 5 minutes
-                    if time.time() - last_health >= 300:
-                        last_health = time.time()
+                    # Hold until leave() signals or 4-hour hard cap.
+                    # Loop every 1s to service chat queue promptly.
+                    deadline = time.time() + 4 * 3600
+                    last_health = time.time()
+                    while not self._leave_event.is_set() and time.time() < deadline:
+                        self._process_chat_queue(page)
+                        page.wait_for_timeout(1000)
+                        # In-meeting health check every 5 minutes
+                        if time.time() - last_health >= 300:
+                            last_health = time.time()
+                            try:
+                                current_url = page.url
+                                if "meet.google.com" not in current_url:
+                                    log.warning(f"MacOSAdapter: health check — unexpected URL: {current_url}")
+                            except Exception:
+                                log.warning("MacOSAdapter: health check — page not accessible")
+
+                finally:
+                    # ── Clean leave — runs on ALL exit paths ──────────
+                    # Navigate away so Meet fires the leave signal, then
+                    # close the browser before the `with` block exits.
+                    self._page = None
+                    try:
+                        page.goto("about:blank", timeout=5000)
+                        log.info("MacOSAdapter: navigated away — left meeting cleanly")
+                    except Exception:
+                        pass
+                    def _close_browser():
                         try:
-                            current_url = page.url
-                            if "meet.google.com" not in current_url:
-                                log.warning(f"MacOSAdapter: health check — unexpected URL: {current_url}")
+                            browser.close()
                         except Exception:
-                            log.warning("MacOSAdapter: health check — page not accessible")
+                            pass
+                    close_t = threading.Thread(target=_close_browser, daemon=True)
+                    close_t.start()
+                    close_t.join(timeout=5)
+                    if close_t.is_alive():
+                        log.warning("MacOSAdapter: browser.close() timed out (5s) — forcing exit")
+                    else:
+                        log.info("MacOSAdapter: browser closed")
+                    self._browser_closed.set()
 
         except Exception as e:
             log.error(f"MacOSAdapter: browser session error: {e}")
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
-            self._page = None
             pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
             try:
                 os.remove(pid_file)
             except OSError:
                 pass
-            if browser:
-                try:
-                    browser.close()
-                    log.info("MacOSAdapter: browser closed")
-                except Exception:
-                    log.debug("MacOSAdapter: browser already closed")
+            if not self._browser_closed.is_set():
+                self._browser_closed.set()
