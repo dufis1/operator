@@ -106,13 +106,15 @@ CaptionsAdapter: another Operator session is already running — stop that sessi
    Stop that session before starting a new one.
 
 # Waiting room (when 'Ask to join' is clicked and host approval is required)
-CaptionsAdapter: waiting for lobby screen to appear...                                   # phase 1: confirming lobby loaded
-CaptionsAdapter: lobby confirmed — watching for host to admit us (timeout=600s)          # lobby detected; event-driven watch active
-CaptionsAdapter: still in waiting room (Ns elapsed)                                      # heartbeat every 30s
-CaptionsAdapter: admitted — lobby screen gone (event-driven, waited N.Ns total)          # host clicked 'Let in'; N.N = wait time
-CaptionsAdapter: admission timeout after 600s                                            # gave up; triggers admission_timeout failure
-CaptionsAdapter: lobby screen not detected after N.Ns — assuming already admitted        # lobby never appeared; proceeding optimistically
-CaptionsAdapter: admission wait cancelled (leave called after Ns)                        # leave() called while waiting
+# All three adapters (CaptionsAdapter, MacOSAdapter, LinuxAdapter) use the same pattern:
+{Adapter}: waiting for lobby screen to appear...                                         # phase 1: confirming lobby loaded
+{Adapter}: lobby confirmed — watching for host to admit us (timeout=600s)                # lobby detected; event-driven watch active
+{Adapter}: still in waiting room (Ns elapsed)                                            # heartbeat every 30s
+{Adapter}: admitted — lobby screen gone (event-driven, waited N.Ns total)                # host clicked 'Let in'; N.N = wait time
+{Adapter}: admission timeout after Ns                                                    # gave up; triggers admission_timeout failure
+{Adapter}: lobby screen not detected after N.Ns — assuming already admitted              # lobby never appeared; proceeding optimistically
+{Adapter}: admission wait cancelled (leave called after Ns)                              # leave() called while waiting
+{Adapter}: browser closed during admission wait — aborting                               # browser torn down while in lobby
 
 # In-meeting health check (every 5 min in hold loop)
 MacOSAdapter: health check — unexpected URL: ...       # navigated away from meet.google.com
@@ -567,6 +569,8 @@ MacOSAdapter: left meeting
 
 **What to check:**
 - No `ChatRunner: new message` lines when messages are sent → chat panel not opening; check `_ensure_chat_open()` selectors
+- `{Adapter}: could not open chat panel: ...` → chat button selector failed; debug screenshot saved to `debug/chat_btn_not_found.png`
+- `{Adapter}: saved debug screenshot to debug/chat_btn_not_found.png` → screenshot captured for diagnosis
 - `MacOSAdapter: send_chat failed` → textarea selector changed or chat panel closed unexpectedly
 - `MacOSAdapter: browser already closed` instead of `browser closed` → browser.close() ran outside Playwright scope (regression)
 

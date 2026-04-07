@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 6, 2026 (session 51)*
+*Last updated: April 7, 2026 (session 52)*
 
-> **Current status: MCP tool-use integration built (Phase 11).** Operator is now an MCP client — connects to configured servers, discovers tools, passes them to the LLM via OpenAI function calling, and executes with user confirmation. Chat-specific LLM settings (system prompt, 300 token limit) separated from voice. 18-test suite passes against a real MCP server. Next: validate end-to-end with Linear MCP server in live Meet (step 11.5).
+> **Current status: MCP end-to-end validated with Linear (Phase 11 complete).** Step 11.5 passed — Operator connects to Linear's remote MCP server via `mcp-remote` (OAuth, no API key), discovers 32 tools, and successfully created a Linear issue from a live Google Meet chat session. Also fixed waiting room admission detection in MacOS and Linux adapters (ported from CaptionsAdapter). Step 8.3 (ship to friend) still pending.
 
 ---
 
@@ -98,6 +98,7 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 | 10.2 | Add `LICENSE` (MIT) | ⬜ |
 | 10.3 | Rewrite `README.md` — what it is, quick start, architecture | ⬜ |
 | 10.4 | Setup wizard (`operator setup`) with re-runnable subcommands | ⬜ |
+| 10.5 | MCP OAuth setup step in wizard — walk user through authenticating each configured MCP server (Linear, GitHub, etc.) so tokens are cached before first meeting | ⬜ |
 
 ---
 
@@ -131,7 +132,7 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 | 11.2 | Tool-call loop in LLMClient — handle tool_call → execute → result → re-prompt cycle | ✅ |
 | 11.3 | Chat-specific LLM settings — separate `max_tokens`, system prompt for chat vs. voice | ✅ |
 | 11.4 | Config schema for `mcp_servers` in config.yaml (command, args, env) | ✅ |
-| 11.5 | Validate with Linear MCP server end-to-end in live Meet | ⬜ |
+| 11.5 | Validate with Linear MCP server end-to-end in live Meet | ✅ |
 
 ---
 

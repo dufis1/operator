@@ -17,12 +17,14 @@
 
 ## Current Status
 
-**Phase:** MCP tool-use integration (Phase 11 in roadmap).
-**What just happened (session 51, April 6, 2026):** Built full MCP client integration. Operator is now an MCP client — connects to configured MCP servers at startup via stdio transport, discovers tools, passes them to gpt-4.1-mini via OpenAI function calling, and executes with user confirmation in chat. Chat-specific LLM settings (separate system prompt allowing markdown, 300 token limit) split from voice settings. 18-test suite passes against a real MCP server. Steps 11.1–11.4 complete.
+**Phase:** MCP tool-use integration (Phase 11 in roadmap) — complete.
+**What just happened (session 52, April 7, 2026):** Validated MCP end-to-end with Linear in a live Google Meet. Corrected the Linear MCP server config — `@linear/mcp-server` doesn't exist on npm; Linear uses a remote MCP server at `https://mcp.linear.app/mcp` via `mcp-remote` (OAuth-based, no API key). Successfully created a Linear issue from chat. Also fixed waiting room admission detection: MacOSAdapter and LinuxAdapter were logging "joined meeting successfully" after clicking "Ask to join" without waiting for actual admission. Ported `_wait_for_admission()` and raced join button pattern from CaptionsAdapter. Added debug screenshot on chat button failure. Bumped `chat_history_turns` back to 20. Added step 10.5 to roadmap for MCP OAuth setup in the wizard.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
-**Next action (step 11.5):** Validate end-to-end with Linear MCP server in a live Meet. Requires: (1) Node.js/npx installed for `@linear/mcp-server`, (2) `LINEAR_API_KEY` in `.env`, (3) uncomment `linear:` block in config.yaml. Also still pending: step 8.3 (ship to friend).
+**Next action:** Step 8.3 (ship to friend) is the main remaining item before Phase 11 is fully wrapped. Phase 12 (meeting platform expansion) is demand-driven.
+
+**Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
 
@@ -99,6 +101,8 @@
 - **Playwright xpath locator silently returns 0 results for sibling selectors.** `el.locator("xpath=../div[...]")` didn't work for finding sibling elements in the Meet chat DOM. Fix: use `el.evaluate()` with native JS `parentElement.querySelector()` instead.
 - **`\b` regex word boundary doesn't match `/` prefix.** If the wake phrase is `/operator`, `\boperator\b` won't match because `/` is not a word character. Fix: use `re.escape()` without `\b` anchors.
 - **MCP SDK's `stdio_client` uses anyio task groups — cannot split across coroutines.** Manually calling `__aenter__` on `stdio_client` from a separate coroutine (via `run_coroutine_threadsafe`) fails with "Attempted to exit cancel scope in a different task." Fix: each server must run as a single long-lived async task (`_ServerHandle._run()`) that enters the `stdio_client` context and stays alive until shutdown. Tool calls are dispatched to the same event loop via `run_coroutine_threadsafe` to the `_execute_tool` coroutine (which shares the task's session but runs as a separate coroutine — that's fine, the constraint is on the context manager, not the session).
+- **`@linear/mcp-server` npm package does not exist.** Linear's official MCP server is remote at `https://mcp.linear.app/mcp`. Use `npx -y mcp-remote https://mcp.linear.app/mcp` to bridge it as a stdio subprocess. Auth is OAuth (browser popup on first run), token cached locally by `mcp-remote`. No `LINEAR_API_KEY` needed.
+- **MacOSAdapter/LinuxAdapter "joined" before admission.** Clicking "Ask to join" set `joined = True` immediately without waiting for the host to admit. Operator proceeded to open chat panel while still in the waiting room. Fix: track `clicked_label`, and if "Ask to join" was clicked, call `_wait_for_admission()` (two-phase event-driven: wait for lobby image to appear, then watch for it to disappear). Already existed in CaptionsAdapter.
 
 ---
 

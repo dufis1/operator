@@ -125,6 +125,11 @@ class MacOSAdapter(MeetingConnector):
             page.wait_for_timeout(500)
         except Exception as e:
             log.warning(f"MacOSAdapter: could not open chat panel: {e}")
+            try:
+                page.screenshot(path="debug/chat_btn_not_found.png")
+                log.info("MacOSAdapter: saved debug screenshot to debug/chat_btn_not_found.png")
+            except Exception:
+                pass
 
     def _do_send_chat(self, page, message):
         """Actual send_chat logic — must run on browser thread."""
@@ -191,6 +196,72 @@ class MacOSAdapter(MeetingConnector):
             elif cmd == "read":
                 messages = self._do_read_chat(page)
                 result_q.put(messages)
+
+    # ── Waiting room ─────────────────────────────────────────────────
+
+    def _wait_for_admission(self, page):
+        """Wait for the host to admit us, with event-driven detection.
+
+        Phase 1: wait up to 10s for the waiting room image to appear — confirms
+        the page has settled into the lobby state.
+        Phase 2: watch for that image to disappear — fires immediately when the
+        host clicks 'Let in', with no polling lag.
+
+        Returns True if admitted, False on timeout or leave().
+        """
+        timeout_seconds = config.IDLE_TIMEOUT_SECONDS
+        deadline = time.time() + timeout_seconds
+        wait_start = time.time()
+        last_status_log = wait_start
+        chunk_ms = 5000  # how often to re-check _leave_event
+
+        WAITING_ROOM_SEL = 'img[alt*="Please wait until a meeting host"]'
+
+        # Phase 1: confirm the page has settled into the waiting room
+        log.info("MacOSAdapter: waiting for lobby screen to appear...")
+        try:
+            page.wait_for_selector(WAITING_ROOM_SEL, state="visible", timeout=10_000)
+            log.info("MacOSAdapter: lobby confirmed — watching for host to admit us "
+                     f"(timeout={timeout_seconds}s)")
+        except Exception:
+            elapsed = time.time() - wait_start
+            log.info(
+                f"MacOSAdapter: lobby screen not detected after {elapsed:.1f}s "
+                f"— assuming already admitted or different join flow"
+            )
+            return True
+
+        # Phase 2: event-driven watch for the lobby to go away = admitted
+        while not self._leave_event.is_set() and time.time() < deadline:
+            remaining_ms = int((deadline - time.time()) * 1000)
+            chunk = min(chunk_ms, max(remaining_ms, 0))
+            if chunk <= 0:
+                break
+
+            try:
+                page.wait_for_selector(WAITING_ROOM_SEL, state="detached", timeout=chunk)
+                elapsed = time.time() - wait_start
+                log.info(
+                    f"MacOSAdapter: admitted — lobby screen gone "
+                    f"(event-driven, waited {elapsed:.1f}s total)"
+                )
+                return True
+            except Exception:
+                if page.is_closed():
+                    log.info("MacOSAdapter: browser closed during admission wait — aborting")
+                    return False
+
+            if time.time() - last_status_log >= 30:
+                elapsed = time.time() - wait_start
+                log.info(f"MacOSAdapter: still in waiting room ({elapsed:.0f}s elapsed)")
+                last_status_log = time.time()
+
+        elapsed = time.time() - wait_start
+        if self._leave_event.is_set():
+            log.info(f"MacOSAdapter: admission wait cancelled (leave called after {elapsed:.0f}s)")
+        else:
+            log.warning(f"MacOSAdapter: admission timeout after {elapsed:.0f}s")
+        return False
 
     def leave(self):
         """Signal the browser session to close and stop audio capture."""
@@ -355,24 +426,33 @@ class MacOSAdapter(MeetingConnector):
                 if config.DEBUG_AUDIO:
                     save_debug(page, "pre_join")
 
-                # Click join button
-                joined = False
-                for label in ["Join now", "Ask to join", "Switch here"]:
-                    try:
-                        btn = page.get_by_role("button", name=label)
-                        btn.wait_for(timeout=5000)
-                        btn.click()
-                        joined = True
-                        log.debug(f"MacOSAdapter: clicked {label!r}")
-                        break
-                    except Exception:
-                        continue
+                # Race all join buttons — avoids 5s timeout per missing button
+                join_now = page.get_by_role("button", name="Join now")
+                ask_join = page.get_by_role("button", name="Ask to join")
+                switch_here = page.get_by_role("button", name="Switch here")
+                clicked_label = None
+                try:
+                    join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
+                    for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
+                        if btn.is_visible():
+                            btn.click()
+                            clicked_label = label
+                            log.debug(f"MacOSAdapter: clicked {label!r}")
+                            break
+                except Exception:
+                    pass
 
-                if not joined:
+                if clicked_label is None:
                     save_debug(page, "join_fail")
                     log.warning("MacOSAdapter: could not find join button")
                     js.signal_failure("no_join_button")
                     return
+
+                if clicked_label == "Ask to join":
+                    if not self._wait_for_admission(page):
+                        save_debug(page, "admission_fail")
+                        js.signal_failure("admission_timeout")
+                        return
 
                 log.info("MacOSAdapter: joined meeting successfully")
                 js.signal_success(recovered=recovered)
