@@ -18,13 +18,15 @@
 ## Current Status
 
 **Phase:** Chat-first MVP (Phase 8 in roadmap).
-**What just happened (session 46, April 6, 2026):** Chat I/O implemented and verified in live Google Meet sessions. Both MacOS and Linux adapters now have working `send_chat()` and `read_chat()` methods using verified DOM selectors. Key issues solved: Playwright threading constraint (queue-based cross-thread communication), chat panel toggle flapping (check-before-click), message text extraction (target `div[jsname="dTKtvb"]` to avoid tooltip UI junk). Test scripts and DOM spike scripts added to `scripts/`.
+**What just happened (session 47, April 6, 2026):** Built `ChatRunner` (`pipeline/chat_runner.py`) — polling loop that reads chat every 1.5s and echoes back. Wired into `__main__.py` via `--chat` flag and `config.INTERACTION_MODE`. Fixed three MacOSAdapter browser lifecycle gaps vs CaptionsAdapter: (1) navigate to `about:blank` before closing so Meet sees instant disconnect, (2) call `browser.close()` inside `with sync_playwright()` scope so it actually works, (3) added `--mute-audio` Chrome flag and replaced `time.sleep(1)` with `page.wait_for_timeout(1000)` to keep Playwright event loop pumping. Echo test verified end-to-end in live Meet.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 11 unless a real user needs it.
 
-**Next action:** Build `ChatRunner` in `pipeline/chat_runner.py` — a polling loop that calls `read_chat()` every 1-2s, and for the echo test, echoes messages back via `send_chat()`. Then wire it into `__main__.py`. After echo test passes, wire in `LLMClient` for step 8.2.
+**Next action:** Wire `LLMClient` into `ChatRunner._handle_message()` for real LLM responses (step 8.2). The hook point is already there — swap the echo reply for an LLM call.
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
+
+**Architecture note (session 47):** CaptionsAdapter and MacOSAdapter have duplicated browser session logic (~150 lines each). User considered refactoring into a shared base but decided against it — chat is shipping first, so keeping them separate avoids unnecessary abstraction. Revisit when both paths need parallel maintenance.
 
 ---
 
@@ -86,6 +88,8 @@
 - **Playback interrupt classifier reads stale text.** Fix: `_abort_text` field set at abort time.
 - **Caption hallucinations trigger false playback aborts.** Fix: gate through stream classification.
 - **INCOMPLETE race condition loses speech during classifier call.** Fix: streaming first-token classification.
+- **MacOSAdapter browser.close() outside `with sync_playwright()` silently fails.** The Playwright connection is torn down when the `with` block exits. If `browser.close()` runs in a `finally` outside that scope, it throws and the browser may not close cleanly. Fix: move the try/finally inside the `with` block, matching CaptionsAdapter's pattern.
+- **`time.sleep()` in Playwright hold loop blocks the event loop.** JS callbacks (expose_function, MutationObserver) won't fire. Use `page.wait_for_timeout()` instead — it yields to Playwright's event loop while waiting.
 - **Playwright is single-threaded (greenlet).** `send_chat()`/`read_chat()` called from the main thread crash with "Cannot switch to a different thread". Fix: queue commands from main thread, execute them in the browser thread's idle loop. Both adapters use `_chat_queue` + `_process_chat_queue()`.
 - **Google Meet chat button is a toggle.** "Chat with everyone" opens AND closes the panel. Clicking it when already open closes it, hiding the textarea. Fix: `_ensure_chat_open()` checks textarea visibility before clicking.
 - **Google Meet chat selectors (verified April 2026):** Chat button: `get_by_role("button", name="Chat with everyone")`. Input: `textarea[aria-label="Send a message"]`. Messages: `div[data-message-id]`. Message text: `div[jsname="dTKtvb"]` inside message div. Send button: `aria-label="Send a message"` (disabled until text entered; use `fill()` + `Enter` instead).
