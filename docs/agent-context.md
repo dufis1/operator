@@ -18,14 +18,11 @@
 ## Current Status
 
 **Phase:** Chat-first MVP (Phase 8 in roadmap).
-**What just happened (session 48, April 6, 2026):** Wired `LLMClient` into `ChatRunner._handle_message()` — chat messages now get real GPT-4.1-mini responses with conversation history. Verified in live Google Meet: correct answers, follow-up context works (`history_turns=1`), ~1.6s round-trip, clean Ctrl+C shutdown.
+**What just happened (session 49, April 6, 2026):** Implemented three chat hardening features (step 8.2.1): configurable history cap with pair-counted trimming, `/operator` wake phrase gating with context storage for non-addressed messages, and sender name extraction from Meet DOM. All verified in live Google Meet with multiple participants — sender extraction works (`sender='Jojo Shapiro'`), LLM uses sender context to answer "what's my name?" correctly.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 11 unless a real user needs it.
 
-**Next action (step 8.2.1):** Three chat hardening tasks, discussed and scoped in session 48:
-1. **Chat history cap** — `LLMClient` sends full unlimited history today. Add configurable `chat_history_turns` (default ~20 pairs). The existing `MAX_TRANSCRIPT_LINES = 100` in `llm.py` is unused placeholder.
-2. **Wake phrase gating** — currently every message triggers an LLM call. For multi-participant meetings, require "operator" in the message to trigger a response. Non-addressed messages should still be added to history as context (so "operator, summarize what was discussed" works).
-3. **Sender field extraction** — `read_chat()` returns `sender: ""` for all messages. Extract sender name from DOM so we can: (a) reliably filter bot's own messages instead of brittle text-match, (b) include "who said what" in LLM context.
+**Next action (step 8.3):** Ship to friend — minimal setup, clear instructions, get it in his hands.
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
 
@@ -96,10 +93,13 @@
 - **Playwright is single-threaded (greenlet).** `send_chat()`/`read_chat()` called from the main thread crash with "Cannot switch to a different thread". Fix: queue commands from main thread, execute them in the browser thread's idle loop. Both adapters use `_chat_queue` + `_process_chat_queue()`.
 - **Google Meet chat button is a toggle.** "Chat with everyone" opens AND closes the panel. Clicking it when already open closes it, hiding the textarea. Fix: `_ensure_chat_open()` checks textarea visibility before clicking.
 - **Google Meet chat selectors (verified April 2026):** Chat button: `get_by_role("button", name="Chat with everyone")`. Input: `textarea[aria-label="Send a message"]`. Messages: `div[data-message-id]`. Message text: `div[jsname="dTKtvb"]` inside message div. Send button: `aria-label="Send a message"` (disabled until text entered; use `fill()` + `Enter` instead).
+- **Google Meet chat sender name is in a group header, not per-message.** Sender name lives in `div.HNucUd` which is a sibling of the message's grandparent (depth=1 from message div). Format: `"SenderName\nTimestamp"` for other participants, just `"Timestamp"` for the browser's own messages. Consecutive messages from the same sender share one header. Use `el.evaluate()` with a JS walk-up loop — Playwright's xpath locator (`../div[contains(@class,'HNucUd')]`) silently fails for this.
+- **Playwright xpath locator silently returns 0 results for sibling selectors.** `el.locator("xpath=../div[...]")` didn't work for finding sibling elements in the Meet chat DOM. Fix: use `el.evaluate()` with native JS `parentElement.querySelector()` instead.
+- **`\b` regex word boundary doesn't match `/` prefix.** If the wake phrase is `/operator`, `\boperator\b` won't match because `/` is not a word character. Fix: use `re.escape()` without `\b` anchors.
 
 ---
 
 ## Open Questions
 
-1. **Wake phrase customization** — allow users to set their own wake phrase? Test Whisper reliability on custom phrases first.
+1. **Wake phrase customization (voice)** — allow users to set their own wake phrase? Test Whisper reliability on custom phrases first. Chat wake phrase is already configurable via `chat_wake_phrase` in config.yaml.
 2. **Linux distro coverage** — Ubuntu/Debian tier-1; PipeWire (Fedora, Ubuntu 22.04+) needs validation.
