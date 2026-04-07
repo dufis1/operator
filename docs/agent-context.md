@@ -17,18 +17,18 @@
 
 ## Current Status
 
-**Phase:** Chat-first MVP (Phase 8 in roadmap).
-**What just happened (session 50, April 6, 2026):** Planning session — explored whether Claude Pro / ChatGPT Plus subscriptions could replace API keys for end users (no supported path for either). Decided API keys are the only viable approach. Discussed MCP/tool-use integration for task delegation (e.g., Linear issue creation from Meet chat). Added as Phase 11 in the roadmap: Operator becomes an MCP client, connects to configured MCP servers, passes tool definitions to LLM, executes tool calls, feeds results back. Meeting platform expansion renumbered to Phase 12.
+**Phase:** MCP tool-use integration (Phase 11 in roadmap).
+**What just happened (session 51, April 6, 2026):** Built full MCP client integration. Operator is now an MCP client — connects to configured MCP servers at startup via stdio transport, discovers tools, passes them to gpt-4.1-mini via OpenAI function calling, and executes with user confirmation in chat. Chat-specific LLM settings (separate system prompt allowing markdown, 300 token limit) split from voice settings. 18-test suite passes against a real MCP server. Steps 11.1–11.4 complete.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
-**Next action (step 8.3):** Ship to friend — minimal setup, clear instructions, get it in his hands.
+**Next action (step 11.5):** Validate end-to-end with Linear MCP server in a live Meet. Requires: (1) Node.js/npx installed for `@linear/mcp-server`, (2) `LINEAR_API_KEY` in `.env`, (3) uncomment `linear:` block in config.yaml. Also still pending: step 8.3 (ship to friend).
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
 
 **Architecture note (session 47):** CaptionsAdapter and MacOSAdapter have duplicated browser session logic (~150 lines each). User considered refactoring into a shared base but decided against it — chat is shipping first, so keeping them separate avoids unnecessary abstraction. Revisit when both paths need parallel maintenance.
 
-**Architecture note (session 50):** MCP integration (Phase 11) will require: (1) MCP client that connects to servers defined in config.yaml, (2) tool-call loop in LLMClient, (3) separate chat vs. voice settings for max_tokens and system prompt. Both OpenAI and Anthropic APIs support tool calling natively.
+**Architecture note (session 51):** MCP integration uses a dedicated asyncio event loop thread to bridge the async MCP SDK into our sync codebase. Each MCP server runs as a long-lived `_ServerHandle` async task — required because `stdio_client` uses anyio task groups that must stay in one task. Tool names are namespaced as `server__tool` (e.g., `linear__create_issue`) to avoid collisions across servers. Confirmation flow: LLM returns tool_call → Operator asks user in chat → user confirms → tool executes → result fed back to LLM → summary sent. `LLMClient.ask(tools=None)` returns a plain string (voice path unchanged); `ask(tools=[...])` returns a structured dict.
 
 ---
 
@@ -98,6 +98,7 @@
 - **Google Meet chat sender name is in a group header, not per-message.** Sender name lives in `div.HNucUd` which is a sibling of the message's grandparent (depth=1 from message div). Format: `"SenderName\nTimestamp"` for other participants, just `"Timestamp"` for the browser's own messages. Consecutive messages from the same sender share one header. Use `el.evaluate()` with a JS walk-up loop — Playwright's xpath locator (`../div[contains(@class,'HNucUd')]`) silently fails for this.
 - **Playwright xpath locator silently returns 0 results for sibling selectors.** `el.locator("xpath=../div[...]")` didn't work for finding sibling elements in the Meet chat DOM. Fix: use `el.evaluate()` with native JS `parentElement.querySelector()` instead.
 - **`\b` regex word boundary doesn't match `/` prefix.** If the wake phrase is `/operator`, `\boperator\b` won't match because `/` is not a word character. Fix: use `re.escape()` without `\b` anchors.
+- **MCP SDK's `stdio_client` uses anyio task groups — cannot split across coroutines.** Manually calling `__aenter__` on `stdio_client` from a separate coroutine (via `run_coroutine_threadsafe`) fails with "Attempted to exit cancel scope in a different task." Fix: each server must run as a single long-lived async task (`_ServerHandle._run()`) that enters the `stdio_client` context and stays alive until shutdown. Tool calls are dispatched to the same event loop via `run_coroutine_threadsafe` to the `_execute_tool` coroutine (which shares the task's session but runs as a separate coroutine — that's fine, the constraint is on the context manager, not the session).
 
 ---
 

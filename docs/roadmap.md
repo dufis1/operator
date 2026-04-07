@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 6, 2026 (session 50)*
+*Last updated: April 6, 2026 (session 51)*
 
-> **Current status: Chat hardening complete.** History cap, wake phrase gating (`/operator`), and sender extraction all verified in live Google Meet with multiple participants. Next: ship to friend (step 8.3). MCP/tool-use integration queued as Phase 11.
+> **Current status: MCP tool-use integration built (Phase 11).** Operator is now an MCP client — connects to configured servers, discovers tools, passes them to the LLM via OpenAI function calling, and executes with user confirmation. Chat-specific LLM settings (system prompt, 300 token limit) separated from voice. 18-test suite passes against a real MCP server. Next: validate end-to-end with Linear MCP server in live Meet (step 11.5).
 
 ---
 
@@ -127,10 +127,10 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 11.1 | MCP client — connect to configured servers at startup, discover tools | ⬜ |
-| 11.2 | Tool-call loop in LLMClient — handle tool_call → execute → result → re-prompt cycle | ⬜ |
-| 11.3 | Chat-specific LLM settings — separate `max_tokens`, system prompt for chat vs. voice | ⬜ |
-| 11.4 | Config schema for `mcp_servers` in config.yaml (command, args, env) | ⬜ |
+| 11.1 | MCP client — connect to configured servers at startup, discover tools | ✅ |
+| 11.2 | Tool-call loop in LLMClient — handle tool_call → execute → result → re-prompt cycle | ✅ |
+| 11.3 | Chat-specific LLM settings — separate `max_tokens`, system prompt for chat vs. voice | ✅ |
+| 11.4 | Config schema for `mcp_servers` in config.yaml (command, args, env) | ✅ |
 | 11.5 | Validate with Linear MCP server end-to-end in live Meet | ⬜ |
 
 ---
