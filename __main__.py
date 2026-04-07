@@ -114,10 +114,13 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
     use_chat = chat_mode or config.INTERACTION_MODE == "chat"
 
     if use_chat:
+        from openai import OpenAI
         from connectors.macos_adapter import MacOSAdapter
         from pipeline.chat_runner import ChatRunner
+        from pipeline.llm import LLMClient
         connector = MacOSAdapter(force=force)
-        runner = ChatRunner(connector)
+        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY))
+        runner = ChatRunner(connector, llm)
     else:
         from pipeline.runner import AgentRunner
         connector_type = config.CONNECTOR_TYPE
@@ -260,8 +263,11 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
     use_chat = chat_mode or config.INTERACTION_MODE == "chat"
 
     if use_chat:
+        from openai import OpenAI
         from pipeline.chat_runner import ChatRunner
-        runner = ChatRunner(connector)
+        from pipeline.llm import LLMClient
+        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY))
+        runner = ChatRunner(connector, llm)
     else:
         from pipeline.runner import AgentRunner
         runner = AgentRunner(

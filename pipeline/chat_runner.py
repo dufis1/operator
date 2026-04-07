@@ -1,11 +1,8 @@
 """
-ChatRunner — polling loop that reads meeting chat and responds.
-
-Phase 1 (echo mode): reads new messages and echoes them back.
-Phase 2: wire in LLMClient for real responses.
+ChatRunner — polling loop that reads meeting chat and responds via LLM.
 
 Usage:
-    runner = ChatRunner(connector)
+    runner = ChatRunner(connector, llm)
     runner.run(meeting_url)   # blocks until stop() is called
 """
 import logging
@@ -22,8 +19,9 @@ POLL_INTERVAL = 1.5  # seconds between read_chat() calls
 class ChatRunner:
     """Polls meeting chat and responds to messages."""
 
-    def __init__(self, connector):
+    def __init__(self, connector, llm):
         self._connector = connector
+        self._llm = llm
         self._stop_event = threading.Event()
         # Track messages we've sent so we can ignore our own echoes
         self._own_messages: set[str] = set()
@@ -103,8 +101,12 @@ class ChatRunner:
             self._stop_event.wait(POLL_INTERVAL)
 
     def _handle_message(self, text):
-        """Process a single chat message. Currently echoes; will wire LLM later."""
-        reply = f"[echo] {text}"
+        """Process a single chat message via LLM."""
+        try:
+            reply = self._llm.ask(text)
+        except Exception as e:
+            log.error(f"ChatRunner: LLM call failed: {e}")
+            return
         log.info(f"ChatRunner: sending reply={reply!r}")
         self._own_messages.add(reply)
         try:
