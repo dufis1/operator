@@ -30,10 +30,10 @@ experiments/*/logs/
 /tmp/probe_*.png
 
 # Internal planning docs
-agent-context.md
-refactor-plan.md
-product-strategy.md
-handoff.md
+docs/agent-context.md
+docs/roadmap.md
+docs/product-strategy.md
+docs/handoff.md
 
 # Debug reference logs
-docs/model-log.md
+debug/model-log.md

@@ -176,7 +176,7 @@ class LinuxAdapter(MeetingConnector):
                     # headless Chrome suppresses audio output entirely.
                     # Do NOT pass env= — Playwright replaces the full environment if
                     # you do, stripping XDG_RUNTIME_DIR and breaking PulseAudio discovery.
-                    # DISPLAY is already set in os.environ by the caller (run_linux.py).
+                    # DISPLAY is already set in os.environ by the caller (scripts/run_linux.py).
                     log.info(f"LinuxAdapter: loading auth state from {self._auth_state_file}")
                     raw_browser = p.chromium.launch(
                         headless=False,

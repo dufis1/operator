@@ -117,7 +117,7 @@ After responding, the bot stays in "conversation mode" for 20 seconds — follow
 
 ## Development Notes
 
-- `agent-context.md` tracks current dev phase, architectural decisions, and incident logs — read it before making structural changes.
-- `next-steps.md` has the roadmap.
+- `docs/agent-context.md` tracks current dev phase, hard-won debugging knowledge, and working context — read it before making structural changes.
+- `docs/roadmap.md` has the phase checklist and strategic direction.
 - The GitHub Actions daily smoke test (`.github/workflows/smoke-test.yml`) runs `tests/test_smoke_docker.py` against Docker.
 - `browser_profile/` and `auth_state.json` hold logged-in Google session state — never commit them.

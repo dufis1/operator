@@ -200,7 +200,7 @@ LINUX_AUDIO_DEVICE = "pulse/MeetingOutput"
 # Output paths
 # ─────────────────────────────────────────────────────────────────────────────
 
-RESULTS_DIR       = ROOT / "bench_results"
+RESULTS_DIR       = ROOT / "benchmarks" / "results"
 CLIPS_DIR         = RESULTS_DIR / "clips"
 PIPER_MODELS_DIR  = RESULTS_DIR / "piper_models"
 LATENCY_FILE      = RESULTS_DIR / "latency.json"

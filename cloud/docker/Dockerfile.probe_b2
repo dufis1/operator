@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 
 # Copy benchmark clips and ground truth
-COPY benchmark_clips/ /app/benchmark_clips/
+COPY benchmarks/clips/ /app/benchmark_clips/
 
 # Copy the inner benchmark script
 COPY docker/whisper_bench.py /app/whisper_bench.py

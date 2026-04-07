@@ -9,9 +9,10 @@ import json
 import numpy as np
 import soundfile as sf
 
-CLIPS_DIR = "benchmark_clips"
+_DIR = os.path.dirname(os.path.abspath(__file__))
+CLIPS_DIR = os.path.join(_DIR, "clips")
 GROUND_TRUTH_FILE = os.path.join(CLIPS_DIR, "ground_truth.txt")
-RESULTS_FILE = "benchmark_stt_results.json"
+RESULTS_FILE = os.path.join(_DIR, "benchmark_stt_results.json")
 
 
 def load_ground_truth():
@@ -96,7 +97,7 @@ def benchmark_mlx_whisper(clips, ground_truth):
     import mlx_whisper
     print("\n=== mlx-whisper base (Apple Silicon) ===")
     # Warm up model load
-    mlx_whisper.transcribe("benchmark_clips/clip_01.wav", path_or_hf_repo="mlx-community/whisper-base-mlx")
+    mlx_whisper.transcribe(os.path.join(CLIPS_DIR, "clip_01.wav"), path_or_hf_repo="mlx-community/whisper-base-mlx")
     print("  (model loaded, starting benchmark)")
     def transcribe(path):
         result = mlx_whisper.transcribe(path, path_or_hf_repo="mlx-community/whisper-base-mlx", language="en")

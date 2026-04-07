@@ -157,7 +157,7 @@ def _run_macos_terminal(meeting_url=None, force=False):
             log.info(f"Starting Operator — joining {meeting_url}")
             runner.run(meeting_url)
         else:
-            from calendar_poller import CalendarPoller
+            from pipeline.calendar_poller import CalendarPoller
             meeting_queue = queue.Queue()
             poller = CalendarPoller(meeting_queue)
             poller.start()

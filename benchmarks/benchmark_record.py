@@ -6,8 +6,10 @@ import os
 
 SAMPLE_RATE = 16000
 DURATION = 55  # seconds — enough for 6 lines with pauses
+_DIR = os.path.dirname(os.path.abspath(__file__))
+_CLIPS = os.path.join(_DIR, "clips")
 
-os.makedirs("benchmark_clips", exist_ok=True)
+os.makedirs(_CLIPS, exist_ok=True)
 
 print("🎙  Recording for 55 seconds — START SPEAKING NOW")
 audio = sd.rec(int(DURATION * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="float32")
@@ -15,7 +17,7 @@ sd.wait()
 print("✅ Recording done. Saving...")
 
 # Save full recording
-sf.write("benchmark_clips/full_recording.wav", audio, SAMPLE_RATE)
+sf.write(os.path.join(_CLIPS, "full_recording.wav"), audio, SAMPLE_RATE)
 
 # Split by silence: find segments where RMS > threshold
 frame_len = int(0.05 * SAMPLE_RATE)  # 50ms frames
@@ -68,15 +70,15 @@ for i, (start, end) in enumerate(merged):
     s = max(0, start - pad) * frame_len
     e = min(len(audio), (end + pad) * frame_len)
     clip = audio[s:e]
-    fname = f"benchmark_clips/clip_{i+1:02d}.wav"
+    fname = os.path.join(_CLIPS, f"clip_{i+1:02d}.wav")
     sf.write(fname, clip, SAMPLE_RATE)
     gt = ground_truth[i] if i < len(ground_truth) else "???"
     dur = len(clip) / SAMPLE_RATE
     print(f"  {fname} ({dur:.1f}s) — \"{gt}\"")
 
 # Save ground truth
-with open("benchmark_clips/ground_truth.txt", "w") as f:
+with open(os.path.join(_CLIPS, "ground_truth.txt"), "w") as f:
     for i, gt in enumerate(ground_truth):
         f.write(f"clip_{i+1:02d}.wav|{gt}\n")
 
-print("\n✅ Clips saved to benchmark_clips/")
+print(f"\n✅ Clips saved to {_CLIPS}")

@@ -13,7 +13,7 @@ import numpy as np
 import rumps
 from PyObjCTools.AppHelper import callAfter
 import config
-from calendar_poller import CalendarPoller
+from pipeline.calendar_poller import CalendarPoller
 from pipeline.audio import SAMPLE_RATE
 from pipeline.runner import AgentRunner
 

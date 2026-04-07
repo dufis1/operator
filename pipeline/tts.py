@@ -251,7 +251,7 @@ class TTSClient:
     def _synthesize_piper(self, text, local_voice) -> bytes:
         from pathlib import Path
         model = _PIPER_VOICES[local_voice]
-        models_dir = Path(__file__).parent.parent / "bench_results" / "piper_models"
+        models_dir = Path(__file__).parent.parent / "benchmarks" / "results" / "piper_models"
         onnx = models_dir / f"{model}.onnx"
         cfg = models_dir / f"{model}.onnx.json"
         if not onnx.exists():

@@ -2,8 +2,8 @@
 run_linux.py — Linux local entry point for Operator.
 
 Usage:
-    python run_linux.py <meet-url>
-    python run_linux.py  # reads MEETING_URL from environment
+    python scripts/run_linux.py <meet-url>
+    python scripts/run_linux.py  # reads MEETING_URL from environment
 
 Prerequisites:
     1. PulseAudio virtual devices must be set up:
@@ -70,8 +70,8 @@ def main():
         meeting_url = os.environ.get("MEETING_URL")
 
     if not meeting_url:
-        print("Usage: python run_linux.py <meet-url>")
-        print("       MEETING_URL=<url> python run_linux.py")
+        print("Usage: python scripts/run_linux.py <meet-url>")
+        print("       MEETING_URL=<url> python scripts/run_linux.py")
         sys.exit(1)
 
     _check_display()
