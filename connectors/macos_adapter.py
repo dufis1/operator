@@ -8,6 +8,7 @@ macOS-only: imports Playwright, subprocess for audio_capture binary.
 """
 import os
 import logging
+import queue
 import subprocess
 import threading
 import time
@@ -39,6 +40,9 @@ class MacOSAdapter(MeetingConnector):
         self._leave_event = threading.Event()
         self._capture_proc = None
         self._blackhole_rec_proc = None
+        self._page = None
+        self._seen_message_ids = set()
+        self._chat_queue = queue.Queue()  # (command, args, result_queue)
 
     # ------------------------------------------------------------------
     # MeetingConnector interface
@@ -84,7 +88,86 @@ class MacOSAdapter(MeetingConnector):
         proc.wait()
 
     def send_chat(self, message):
-        log.info(f"MacOSAdapter: chat not yet implemented (message: {message!r})")
+        """Post a message to the Google Meet chat panel.
+        Queues the request for the browser thread (Playwright is single-threaded)."""
+        result_q = queue.Queue()
+        self._chat_queue.put(("send", message, result_q))
+        result_q.get(timeout=10)  # wait for browser thread to finish
+
+    def read_chat(self):
+        """Return new chat messages since last call.
+        Queues the request for the browser thread."""
+        result_q = queue.Queue()
+        self._chat_queue.put(("read", None, result_q))
+        try:
+            return result_q.get(timeout=10)
+        except queue.Empty:
+            return []
+
+    # --- Browser-thread chat implementations (called from _process_chat_queue) ---
+
+    def _ensure_chat_open(self, page):
+        """Open the chat panel if it isn't already open. Must run on browser thread."""
+        try:
+            textarea = page.locator('textarea[aria-label="Send a message"]')
+            if textarea.count() > 0 and textarea.is_visible():
+                return  # already open
+        except Exception:
+            pass
+        try:
+            chat_btn = page.get_by_role("button", name="Chat with everyone")
+            chat_btn.wait_for(timeout=3000)
+            chat_btn.click()
+            page.wait_for_timeout(500)
+        except Exception as e:
+            log.warning(f"MacOSAdapter: could not open chat panel: {e}")
+
+    def _do_send_chat(self, page, message):
+        """Actual send_chat logic — must run on browser thread."""
+        self._ensure_chat_open(page)
+        try:
+            input_box = page.locator('textarea[aria-label="Send a message"]')
+            input_box.wait_for(timeout=5000)
+            input_box.fill(message)
+            input_box.press("Enter")
+            log.info(f"MacOSAdapter: chat sent: {message!r}")
+        except Exception as e:
+            log.warning(f"MacOSAdapter: send_chat failed: {e}")
+
+    def _do_read_chat(self, page):
+        """Actual read_chat logic — must run on browser thread."""
+        self._ensure_chat_open(page)
+
+        new_messages = []
+        try:
+            msg_els = page.locator("div[data-message-id]")
+            count = msg_els.count()
+            for i in range(count):
+                el = msg_els.nth(i)
+                msg_id = el.get_attribute("data-message-id")
+                if msg_id in self._seen_message_ids:
+                    continue
+                self._seen_message_ids.add(msg_id)
+                text_el = el.locator('div[jsname="dTKtvb"]')
+                text = text_el.inner_text().strip() if text_el.count() > 0 else el.inner_text().strip()
+                new_messages.append({"id": msg_id, "sender": "", "text": text})
+        except Exception as e:
+            log.warning(f"MacOSAdapter: read_chat failed: {e}")
+        return new_messages
+
+    def _process_chat_queue(self, page):
+        """Drain the chat command queue. Called from browser thread's idle loop."""
+        while not self._chat_queue.empty():
+            try:
+                cmd, args, result_q = self._chat_queue.get_nowait()
+            except queue.Empty:
+                break
+            if cmd == "send":
+                self._do_send_chat(page, args)
+                result_q.put(None)
+            elif cmd == "read":
+                messages = self._do_read_chat(page)
+                result_q.put(messages)
 
     def leave(self):
         """Signal the browser session to close and stop audio capture."""
@@ -158,6 +241,7 @@ class MacOSAdapter(MeetingConnector):
                     args=["--use-fake-ui-for-media-stream", "--headless=new"],
                 )
                 page = browser.pages[0] if browser.pages else browser.new_page()
+                self._page = page
 
                 page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
                 # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s
@@ -289,11 +373,13 @@ class MacOSAdapter(MeetingConnector):
 
                 log.info("MacOSAdapter: in meeting — holding browser open")
 
-                # Hold until leave() signals or 4-hour hard cap
+                # Hold until leave() signals or 4-hour hard cap.
+                # Loop every 1s to service chat queue promptly.
                 deadline = time.time() + 4 * 3600
                 last_health = time.time()
                 while not self._leave_event.is_set() and time.time() < deadline:
-                    time.sleep(5)
+                    self._process_chat_queue(page)
+                    time.sleep(1)
                     # In-meeting health check every 5 minutes
                     if time.time() - last_health >= 300:
                         last_health = time.time()
@@ -309,6 +395,7 @@ class MacOSAdapter(MeetingConnector):
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
+            self._page = None
             pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
             try:
                 os.remove(pid_file)

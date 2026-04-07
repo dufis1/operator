@@ -10,6 +10,7 @@ by scripts/linux_setup.sh) and Playwright's Chromium browser installed via
 """
 import logging
 import os
+import queue
 import subprocess
 import threading
 import time
@@ -55,7 +56,9 @@ class LinuxAdapter(MeetingConnector):
         self._auth_state_file = auth_state_file  # path to storage_state JSON from auth_export.py
         self._leave_event = threading.Event()
         self._capture_proc = None
-        self._page = None  # kept for send_chat; set/cleared by browser thread
+        self._page = None  # kept for send_chat/read_chat; set/cleared by browser thread
+        self._seen_message_ids = set()
+        self._chat_queue = queue.Queue()
 
     # ------------------------------------------------------------------
     # MeetingConnector interface
@@ -110,29 +113,84 @@ class LinuxAdapter(MeetingConnector):
         proc.wait()
 
     def send_chat(self, message):
-        """Post a message to the meeting chat panel.
-        Uses ARIA labels, not CSS classes, to locate the UI elements."""
-        page = self._page
-        if page is None:
-            log.warning("LinuxAdapter: send_chat called but no active page")
-            return
+        """Post a message to the Google Meet chat panel.
+        Queues the request for the browser thread (Playwright is single-threaded)."""
+        result_q = queue.Queue()
+        self._chat_queue.put(("send", message, result_q))
+        result_q.get(timeout=10)
+
+    def read_chat(self):
+        """Return new chat messages since last call.
+        Queues the request for the browser thread."""
+        result_q = queue.Queue()
+        self._chat_queue.put(("read", None, result_q))
         try:
-            # Open the chat panel if it isn't already open
-            chat_btn = page.get_by_role("button", name="Open chat")
+            return result_q.get(timeout=10)
+        except queue.Empty:
+            return []
+
+    def _ensure_chat_open(self, page):
+        """Open the chat panel if it isn't already open. Must run on browser thread."""
+        try:
+            textarea = page.locator('textarea[aria-label="Send a message"]')
+            if textarea.count() > 0 and textarea.is_visible():
+                return  # already open
+        except Exception:
+            pass
+        try:
+            chat_btn = page.get_by_role("button", name="Chat with everyone")
             chat_btn.wait_for(timeout=3000)
             chat_btn.click()
             page.wait_for_timeout(500)
-        except Exception:
-            pass  # panel may already be open
+        except Exception as e:
+            log.warning(f"LinuxAdapter: could not open chat panel: {e}")
 
+    def _do_send_chat(self, page, message):
+        """Actual send_chat logic — must run on browser thread."""
+        self._ensure_chat_open(page)
         try:
-            input_box = page.get_by_role("textbox", name="Send a message to everyone")
+            input_box = page.locator('textarea[aria-label="Send a message"]')
             input_box.wait_for(timeout=5000)
             input_box.fill(message)
             input_box.press("Enter")
-            log.info(f"LinuxAdapter: chat message sent: {message!r}")
+            log.info(f"LinuxAdapter: chat sent: {message!r}")
         except Exception as e:
             log.warning(f"LinuxAdapter: send_chat failed: {e}")
+
+    def _do_read_chat(self, page):
+        """Actual read_chat logic — must run on browser thread."""
+        self._ensure_chat_open(page)
+
+        new_messages = []
+        try:
+            msg_els = page.locator("div[data-message-id]")
+            count = msg_els.count()
+            for i in range(count):
+                el = msg_els.nth(i)
+                msg_id = el.get_attribute("data-message-id")
+                if msg_id in self._seen_message_ids:
+                    continue
+                self._seen_message_ids.add(msg_id)
+                text_el = el.locator('div[jsname="dTKtvb"]')
+                text = text_el.inner_text().strip() if text_el.count() > 0 else el.inner_text().strip()
+                new_messages.append({"id": msg_id, "sender": "", "text": text})
+        except Exception as e:
+            log.warning(f"LinuxAdapter: read_chat failed: {e}")
+        return new_messages
+
+    def _process_chat_queue(self, page):
+        """Drain the chat command queue. Called from browser thread's idle loop."""
+        while not self._chat_queue.empty():
+            try:
+                cmd, args, result_q = self._chat_queue.get_nowait()
+            except queue.Empty:
+                break
+            if cmd == "send":
+                self._do_send_chat(page, args)
+                result_q.put(None)
+            elif cmd == "read":
+                messages = self._do_read_chat(page)
+                result_q.put(messages)
 
     def leave(self):
         """Signal the browser session to close and stop audio capture."""
@@ -340,11 +398,13 @@ class LinuxAdapter(MeetingConnector):
 
                 log.info("LinuxAdapter: in meeting — holding browser open")
 
-                # Hold until leave() signals or 4-hour hard cap
+                # Hold until leave() signals or 4-hour hard cap.
+                # Loop every 1s to service chat queue promptly.
                 deadline = time.time() + 4 * 3600
                 last_health = time.time()
                 while not self._leave_event.is_set() and time.time() < deadline:
-                    time.sleep(5)
+                    self._process_chat_queue(page)
+                    time.sleep(1)
                     # In-meeting health check every 5 minutes
                     if time.time() - last_health >= 300:
                         last_health = time.time()

@@ -14,5 +14,13 @@ class MeetingConnector:
     def send_chat(self, message):
         raise NotImplementedError
 
+    def read_chat(self):
+        """Return a list of new chat messages since last call.
+
+        Each message is a dict: {"id": str, "sender": str, "text": str}.
+        Returns an empty list if no new messages.
+        """
+        raise NotImplementedError
+
     def leave(self):
         raise NotImplementedError
