@@ -18,11 +18,14 @@
 ## Current Status
 
 **Phase:** Chat-first MVP (Phase 8 in roadmap).
-**What just happened (session 47, April 6, 2026):** Built `ChatRunner` (`pipeline/chat_runner.py`) — polling loop that reads chat every 1.5s and echoes back. Wired into `__main__.py` via `--chat` flag and `config.INTERACTION_MODE`. Fixed three MacOSAdapter browser lifecycle gaps vs CaptionsAdapter: (1) navigate to `about:blank` before closing so Meet sees instant disconnect, (2) call `browser.close()` inside `with sync_playwright()` scope so it actually works, (3) added `--mute-audio` Chrome flag and replaced `time.sleep(1)` with `page.wait_for_timeout(1000)` to keep Playwright event loop pumping. Echo test verified end-to-end in live Meet.
+**What just happened (session 48, April 6, 2026):** Wired `LLMClient` into `ChatRunner._handle_message()` — chat messages now get real GPT-4.1-mini responses with conversation history. Verified in live Google Meet: correct answers, follow-up context works (`history_turns=1`), ~1.6s round-trip, clean Ctrl+C shutdown.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 11 unless a real user needs it.
 
-**Next action:** Wire `LLMClient` into `ChatRunner._handle_message()` for real LLM responses (step 8.2). The hook point is already there — swap the echo reply for an LLM call.
+**Next action (step 8.2.1):** Three chat hardening tasks, discussed and scoped in session 48:
+1. **Chat history cap** — `LLMClient` sends full unlimited history today. Add configurable `chat_history_turns` (default ~20 pairs). The existing `MAX_TRANSCRIPT_LINES = 100` in `llm.py` is unused placeholder.
+2. **Wake phrase gating** — currently every message triggers an LLM call. For multi-participant meetings, require "operator" in the message to trigger a response. Non-addressed messages should still be added to history as context (so "operator, summarize what was discussed" works).
+3. **Sender field extraction** — `read_chat()` returns `sender: ""` for all messages. Extract sender name from DOM so we can: (a) reliably filter bot's own messages instead of brittle text-match, (b) include "who said what" in LLM context.
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
 

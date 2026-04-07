@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 6, 2026 (session 47)*
+*Last updated: April 6, 2026 (session 48)*
 
-> **Current status: Chat echo test passing end-to-end.** ChatRunner built and verified in live Google Meet — reads messages, echoes back, joins/leaves cleanly. MacOSAdapter browser lifecycle fixed to match CaptionsAdapter (about:blank leave, in-scope browser.close, --mute-audio, page.wait_for_timeout). Next: wire LLMClient into ChatRunner for real responses (step 8.2).
+> **Current status: Chat MVP with real LLM responses working end-to-end.** ChatRunner wired to LLMClient — messages get GPT-4.1-mini responses with conversation history. Verified in live Google Meet (~1.6s round-trip). Next: chat history cap, wake phrase gating for multi-participant meetings, and sender field extraction (step 8.2.1).
 
 ---
 
@@ -69,7 +69,8 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 |------|-------------|--------|
 | 8.0 | Clean the house — reorganize root, consolidate docs | ✅ |
 | 8.1 | Chat I/O proof of concept — bot reads and writes Google Chat messages during a live meeting (echo test, no LLM). Create `ChatRunner` alongside `AgentRunner` — same `LLMClient`, simpler I/O loop. No codebase reorg needed; existing connector/pipeline separation already fits. | ✅ echo test passing e2e |
-| 8.2 | Wire up the brain — connect chat input to LLM, respond in chat | ⬜ |
+| 8.2 | Wire up the brain — connect chat input to LLM, respond in chat | ✅ |
+| 8.2.1 | Chat hardening — history cap (configurable), wake phrase gating for multi-participant, sender field extraction from DOM | ⬜ |
 | 8.3 | Ship to friend — minimal setup, clear instructions, get it in his hands | ⬜ |
 
 ---
