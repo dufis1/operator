@@ -6,6 +6,7 @@ Usage:
     runner.run(meeting_url)   # blocks until stop() is called
 """
 import logging
+import re
 import threading
 import time
 
@@ -78,6 +79,7 @@ class ChatRunner:
             for msg in messages:
                 msg_id = msg.get("id", "")
                 text = msg.get("text", "").strip()
+                sender = msg.get("sender", "").strip()
 
                 # Skip already-processed messages
                 if msg_id and msg_id in self._seen_ids:
@@ -89,14 +91,31 @@ class ChatRunner:
                 if not text:
                     continue
 
-                # Skip our own messages (sender field is empty for now,
-                # so we match on exact text we recently sent)
-                if text in self._own_messages:
+                # Skip our own messages — prefer sender name, fall back to text match
+                if sender and sender.lower() == config.AGENT_NAME.lower():
+                    log.debug(f"ChatRunner: skipping own message (sender={sender!r})")
+                    continue
+                if not sender and text in self._own_messages:
                     self._own_messages.discard(text)
                     continue
 
-                log.info(f"ChatRunner: new message id={msg_id!r} text={text!r}")
-                self._handle_message(text)
+                log.info(f"ChatRunner: new message sender={sender!r} id={msg_id!r} text={text!r}")
+
+                # Wake phrase gating: only respond when message contains the wake phrase
+                wake = config.CHAT_WAKE_PHRASE.lower()
+                lower = text.lower()
+                if wake in lower:
+                    # Strip the wake phrase from the prompt sent to the LLM
+                    prompt = re.sub(re.escape(config.CHAT_WAKE_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
+                    if prompt:
+                        # Include sender context for the LLM
+                        llm_text = f"{sender}: {prompt}" if sender else prompt
+                        self._handle_message(llm_text)
+                else:
+                    # Not addressed to us — store as context so LLM knows what was said
+                    context = f"{sender}: {text}" if sender else text
+                    self._llm.add_context(context)
+                    log.debug(f"ChatRunner: stored as context (no wake phrase)")
 
             self._stop_event.wait(POLL_INTERVAL)
 

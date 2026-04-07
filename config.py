@@ -11,13 +11,15 @@ _config = yaml.safe_load((_ROOT / "config.yaml").read_text())
 AGENT_NAME           = _config["agent"]["name"]
 WAKE_PHRASE          = _config["agent"]["wake_phrase"]
 SYSTEM_PROMPT        = _config["agent"]["system_prompt"]
+CHAT_WAKE_PHRASE     = _config["agent"].get("chat_wake_phrase", "operator")
 INTERACTION_MODE     = _config["agent"]["interaction_mode"]
 CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
 ECHO_GUARD_SECONDS   = _config["agent"].get("echo_guard_seconds", 1.0)
 
 # LLM
-LLM_PROVIDER = _config["llm"]["provider"]
-LLM_MODEL    = _config["llm"]["model"]
+LLM_PROVIDER         = _config["llm"]["provider"]
+LLM_MODEL            = _config["llm"]["model"]
+CHAT_HISTORY_TURNS   = _config["llm"].get("chat_history_turns", 20)
 
 # TTS
 TTS_PROVIDER     = _config["tts"]["provider"]

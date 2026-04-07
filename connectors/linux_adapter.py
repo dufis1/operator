@@ -173,7 +173,26 @@ class LinuxAdapter(MeetingConnector):
                 self._seen_message_ids.add(msg_id)
                 text_el = el.locator('div[jsname="dTKtvb"]')
                 text = text_el.inner_text().strip() if text_el.count() > 0 else el.inner_text().strip()
-                new_messages.append({"id": msg_id, "sender": "", "text": text})
+                # Sender name lives in sibling div.HNucUd in the parent group.
+                # Format: "SenderName\nTime" for others, just "Time" for self.
+                sender = ""
+                try:
+                    sender = el.evaluate("""el => {
+                        let node = el;
+                        for (let d = 0; d < 4; d++) {
+                            node = node.parentElement;
+                            if (!node) break;
+                            const h = node.querySelector(':scope > div.HNucUd');
+                            if (h) {
+                                const lines = h.innerText.trim().split('\\n');
+                                return lines.length >= 2 ? lines[0] : '';
+                            }
+                        }
+                        return '';
+                    }""")
+                except Exception:
+                    pass
+                new_messages.append({"id": msg_id, "sender": sender, "text": text})
         except Exception as e:
             log.warning(f"LinuxAdapter: read_chat failed: {e}")
         return new_messages

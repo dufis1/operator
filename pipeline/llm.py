@@ -9,9 +9,6 @@ import config
 
 log = logging.getLogger(__name__)
 
-MAX_TRANSCRIPT_LINES = 100  # rolling transcript history limit
-
-
 class LLMClient:
     """Sends prompts to GPT and maintains per-session conversation history.
 
@@ -23,6 +20,7 @@ class LLMClient:
     def __init__(self, openai_client):
         self._client = openai_client
         self._history = []
+        self._max_pairs = config.CHAT_HISTORY_TURNS  # user+assistant pairs to keep
 
     def ask(self, utterance, record=True):
         """Send an utterance to GPT and return the reply string.
@@ -35,7 +33,7 @@ class LLMClient:
             *self._history,
             {"role": "user", "content": utterance},
         ]
-        log.info(f"LLM ask model={config.LLM_MODEL} history_turns={len(self._history)//2} prompt_chars={len(utterance)}")
+        log.info(f"LLM ask model={config.LLM_MODEL} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
         log.debug(f"LLM utterance: {utterance}")
         try:
             response = self._client.chat.completions.create(
@@ -51,6 +49,7 @@ class LLMClient:
         if record:
             self._history.append({"role": "user", "content": utterance})
             self._history.append({"role": "assistant", "content": reply})
+            self._trim_history()
         return reply
 
     def ask_stream(self, utterance):
@@ -63,7 +62,7 @@ class LLMClient:
             *self._history,
             {"role": "user", "content": utterance},
         ]
-        log.info(f"LLM ask_stream model={config.LLM_MODEL} history_turns={len(self._history)//2} prompt_chars={len(utterance)}")
+        log.info(f"LLM ask_stream model={config.LLM_MODEL} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
         log.debug(f"LLM utterance: {utterance}")
         try:
             response = self._client.chat.completions.create(
@@ -102,3 +101,35 @@ class LLMClient:
         """
         self._history.append({"role": "user", "content": utterance})
         self._history.append({"role": "assistant", "content": reply})
+        self._trim_history()
+
+    def add_context(self, text: str):
+        """Add a message to history as context without triggering a response."""
+        self._history.append({"role": "user", "content": text})
+        self._trim_history()
+
+    def _trim_history(self):
+        """Keep only the most recent _max_pairs user/assistant pairs.
+
+        Context-only messages (user messages without a following assistant
+        reply) don't count toward the pair limit — but context before the
+        oldest kept pair is dropped.
+        """
+        # Walk backwards, counting pairs. Once we've found _max_pairs pairs,
+        # everything before that point gets dropped.
+        pairs = 0
+        keep_from = 0
+        i = len(self._history) - 1
+        while i >= 0:
+            if (i >= 1
+                    and self._history[i]["role"] == "assistant"
+                    and self._history[i - 1]["role"] == "user"):
+                pairs += 1
+                if pairs == self._max_pairs:
+                    keep_from = i - 1
+                    break
+                i -= 2
+            else:
+                i -= 1
+        if keep_from > 0:
+            self._history = self._history[keep_from:]
