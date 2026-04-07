@@ -18,15 +18,17 @@
 ## Current Status
 
 **Phase:** Chat-first MVP (Phase 8 in roadmap).
-**What just happened (session 49, April 6, 2026):** Implemented three chat hardening features (step 8.2.1): configurable history cap with pair-counted trimming, `/operator` wake phrase gating with context storage for non-addressed messages, and sender name extraction from Meet DOM. All verified in live Google Meet with multiple participants — sender extraction works (`sender='Jojo Shapiro'`), LLM uses sender context to answer "what's my name?" correctly.
+**What just happened (session 50, April 6, 2026):** Planning session — explored whether Claude Pro / ChatGPT Plus subscriptions could replace API keys for end users (no supported path for either). Decided API keys are the only viable approach. Discussed MCP/tool-use integration for task delegation (e.g., Linear issue creation from Meet chat). Added as Phase 11 in the roadmap: Operator becomes an MCP client, connects to configured MCP servers, passes tool definitions to LLM, executes tool calls, feeds results back. Meeting platform expansion renumbered to Phase 12.
 
-**MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 11 unless a real user needs it.
+**MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
 **Next action (step 8.3):** Ship to friend — minimal setup, clear instructions, get it in his hands.
 
 **Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
 
 **Architecture note (session 47):** CaptionsAdapter and MacOSAdapter have duplicated browser session logic (~150 lines each). User considered refactoring into a shared base but decided against it — chat is shipping first, so keeping them separate avoids unnecessary abstraction. Revisit when both paths need parallel maintenance.
+
+**Architecture note (session 50):** MCP integration (Phase 11) will require: (1) MCP client that connects to servers defined in config.yaml, (2) tool-call loop in LLMClient, (3) separate chat vs. voice settings for max_tokens and system prompt. Both OpenAI and Anthropic APIs support tool calling natively.
 
 ---
 

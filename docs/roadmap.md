@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 6, 2026 (session 49)*
+*Last updated: April 6, 2026 (session 50)*
 
-> **Current status: Chat hardening complete.** History cap, wake phrase gating (`/operator`), and sender extraction all verified in live Google Meet with multiple participants. Next: ship to friend (step 8.3).
+> **Current status: Chat hardening complete.** History cap, wake phrase gating (`/operator`), and sender extraction all verified in live Google Meet with multiple participants. Next: ship to friend (step 8.3). MCP/tool-use integration queued as Phase 11.
 
 ---
 
@@ -117,7 +117,25 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 
 ---
 
-## Phase 11: Meeting Platform Expansion (demand-driven)
+## Phase 11: Tool Use / MCP Integration
+
+*Give Operator the ability to take actions — not just chat — via MCP-based tool plugins.*
+
+**Why:** A chat bot that can only talk is limited. Real task delegation ("create a Linear ticket for the login crash") requires tool execution. MCP is the standard protocol — existing servers for Linear, GitHub, Slack, Notion, Jira, Google Calendar, etc. Users add integrations by config, not code.
+
+**Architecture:** Operator becomes an MCP client. At startup it connects to configured MCP servers, discovers their tools, and passes tool definitions to the LLM. When the LLM returns a `tool_call`, Operator executes it via the MCP server and feeds the result back to the LLM for summarization.
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 11.1 | MCP client — connect to configured servers at startup, discover tools | ⬜ |
+| 11.2 | Tool-call loop in LLMClient — handle tool_call → execute → result → re-prompt cycle | ⬜ |
+| 11.3 | Chat-specific LLM settings — separate `max_tokens`, system prompt for chat vs. voice | ⬜ |
+| 11.4 | Config schema for `mcp_servers` in config.yaml (command, args, env) | ⬜ |
+| 11.5 | Validate with Linear MCP server end-to-end in live Meet | ⬜ |
+
+---
+
+## Phase 12: Meeting Platform Expansion (demand-driven)
 
 *Add support for Zoom and/or Microsoft Teams. Only pursue when a real user needs it.*
 
@@ -125,16 +143,15 @@ Each platform requires: DOM chat selectors, join flow, auth handling, and ongoin
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 11.1 | Define `ChatConnector` interface (read messages, send messages, platform identity) | ⬜ |
-| 11.2 | Zoom — spike on chat DOM, implement connector | ⬜ |
-| 11.3 | Microsoft Teams — spike on chat DOM, implement connector | ⬜ |
+| 12.1 | Define `ChatConnector` interface (read messages, send messages, platform identity) | ⬜ |
+| 12.2 | Zoom — spike on chat DOM, implement connector | ⬜ |
+| 12.3 | Microsoft Teams — spike on chat DOM, implement connector | ⬜ |
 
 ---
 
 ## Not On This Plan
 
 - DigitalOcean droplet deployment (preserved in `cloud/`)
-- Tool / MCP integration (v1.5 or v2)
 - Loadout sharing / registry
 - Windows support
 - Multi-agent concurrency
