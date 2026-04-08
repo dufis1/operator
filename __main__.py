@@ -152,6 +152,11 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         if mcp_thread:
             mcp_thread.join()
             mcp = _mcp_result["client"]
+            # Resolve GitHub username and inject into LLM system prompt
+            if mcp:
+                gh_login = mcp.resolve_github_user()
+                if gh_login:
+                    llm.inject_github_user(gh_login)
 
         log.info(f"TIMING chat_setup={_time.monotonic() - t_chat_start:.1f}s")
         runner = ChatRunner(connector, llm, mcp_client=mcp)
@@ -312,6 +317,10 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
             try:
                 tool_names = mcp.connect_all()
                 log.info(f"MCP tools discovered: {tool_names}")
+                # Resolve GitHub username and inject into LLM system prompt
+                gh_login = mcp.resolve_github_user()
+                if gh_login:
+                    llm.inject_github_user(gh_login)
             except Exception as e:
                 log.error(f"MCP client startup failed: {e}")
                 mcp = None

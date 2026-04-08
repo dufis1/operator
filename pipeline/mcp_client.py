@@ -104,6 +104,27 @@ class MCPClient:
 
         return result
 
+    def resolve_github_user(self) -> str | None:
+        """Call github__get_me to resolve the authenticated GitHub login.
+
+        Returns the login string (e.g. 'dufis1') or None if unavailable.
+        """
+        tool_name = "github__get_me"
+        if tool_name not in self._tools:
+            return None
+        try:
+            result = self.execute_tool(tool_name, {})
+            # Result is JSON text with a "login" field
+            import json as _json
+            data = _json.loads(result)
+            login = data.get("login")
+            if login:
+                log.info(f"MCP resolved GitHub user: {login}")
+            return login
+        except Exception as e:
+            log.warning(f"MCP resolve_github_user failed: {e}")
+            return None
+
     def shutdown(self):
         """Disconnect all servers and stop the event loop thread."""
         if not self._loop:
@@ -247,8 +268,15 @@ class _ServerHandle:
             error_text = "\n".join(c.text for c in result.content if hasattr(c, "text"))
             log.error(f"MCP tool returned error: {error_text}")
             raise MCPToolError(f"Tool error: {error_text}")
-        text_parts = [c.text for c in result.content if hasattr(c, "text")]
-        result_text = "\n".join(text_parts)
+        parts = []
+        for c in result.content:
+            if hasattr(c, "text"):
+                parts.append(c.text)
+            elif hasattr(c, "resource") and hasattr(c.resource, "text"):
+                parts.append(c.resource.text)
+            else:
+                log.warning(f"MCP tool result has unhandled content: type={type(c).__name__}")
+        result_text = "\n".join(parts)
         log.info(f"MCP tool result length={len(result_text)}")
         log.debug(f"MCP tool result: {result_text[:500]}")
         return result_text

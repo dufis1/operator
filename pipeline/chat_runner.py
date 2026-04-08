@@ -246,13 +246,21 @@ class ChatRunner:
                 pass
             return
 
-        # Feed result back to LLM for summarization
+        # Feed result back to LLM — it may summarize or request another tool
         try:
-            summary = self._llm.send_tool_result(tc["id"], tc["name"], tool_result)
-            self._send(summary)
+            tools = self._mcp.get_openai_tools() if self._mcp else None
+            result = self._llm.send_tool_result(tc["id"], tc["name"], tool_result, tools=tools)
         except Exception as e:
             log.error(f"ChatRunner: LLM summary failed: {e}")
             self._send("Tool succeeded but I couldn't summarize the result.")
+            return
+
+        if isinstance(result, str):
+            self._send(result)
+        elif result["type"] == "tool_call":
+            self._request_confirmation(result)
+        else:
+            self._send(result["content"])
 
     def _send(self, text):
         """Send a chat message and track it as our own."""

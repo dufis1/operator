@@ -32,6 +32,20 @@ class LLMClient:
             self._system_prompt = config.SYSTEM_PROMPT
             self._max_tokens = 60
 
+    def inject_github_user(self, login: str):
+        """Add the authenticated GitHub username to the system prompt.
+
+        This prevents the model from guessing usernames based on display names.
+        """
+        hint = (
+            f"\nGitHub tool usage rules:"
+            f"\n- The authenticated user's login is \"{login}\". Always use \"{login}\" as the owner — never guess from chat display names."
+            f"\n- To explore a repo, use get_file_contents to list directories and read files. Start from the root or the path the user mentions. Never guess file paths."
+            f"\n- Avoid search_code — it often returns no results for small repos. Prefer browsing the repo with get_file_contents instead."
+        )
+        self._system_prompt += hint
+        log.info(f"LLM injected GitHub user hint: {login}")
+
     def ask(self, utterance, record=True, tools=None):
         """Send an utterance to GPT and return the reply.
 
@@ -157,11 +171,16 @@ class LLMClient:
         self._history.append({"role": "user", "content": text})
         self._trim_history()
 
-    def send_tool_result(self, tool_call_id: str, tool_name: str, result_content: str):
-        """Feed a tool result back to the model and get the summary response.
+    def send_tool_result(self, tool_call_id: str, tool_name: str, result_content: str, tools=None):
+        """Feed a tool result back to the model and get the next response.
 
-        Call this after executing a tool call. The LLM will summarize the
-        result into a user-facing message.
+        Call this after executing a tool call. The LLM will either summarize
+        the result into a user-facing message, or request another tool call.
+
+        Returns a plain string (backward compat) when tools is None,
+        or a dict like ask() when tools is provided:
+          {"type": "text", "content": "..."}
+          {"type": "tool_call", "id": "...", "name": "...", "arguments": {...}}
         """
         self._history.append({
             "role": "tool",
@@ -173,19 +192,43 @@ class LLMClient:
             *self._history,
         ]
         log.info(f"LLM send_tool_result tool={tool_name} result_len={len(result_content)}")
+
+        kwargs = {
+            "model": config.LLM_MODEL,
+            "max_tokens": self._max_tokens,
+            "messages": messages,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["parallel_tool_calls"] = False
+
         try:
-            response = self._client.chat.completions.create(
-                model=config.LLM_MODEL,
-                max_tokens=self._max_tokens,
-                messages=messages,
-            )
+            response = self._client.chat.completions.create(**kwargs)
         except Exception as e:
             log.error(f"LLM tool result call failed: {e}", exc_info=True)
             raise
-        reply = response.choices[0].message.content
+
+        message = response.choices[0].message
+
+        # Check for follow-up tool call
+        if tools and message.tool_calls:
+            tc = message.tool_calls[0]
+            log.info(f"LLM follow-up tool_call name={tc.function.name}")
+            self._history.append(message.to_dict())
+            self._trim_history()
+            return {
+                "type": "tool_call",
+                "id": tc.id,
+                "name": tc.function.name,
+                "arguments": json.loads(tc.function.arguments),
+            }
+
+        reply = message.content
         log.info(f"LLM tool summary=\"{reply[:80]}\"")
         self._history.append({"role": "assistant", "content": reply})
         self._trim_history()
+        if tools:
+            return {"type": "text", "content": reply}
         return reply
 
     def _trim_history(self):
