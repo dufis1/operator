@@ -58,6 +58,7 @@ class LLMClient:
         }
         if tools:
             kwargs["tools"] = tools
+            kwargs["parallel_tool_calls"] = False
 
         try:
             response = self._client.chat.completions.create(**kwargs)

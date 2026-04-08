@@ -72,7 +72,7 @@ mcp_servers:
     command: "npx"
     args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
   github:
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-github"]
+    command: "./github-mcp-server"
+    args: ["stdio"]
     env:
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
