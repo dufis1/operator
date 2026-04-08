@@ -278,13 +278,13 @@ class MacOSAdapter(MeetingConnector):
         Phase 2: watch for that image to disappear — fires immediately when the
         host clicks 'Let in', with no polling lag.
 
-        Returns True if admitted, False on timeout or leave().
+        Returns "admitted", "cancelled", or "timeout".
         """
         timeout_seconds = config.IDLE_TIMEOUT_SECONDS
         deadline = time.time() + timeout_seconds
         wait_start = time.time()
         last_status_log = wait_start
-        chunk_ms = 5000  # how often to re-check _leave_event
+        chunk_ms = 1000  # how often to re-check _leave_event
 
         WAITING_ROOM_SEL = 'img[alt*="Please wait until a meeting host"]'
 
@@ -300,7 +300,7 @@ class MacOSAdapter(MeetingConnector):
                 f"MacOSAdapter: lobby screen not detected after {elapsed:.1f}s "
                 f"— assuming already admitted or different join flow"
             )
-            return True
+            return "admitted"
 
         # Phase 2: event-driven watch for the lobby to go away = admitted
         while not self._leave_event.is_set() and time.time() < deadline:
@@ -316,11 +316,11 @@ class MacOSAdapter(MeetingConnector):
                     f"MacOSAdapter: admitted — lobby screen gone "
                     f"(event-driven, waited {elapsed:.1f}s total)"
                 )
-                return True
+                return "admitted"
             except Exception:
                 if page.is_closed():
                     log.info("MacOSAdapter: browser closed during admission wait — aborting")
-                    return False
+                    return "cancelled"
 
             if time.time() - last_status_log >= 30:
                 elapsed = time.time() - wait_start
@@ -330,12 +330,16 @@ class MacOSAdapter(MeetingConnector):
         elapsed = time.time() - wait_start
         if self._leave_event.is_set():
             log.info(f"MacOSAdapter: admission wait cancelled (leave called after {elapsed:.0f}s)")
+            return "cancelled"
         else:
             log.warning(f"MacOSAdapter: admission timeout after {elapsed:.0f}s")
-        return False
+            return "timeout"
 
     def leave(self):
-        """Signal the browser session to close and stop audio capture."""
+        """Signal the browser session to close and stop audio capture.
+        Safe to call multiple times — only the first call does work."""
+        if self._leave_event.is_set():
+            return
         self._leave_event.set()
         # Wait for browser.close() to finish (same pattern as CaptionsAdapter)
         if self._browser_thread and self._browser_thread.is_alive():
@@ -416,122 +420,123 @@ class MacOSAdapter(MeetingConnector):
                 page = browser.pages[0] if browser.pages else browser.new_page()
                 self._page = page
 
-                page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
-                t_nav = time.monotonic()
-                log.info(f"TIMING navigation={t_nav - t_browser:.1f}s")
-                # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s
                 try:
-                    page.wait_for_selector(
-                        'button:has-text("Join now"), '
-                        'button:has-text("Ask to join"), '
-                        'button[aria-label*="Turn off camera"], '
-                        'button[aria-label*="Turn on camera"], '
-                        'button[aria-label*="Sign in"]',
-                        timeout=15000,
-                    )
-                except Exception:
-                    log.warning("MacOSAdapter: no pre-join element detected — proceeding anyway")
-                log.info(f"TIMING pre_join_ready={time.monotonic() - t_nav:.1f}s")
+                    page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                    t_nav = time.monotonic()
+                    log.info(f"TIMING navigation={t_nav - t_browser:.1f}s")
+                    # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s
+                    try:
+                        page.wait_for_selector(
+                            'button:has-text("Join now"), '
+                            'button:has-text("Ask to join"), '
+                            'button[aria-label*="Turn off camera"], '
+                            'button[aria-label*="Turn on camera"], '
+                            'button[aria-label*="Sign in"]',
+                            timeout=15000,
+                        )
+                    except Exception:
+                        log.warning("MacOSAdapter: no pre-join element detected — proceeding anyway")
+                    log.info(f"TIMING pre_join_ready={time.monotonic() - t_nav:.1f}s")
 
-                if config.DEBUG_AUDIO:
-                    save_debug(page, "initial_load")
+                    if config.DEBUG_AUDIO:
+                        save_debug(page, "initial_load")
 
-                # --- Session recovery ladder ---
-                t_state = time.monotonic()
-                state = detect_page_state(page)
-                log.info(f"TIMING detect_page_state={time.monotonic() - t_state:.1f}s (state={state})")
-                recovered = False
+                    # --- Session recovery ladder ---
+                    t_state = time.monotonic()
+                    state = detect_page_state(page)
+                    log.info(f"TIMING detect_page_state={time.monotonic() - t_state:.1f}s (state={state})")
+                    recovered = False
 
-                if state == "logged_out":
-                    log.warning("MacOSAdapter: session expired — attempting cookie recovery")
-                    auth = validate_auth_state(self._auth_state_file)
-                    if auth and inject_cookies(browser, auth):
-                        page.reload(wait_until="domcontentloaded", timeout=30000)
-                        try:
-                            page.wait_for_selector(
-                                'button:has-text("Join now"), '
-                                'button:has-text("Ask to join"), '
-                                'button[aria-label*="Turn off camera"]',
-                                timeout=15000,
-                            )
-                        except Exception:
-                            pass
-                        state = detect_page_state(page)
-                        if state == "pre_join":
-                            log.info("MacOSAdapter: session recovered via cookie injection")
-                            recovered = True
+                    if state == "logged_out":
+                        log.warning("MacOSAdapter: session expired — attempting cookie recovery")
+                        auth = validate_auth_state(self._auth_state_file)
+                        if auth and inject_cookies(browser, auth):
+                            page.reload(wait_until="domcontentloaded", timeout=30000)
+                            try:
+                                page.wait_for_selector(
+                                    'button:has-text("Join now"), '
+                                    'button:has-text("Ask to join"), '
+                                    'button[aria-label*="Turn off camera"]',
+                                    timeout=15000,
+                                )
+                            except Exception:
+                                pass
+                            state = detect_page_state(page)
+                            if state == "pre_join":
+                                log.info("MacOSAdapter: session recovered via cookie injection")
+                                recovered = True
+                            else:
+                                log.error(f"MacOSAdapter: recovery failed — page state: {state}")
+                                save_debug(page, "recovery_fail")
+                                js.signal_failure("session_expired")
+                                return
                         else:
-                            log.error(f"MacOSAdapter: recovery failed — page state: {state}")
-                            save_debug(page, "recovery_fail")
+                            log.error("MacOSAdapter: no valid auth_state for recovery")
+                            save_debug(page, "no_auth_state")
                             js.signal_failure("session_expired")
                             return
-                    else:
-                        log.error("MacOSAdapter: no valid auth_state for recovery")
-                        save_debug(page, "no_auth_state")
-                        js.signal_failure("session_expired")
+
+                    if state == "cant_join":
+                        log.error("MacOSAdapter: 'can't join this video call'")
+                        save_debug(page, "cant_join")
+                        js.signal_failure("cant_join")
                         return
 
-                if state == "cant_join":
-                    log.error("MacOSAdapter: 'can't join this video call'")
-                    save_debug(page, "cant_join")
-                    js.signal_failure("cant_join")
-                    return
+                    # --- Pre-join screen actions ---
 
-                # --- Pre-join screen actions ---
+                    # Race both camera states — resolves instantly when one already exists
+                    t_prejoin = time.monotonic()
+                    cam_off = page.get_by_role("button", name="Turn off camera")
+                    cam_on = page.get_by_role("button", name="Turn on camera")
+                    try:
+                        cam_off.or_(cam_on).wait_for(timeout=2000)
+                        if cam_off.is_visible():
+                            cam_off.click()
+                            log.debug("MacOSAdapter: camera turned off")
+                        else:
+                            log.debug("MacOSAdapter: camera already off")
+                    except Exception:
+                        log.debug("MacOSAdapter: camera button not found")
+                    log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
 
-                # Race both camera states — resolves instantly when one already exists
-                t_prejoin = time.monotonic()
-                cam_off = page.get_by_role("button", name="Turn off camera")
-                cam_on = page.get_by_role("button", name="Turn on camera")
-                try:
-                    cam_off.or_(cam_on).wait_for(timeout=2000)
-                    if cam_off.is_visible():
-                        cam_off.click()
-                        log.debug("MacOSAdapter: camera turned off")
-                    else:
-                        log.debug("MacOSAdapter: camera already off")
-                except Exception:
-                    log.debug("MacOSAdapter: camera button not found")
-                log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
+                    if config.DEBUG_AUDIO:
+                        save_debug(page, "pre_join")
 
-                if config.DEBUG_AUDIO:
-                    save_debug(page, "pre_join")
+                    # Race all join buttons — avoids 5s timeout per missing button
+                    t_join = time.monotonic()
+                    join_now = page.get_by_role("button", name="Join now")
+                    ask_join = page.get_by_role("button", name="Ask to join")
+                    switch_here = page.get_by_role("button", name="Switch here")
+                    clicked_label = None
+                    try:
+                        join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
+                        for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
+                            if btn.is_visible():
+                                btn.click()
+                                clicked_label = label
+                                log.debug(f"MacOSAdapter: clicked {label!r}")
+                                break
+                    except Exception:
+                        pass
 
-                # Race all join buttons — avoids 5s timeout per missing button
-                t_join = time.monotonic()
-                join_now = page.get_by_role("button", name="Join now")
-                ask_join = page.get_by_role("button", name="Ask to join")
-                switch_here = page.get_by_role("button", name="Switch here")
-                clicked_label = None
-                try:
-                    join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
-                    for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
-                        if btn.is_visible():
-                            btn.click()
-                            clicked_label = label
-                            log.debug(f"MacOSAdapter: clicked {label!r}")
-                            break
-                except Exception:
-                    pass
-
-                if clicked_label is None:
-                    save_debug(page, "join_fail")
-                    log.warning("MacOSAdapter: could not find join button")
-                    js.signal_failure("no_join_button")
-                    return
-
-                log.info(f"TIMING join_click={time.monotonic() - t_join:.1f}s ({clicked_label})")
-
-                if clicked_label == "Ask to join":
-                    if not self._wait_for_admission(page):
-                        save_debug(page, "admission_fail")
-                        js.signal_failure("admission_timeout")
+                    if clicked_label is None:
+                        save_debug(page, "join_fail")
+                        log.warning("MacOSAdapter: could not find join button")
+                        js.signal_failure("no_join_button")
                         return
 
-                log.info("MacOSAdapter: joined meeting successfully")
-                js.signal_success(recovered=recovered)
+                    log.info(f"TIMING join_click={time.monotonic() - t_join:.1f}s ({clicked_label})")
 
-                try:
+                    if clicked_label == "Ask to join":
+                        admission = self._wait_for_admission(page)
+                        if admission != "admitted":
+                            save_debug(page, "admission_fail")
+                            js.signal_failure(f"admission_{admission}")
+                            return
+
+                    log.info("MacOSAdapter: joined meeting successfully")
+                    js.signal_success(recovered=recovered)
+
                     # Event-driven: wait for in-meeting UI instead of sleeping 3s
                     t_in_meeting = time.monotonic()
                     try:

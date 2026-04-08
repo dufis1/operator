@@ -61,8 +61,6 @@ class ChatRunner:
                 elif "already_running" in reason:
                     print("\n⚠️  Another Operator session is already running.")
                     print("   Use --force to stop it and start a new one.\n")
-                else:
-                    log.error(f"ChatRunner: join failed: {reason}")
                 self._connector.leave()
                 return
             if join_status.session_recovered:
