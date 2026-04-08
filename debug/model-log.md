@@ -521,58 +521,102 @@ LatencyProbe: disabled via config
 ## Section 5c: Chat Mode (`--chat`)
 
 Chat mode uses `ChatRunner` + `MacOSAdapter`. No audio pipeline, no wake detection.
-The bot joins the meeting, polls chat every 1.5s, and responds.
+The bot joins the meeting, uses a MutationObserver for instant chat message detection,
+and checks participant count to decide whether wake phrase is required.
 
 **Startup + join:**
 ```
+TIMING chat_setup=2.5s                           # total chat mode initialization
 Starting Operator — joining <url>
 ChatRunner: joining <url>
 MacOSAdapter: joining <url>
+TIMING browser_launch=0.9s
+TIMING navigation=0.8s
+TIMING pre_join_ready=0.5s
+TIMING detect_page_state=0.0s (state=pre_join)
 MacOSAdapter: camera turned off                  # or "camera already off"
+TIMING camera_toggle=0.5s
 MacOSAdapter: clicked 'Join now'                 # or 'Ask to join' or 'Switch here'
+TIMING join_click=0.1s (Join now)
 MacOSAdapter: joined meeting successfully
 ChatRunner: joined — starting chat loop
+TIMING in_meeting_wait=1.4s
+MacOSAdapter: camera still off after join        # post-join camera re-check; or "camera re-disabled after join"
 MacOSAdapter: mic already on                     # or "microphone unmuted"
+TIMING mic_check=0.0s
 MacOSAdapter: in meeting — holding browser open
+TIMING total_join=4.1s
+MacOSAdapter: chat MutationObserver installed     # observer injected on chat panel
+ChatRunner: participant count changed 0 → 2       # initial count detection
 ```
 
-**Chat polling loop (step 8.2.1 — wake phrase gating + sender extraction):**
+**MCP parallel startup (if mcp_servers configured):**
 ```
-ChatRunner: new message sender='Jojo Shapiro' id='spaces/.../messages/...' text='/operator what is 2+2?'
-LLM ask model=gpt-4.1-mini history_msgs=3 prompt_chars=14   # history_msgs = total messages (pairs + context)
-LLM utterance: Jojo Shapiro: what is 2+2?                   # sender prefixed for LLM context
-ChatRunner: sending reply='2 plus 2 equals 4.'
-MacOSAdapter: chat sent: '2 plus 2 equals 4.'
+TIMING mcp_connect=2.1s (32 tools)               # runs in parallel with browser join
+MCP server 'linear': 32 tools discovered
+MCP server 'linear' connected — 32 tools
 ```
 
-**Non-addressed messages (no wake phrase — stored as context only):**
+**1-on-1 mode (≤2 participants — no wake phrase required):**
 ```
-ChatRunner: new message sender='Jojo Shapiro' id='spaces/.../messages/...' text='let me check the budget'
-ChatRunner: stored as context (no wake phrase)
+MacOSAdapter: observer drained 1 new messages                     # MutationObserver caught message instantly
+ChatRunner: new message sender='Jojo Shapiro' id='spaces/.../messages/...' text='whats up' one_on_one=True
+LLM ask model=gpt-4.1-mini mode=chat max_tokens=300 history_msgs=0 prompt_chars=43 tools=32
+LLM utterance: Jojo: whats up (First time talking to Jojo)        # first-name only, first-time greeting marker
+LLM reply="Hello Jojo! How can I assist you today?"
+MacOSAdapter: chat sent: 'Hello Jojo! How can I assist you today?'
 ```
 
-**Bot's own messages filtered by sender:**
+**Echo suppression (bot's own messages — Meet creates 2 DOM elements per message):**
 ```
-ChatRunner: skipping own message (sender='Operator')
+MacOSAdapter: observer drained 2 new messages     # Meet adds 2 divs with different IDs, same text
+ChatRunner: skipping own message (text match)      # first element filtered
+ChatRunner: skipping own message (text match)      # second element filtered (batch discard)
+```
+
+**Multi-participant mode (>2 participants — wake phrase required):**
+```
+ChatRunner: participant count changed 2 → 3        # someone joined
+ChatRunner: new message sender='Jojo Shapiro' id='...' text="What's two plus two?" one_on_one=False
+ChatRunner: stored as context (no wake phrase)      # no @operator → stored as LLM context only
+
+ChatRunner: new message sender='Jojo Shapiro' id='...' text="@operator what's 2+2?" one_on_one=False
+LLM ask model=gpt-4.1-mini mode=chat max_tokens=300 history_msgs=9 prompt_chars=17 tools=32
+LLM utterance: Jojo: what's 2+2?                   # wake phrase stripped, first-name prefix
+```
+
+**Participant transitions (dynamic wake phrase gating):**
+```
+ChatRunner: participant count changed 3 → 2        # someone left → back to 1-on-1
+ChatRunner: new message sender='Jojo Shapiro' id='...' text="What's the capital of Singapore?" one_on_one=True
+```
+
+**Bot's own messages filtered by sender name:**
+```
+ChatRunner: skipping own message (sender='Operator')   # sender matched config.AGENT_NAME
 ```
 
 **Shutdown (Ctrl+C):**
 ```
 Received signal 2 — shutting down
+MCP client shutdown complete                       # if MCP was configured
 MacOSAdapter: waiting for browser to close...
-MacOSAdapter: navigated away — left meeting cleanly   # about:blank triggers instant Meet leave
+MacOSAdapter: clicked Leave call                   # clean leave (or "navigated away" as fallback)
 MacOSAdapter: browser closed
 MacOSAdapter: left meeting
+ChatRunner: participant count changed 2 → 0        # final count after browser closes
 ```
 
 **Join failure lines** are identical to Section 1 (same MacOSAdapter join flow).
 
 **What to check:**
 - No `ChatRunner: new message` lines when messages are sent → chat panel not opening; check `_ensure_chat_open()` selectors
+- No `MutationObserver installed` → observer injection failed; check `[data-panel-id="2"]` selector
+- `observer drained 0` repeatedly despite messages → observer not firing; check if panel container changed
+- Echo loop (bot responding to own messages) → check `skipping own message (text match)` appears twice per send; if only once, batch discard may be broken
+- `participant count changed` not appearing → `[data-requested-participant-id]` selector may have changed
 - `{Adapter}: could not open chat panel: ...` → chat button selector failed; debug screenshot saved to `debug/chat_btn_not_found.png`
-- `{Adapter}: saved debug screenshot to debug/chat_btn_not_found.png` → screenshot captured for diagnosis
 - `MacOSAdapter: send_chat failed` → textarea selector changed or chat panel closed unexpectedly
-- `MacOSAdapter: browser already closed` instead of `browser closed` → browser.close() ran outside Playwright scope (regression)
 
 ---
 

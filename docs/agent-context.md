@@ -17,12 +17,23 @@
 
 ## Current Status
 
-**Phase:** MCP tool-use integration (Phase 11 in roadmap) — complete.
-**What just happened (session 52, April 7, 2026):** Validated MCP end-to-end with Linear in a live Google Meet. Corrected the Linear MCP server config — `@linear/mcp-server` doesn't exist on npm; Linear uses a remote MCP server at `https://mcp.linear.app/mcp` via `mcp-remote` (OAuth-based, no API key). Successfully created a Linear issue from chat. Also fixed waiting room admission detection: MacOSAdapter and LinuxAdapter were logging "joined meeting successfully" after clicking "Ask to join" without waiting for actual admission. Ported `_wait_for_admission()` and raced join button pattern from CaptionsAdapter. Added debug screenshot on chat button failure. Bumped `chat_history_turns` back to 20. Added step 10.5 to roadmap for MCP OAuth setup in the wizard.
+**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap).
+**What just happened (sessions 53–54, April 7, 2026):**
+
+Session 53: Fixed voice mode startup crash (re-added `MAX_TRANSCRIPT_LINES`), parallelized MCP OAuth with browser join (7.8s→3.2s startup), fixed ghost session on shutdown (click Leave call button), suppressed Playwright shutdown noise.
+
+Session 54: Major chat mode enhancements:
+- **MutationObserver for chat messages** — replaced 1.5s DOM polling with an injected MutationObserver on `[data-panel-id="2"]` that fires instantly when new `div[data-message-id]` elements appear. `_do_read_chat` drains a JS-side queue instead of scanning the full DOM.
+- **1-on-1 auto-respond** — `get_participant_count()` queries `[data-requested-participant-id]` elements. When ≤2 participants, wake phrase is skipped. Dynamically transitions when participants join/leave (checked every 3s).
+- **First-name-only addressing** — `sender.split()[0]` at the data layer. Per-participant greeting tracking via `_greeted` set + system prompt rule to not repeat names.
+- **Echo loop fix** — Meet creates 2 DOM elements per message (different IDs, same text). Batched `_own_messages` discard so both duplicates are caught.
+- **Post-join camera re-check** — Meet can re-enable camera after join.
+- **Clean shutdown** — browser thread drains pending queue commands in finally block so callers unblock instantly (was 14s delay).
+- **Poll interval** — 1.5s→0.5s (backup cadence; observer handles instant detection).
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
-**Next action:** Step 8.3 (ship to friend) is the main remaining item before Phase 11 is fully wrapped. Phase 12 (meeting platform expansion) is demand-driven.
+**Next action:** Step 8.3 (ship to friend). Chat-first MVP with MCP tool use is working end-to-end with clean startup (~4s), clean shutdown, and polished UX (auto-respond in 1-on-1, first-name greeting).
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
@@ -31,6 +42,8 @@
 **Architecture note (session 47):** CaptionsAdapter and MacOSAdapter have duplicated browser session logic (~150 lines each). User considered refactoring into a shared base but decided against it — chat is shipping first, so keeping them separate avoids unnecessary abstraction. Revisit when both paths need parallel maintenance.
 
 **Architecture note (session 51):** MCP integration uses a dedicated asyncio event loop thread to bridge the async MCP SDK into our sync codebase. Each MCP server runs as a long-lived `_ServerHandle` async task — required because `stdio_client` uses anyio task groups that must stay in one task. Tool names are namespaced as `server__tool` (e.g., `linear__create_issue`) to avoid collisions across servers. Confirmation flow: LLM returns tool_call → Operator asks user in chat → user confirms → tool executes → result fed back to LLM → summary sent. `LLMClient.ask(tools=None)` returns a plain string (voice path unchanged); `ask(tools=[...])` returns a structured dict.
+
+**Architecture note (session 54):** Chat message detection now uses a two-layer approach: MutationObserver in the browser for instant detection, with 0.5s Python polling as a fallback drain cadence. The observer seeds `__operatorSeenIds` with existing messages on install to avoid replaying history. Participant count uses `[data-requested-participant-id]` which reliably tracks actual in-call participants (not invited-but-absent). The count is 2× `rosterCount` due to UI duplicate elements, so we use `requestedParticipants` instead.
 
 ---
 
@@ -103,6 +116,10 @@
 - **MCP SDK's `stdio_client` uses anyio task groups — cannot split across coroutines.** Manually calling `__aenter__` on `stdio_client` from a separate coroutine (via `run_coroutine_threadsafe`) fails with "Attempted to exit cancel scope in a different task." Fix: each server must run as a single long-lived async task (`_ServerHandle._run()`) that enters the `stdio_client` context and stays alive until shutdown. Tool calls are dispatched to the same event loop via `run_coroutine_threadsafe` to the `_execute_tool` coroutine (which shares the task's session but runs as a separate coroutine — that's fine, the constraint is on the context manager, not the session).
 - **`@linear/mcp-server` npm package does not exist.** Linear's official MCP server is remote at `https://mcp.linear.app/mcp`. Use `npx -y mcp-remote https://mcp.linear.app/mcp` to bridge it as a stdio subprocess. Auth is OAuth (browser popup on first run), token cached locally by `mcp-remote`. No `LINEAR_API_KEY` needed.
 - **MacOSAdapter/LinuxAdapter "joined" before admission.** Clicking "Ask to join" set `joined = True` immediately without waiting for the host to admit. Operator proceeded to open chat panel while still in the waiting room. Fix: track `clicked_label`, and if "Ask to join" was clicked, call `_wait_for_admission()` (two-phase event-driven: wait for lobby image to appear, then watch for it to disappear). Already existed in CaptionsAdapter.
+- **Google Meet creates 2 DOM elements per chat message (different IDs, same text).** When Operator sends a message, the MutationObserver catches both elements. If the echo filter (`_own_messages`) discards the text on the first match, the second element slips through and triggers an echo loop. Fix: batch the discard — collect matched texts during the full message batch, then remove from `_own_messages` after the loop.
+- **Google Meet re-enables camera after join.** Camera toggled off on the pre-join screen can reappear as on after clicking Join. Fix: add a second camera check after the in-meeting indicator is detected.
+- **`[data-participant-id]` counts UI elements, not participants.** Returns ~2× actual count due to duplicate DOM entries per participant. Use `[data-requested-participant-id]` instead — reliably matches actual in-call participants (tested: 1-on-1, multi-participant, participant leave, invited-but-absent).
+- **Shutdown blocks 14s after browser closes.** `read_chat()` and `get_participant_count()` queue commands for the browser thread. After browser closes, the browser thread stops processing, so callers block until their `result_q.get(timeout=...)` expires (10s + 5s). Fix: drain pending queue commands in the browser thread's finally block, responding with empty results so callers unblock immediately.
 
 ---
 

@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 52)*
+*Last updated: April 7, 2026 (session 54)*
 
-> **Current status: MCP end-to-end validated with Linear (Phase 11 complete).** Step 11.5 passed — Operator connects to Linear's remote MCP server via `mcp-remote` (OAuth, no API key), discovers 32 tools, and successfully created a Linear issue from a live Google Meet chat session. Also fixed waiting room admission detection in MacOS and Linux adapters (ported from CaptionsAdapter). Step 8.3 (ship to friend) still pending.
+> **Current status: Chat MVP feature-complete (sessions 53–54).** 1-on-1 auto-respond (no wake phrase needed when ≤2 participants), MutationObserver for near-instant chat message detection, first-name-only greeting with per-participant tracking, echo loop fix, post-join camera re-check, clean shutdown. Startup latency 7.8s→3.2s (session 53) then 4.1s measured in session 54. Step 8.3 (ship to friend) is next.
 
 ---
 
