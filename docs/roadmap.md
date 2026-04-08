@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 54)*
+*Last updated: April 7, 2026 (session 55)*
 
-> **Current status: Chat MVP feature-complete (sessions 53–54).** 1-on-1 auto-respond (no wake phrase needed when ≤2 participants), MutationObserver for near-instant chat message detection, first-name-only greeting with per-participant tracking, echo loop fix, post-join camera re-check, clean shutdown. Startup latency 7.8s→3.2s (session 53) then 4.1s measured in session 54. Step 8.3 (ship to friend) is next.
+> **Current status: Chat MVP feature-complete (sessions 53–54), shutdown hardened (session 55).** 1-on-1 auto-respond, MutationObserver chat, first-name greeting, MCP tool use, clean Ctrl+C at any startup phase. Step 8.3 (ship to friend) is next.
 
 ---
 

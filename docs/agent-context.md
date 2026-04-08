@@ -17,23 +17,19 @@
 
 ## Current Status
 
-**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap).
-**What just happened (sessions 53–54, April 7, 2026):**
+**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), shutdown hardened.
+**What just happened (session 55, April 7, 2026):**
 
-Session 53: Fixed voice mode startup crash (re-added `MAX_TRANSCRIPT_LINES`), parallelized MCP OAuth with browser join (7.8s→3.2s startup), fixed ghost session on shutdown (click Leave call button), suppressed Playwright shutdown noise.
-
-Session 54: Major chat mode enhancements:
-- **MutationObserver for chat messages** — replaced 1.5s DOM polling with an injected MutationObserver on `[data-panel-id="2"]` that fires instantly when new `div[data-message-id]` elements appear. `_do_read_chat` drains a JS-side queue instead of scanning the full DOM.
-- **1-on-1 auto-respond** — `get_participant_count()` queries `[data-requested-participant-id]` elements. When ≤2 participants, wake phrase is skipped. Dynamically transitions when participants join/leave (checked every 3s).
-- **First-name-only addressing** — `sender.split()[0]` at the data layer. Per-participant greeting tracking via `_greeted` set + system prompt rule to not repeat names.
-- **Echo loop fix** — Meet creates 2 DOM elements per message (different IDs, same text). Batched `_own_messages` discard so both duplicates are caught.
-- **Post-join camera re-check** — Meet can re-enable camera after join.
-- **Clean shutdown** — browser thread drains pending queue commands in finally block so callers unblock instantly (was 14s delay).
-- **Poll interval** — 1.5s→0.5s (backup cadence; observer handles instant detection).
+Session 55: Hardened Ctrl+C shutdown so it works cleanly at any point during startup — not just in-meeting. Previously, pressing Ctrl+C during the waiting room (or any pre-join phase) left Chrome running for ~60s because the browser cleanup `finally` only covered the in-meeting loop. Changes:
+- **Lifted cleanup `finally` to cover all exit paths** — `try:` now starts right after `self._page = page`, so every early return (auth failure, can't join, no join button, admission cancel/timeout) goes through the same cleanup: click Leave call, navigate to about:blank as fallback, `browser.close()`, drain chat queue, set `_browser_closed`.
+- **`_wait_for_admission` returns reason strings** — `"admitted"`, `"cancelled"`, or `"timeout"` instead of bool. Caller passes the correct reason to `signal_failure` (e.g., `admission_cancelled` vs `admission_timeout`).
+- **`leave()` is idempotent** — guards on `_leave_event.is_set()` so the second call (from ChatRunner after `_shutdown()` already called it) produces no duplicate log output.
+- **Admission poll chunk 5s→1s** — Ctrl+C during waiting room now responds within ~1s instead of ~5s.
+- **Removed duplicate log line** in ChatRunner that re-logged "join failed" for unmatched failure reasons.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
-**Next action:** Step 8.3 (ship to friend). Chat-first MVP with MCP tool use is working end-to-end with clean startup (~4s), clean shutdown, and polished UX (auto-respond in 1-on-1, first-name greeting).
+**Next action:** Step 8.3 (ship to friend). Chat-first MVP with MCP tool use is working end-to-end with clean startup (~4s), clean shutdown at any phase, and polished UX (auto-respond in 1-on-1, first-name greeting).
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
@@ -120,6 +116,7 @@ Session 54: Major chat mode enhancements:
 - **Google Meet re-enables camera after join.** Camera toggled off on the pre-join screen can reappear as on after clicking Join. Fix: add a second camera check after the in-meeting indicator is detected.
 - **`[data-participant-id]` counts UI elements, not participants.** Returns ~2× actual count due to duplicate DOM entries per participant. Use `[data-requested-participant-id]` instead — reliably matches actual in-call participants (tested: 1-on-1, multi-participant, participant leave, invited-but-absent).
 - **Shutdown blocks 14s after browser closes.** `read_chat()` and `get_participant_count()` queue commands for the browser thread. After browser closes, the browser thread stops processing, so callers block until their `result_q.get(timeout=...)` expires (10s + 5s). Fix: drain pending queue commands in the browser thread's finally block, responding with empty results so callers unblock immediately.
+- **Ctrl+C during waiting room leaves Chrome running ~60s.** The browser cleanup `finally` only wrapped the in-meeting hold loop. Early returns from auth failure, no join button, or admission cancel/timeout skipped `browser.close()` entirely. With `start_new_session=True` (needed so terminal SIGINT doesn't kill Chrome directly), Chrome outlives Python and stays in the meeting until Meet's heartbeat times out. Fix: lift the `try/finally` to start right after `self._page = page` so all exit paths go through cleanup. Also make `leave()` idempotent (guard on `_leave_event.is_set()`) since both `_shutdown()` and ChatRunner/AgentRunner call it.
 
 ---
 

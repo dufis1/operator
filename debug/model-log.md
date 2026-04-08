@@ -98,6 +98,7 @@ STARTUP join failed: cant_join                         # "You can't join this vi
    python scripts/auth_export.py
 STARTUP join failed: no_join_button                    # pre-join screen but no button found
 STARTUP join failed: admission_timeout                 # waited in lobby for ADMISSION_TIMEOUT_SECONDS, never admitted
+STARTUP join failed: admission_cancelled               # Ctrl+C or leave() called while waiting in lobby
 
 # Multiple instances / SingletonLock
 CaptionsAdapter: removed stale SingletonLock           # previous session crashed; lock was dead — removed automatically
