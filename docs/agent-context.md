@@ -17,15 +17,17 @@
 
 ## Current Status
 
-**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), shutdown hardened.
-**What just happened (session 55, April 7, 2026):**
+**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), meeting lifecycle overhauled.
+**What just happened (session 56, April 7, 2026):**
 
-Session 55: Hardened Ctrl+C shutdown so it works cleanly at any point during startup — not just in-meeting. Previously, pressing Ctrl+C during the waiting room (or any pre-join phase) left Chrome running for ~60s because the browser cleanup `finally` only covered the in-meeting loop. Changes:
-- **Lifted cleanup `finally` to cover all exit paths** — `try:` now starts right after `self._page = page`, so every early return (auth failure, can't join, no join button, admission cancel/timeout) goes through the same cleanup: click Leave call, navigate to about:blank as fallback, `browser.close()`, drain chat queue, set `_browser_closed`.
-- **`_wait_for_admission` returns reason strings** — `"admitted"`, `"cancelled"`, or `"timeout"` instead of bool. Caller passes the correct reason to `signal_failure` (e.g., `admission_cancelled` vs `admission_timeout`).
-- **`leave()` is idempotent** — guards on `_leave_event.is_set()` so the second call (from ChatRunner after `_shutdown()` already called it) produces no duplicate log output.
-- **Admission poll chunk 5s→1s** — Ctrl+C during waiting room now responds within ~1s instead of ~5s.
-- **Removed duplicate log line** in ChatRunner that re-logged "join failed" for unmatched failure reasons.
+Session 56: Complete meeting lifecycle overhaul — Operator now follows the user like a pet instead of blindly following the calendar. Changes:
+
+- **Calendar end-time extraction** — `_find_event_times()` returns both start and end times (was only start). Meetings past their end time are skipped. Queue items are now `(url, end_dt)` tuples.
+- **Pre-join user gate** — `_wait_for_user_presence()` polls the pre-join screen text for the user's display name (configured as `user_display_name` in config.yaml). Operator won't click "Join now" until the user is detected in the call. Prevents joining meetings with strangers.
+- **In-meeting auto-leave** — After calendar end time passes, checks participant DOM every 30s via `_is_user_in_meeting()`. Leaves only when BOTH conditions are true: past end time AND user not present. Uses aria-label (primary, survives all layouts including portrait) and `[data-participant-id]` innerText (fallback).
+- **Removed idle timeout** — No more auto-leave after 10 min of silence. Operator stays as long as the user is present.
+- **Ctrl+C re-join bug fixed** — `run_polling()` was clearing `_stop_event` after each meeting, so a queued second URL would be picked up during shutdown. Now checks `_stop_event.is_set()` before looping back.
+- **`user_display_name` config** — New field in config.yaml under `agent:`. Used for both pre-join gate and in-meeting presence detection.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
@@ -115,6 +117,9 @@ Session 55: Hardened Ctrl+C shutdown so it works cleanly at any point during sta
 - **Google Meet creates 2 DOM elements per chat message (different IDs, same text).** When Operator sends a message, the MutationObserver catches both elements. If the echo filter (`_own_messages`) discards the text on the first match, the second element slips through and triggers an echo loop. Fix: batch the discard — collect matched texts during the full message batch, then remove from `_own_messages` after the loop.
 - **Google Meet re-enables camera after join.** Camera toggled off on the pre-join screen can reappear as on after clicking Join. Fix: add a second camera check after the in-meeting indicator is detected.
 - **`[data-participant-id]` counts UI elements, not participants.** Returns ~2× actual count due to duplicate DOM entries per participant. Use `[data-requested-participant-id]` instead — reliably matches actual in-call participants (tested: 1-on-1, multi-participant, participant leave, invited-but-absent).
+- **Calendar poller joins meetings that ended hours ago.** `minutes_until <= JOIN_WINDOW_MINUTES` has no lower bound — a meeting that started 103 minutes ago has `minutes_until = -103.3`, which is `<= 2`. Fix: extract event end time and skip meetings where `now > end_dt`.
+- **`run_polling()` re-join on Ctrl+C.** After `run()` returns, the loop called `_stop_event.clear()` then checked the queue — but the second meeting URL was already queued, so it tried to join mid-shutdown. Fix: check `_stop_event.is_set()` before clearing and looping back.
+- **In-meeting participant detection: `innerText` vs `aria-label`.** `[data-participant-id]` elements carry participant names in `innerText` in normal view but NOT in portrait mode. `aria-label` attributes (e.g., "More options for Jojo Shapiro") survive all layouts. Fix: check aria-label first, innerText as fallback.
 - **Shutdown blocks 14s after browser closes.** `read_chat()` and `get_participant_count()` queue commands for the browser thread. After browser closes, the browser thread stops processing, so callers block until their `result_q.get(timeout=...)` expires (10s + 5s). Fix: drain pending queue commands in the browser thread's finally block, responding with empty results so callers unblock immediately.
 - **Ctrl+C during waiting room leaves Chrome running ~60s.** The browser cleanup `finally` only wrapped the in-meeting hold loop. Early returns from auth failure, no join button, or admission cancel/timeout skipped `browser.close()` entirely. With `start_new_session=True` (needed so terminal SIGINT doesn't kill Chrome directly), Chrome outlives Python and stays in the meeting until Meet's heartbeat times out. Fix: lift the `try/finally` to start right after `self._page = page` so all exit paths go through cleanup. Also make `leave()` idempotent (guard on `_leave_event.is_set()`) since both `_shutdown()` and ChatRunner/AgentRunner call it.
 

@@ -1,6 +1,6 @@
 # Model Log Reference
 
-Last updated: 2026-04-06 (session 49)
+Last updated: 2026-04-07 (session 56)
 Captured from: macOS headless, Kokoro TTS, Whisper base model (audio mode) / Meet captions (caption mode)
 
 This is the gold-standard reference for what Operator's logs should look like during
@@ -53,6 +53,8 @@ TIMING detect_page_state=0.0s (state=pre_join) # auth/session state check
 TIMING tts_kokoro_import=3.0s                  # background: from kokoro import KPipeline
 CaptionsAdapter: camera turned off              # or "camera already off"
 TIMING camera_toggle=0.5s                      # wait + click camera button
+CaptionsAdapter: waiting for 'Jojo Shapiro' on pre-join screen...   # only if user_display_name configured
+CaptionsAdapter: 'Jojo Shapiro' detected in call — joining          # user found on pre-join screen
 CaptionsAdapter: clicked 'Join now'             # or 'Ask to join' or 'Switch here'
 TIMING join_click=0.1s (Join now)              # join button race
 CaptionsAdapter: joined meeting successfully
@@ -99,6 +101,7 @@ STARTUP join failed: cant_join                         # "You can't join this vi
 STARTUP join failed: no_join_button                    # pre-join screen but no button found
 STARTUP join failed: admission_timeout                 # waited in lobby for ADMISSION_TIMEOUT_SECONDS, never admitted
 STARTUP join failed: admission_cancelled               # Ctrl+C or leave() called while waiting in lobby
+STARTUP join failed: user_not_present                  # user_display_name not found on pre-join screen (leave called while waiting)
 
 # Multiple instances / SingletonLock
 CaptionsAdapter: removed stale SingletonLock           # previous session crashed; lock was dead — removed automatically
@@ -647,13 +650,36 @@ CaptionsAdapter: left meeting
 AgentRunner: caption loop ended
 ```
 
-**Caption mode — inactivity exit (no Ctrl+C):**
+**Caption mode — auto-leave (past end time + user departed):**
 ```
-CaptionsAdapter: no captions for 600s — leaving meeting    # idle_timeout_seconds elapsed since last caption
-CaptionsAdapter: navigated away — left meeting cleanly
+CaptionsAdapter: user detected via aria-label               # presence check every 30s after end time (or "via innerText")
+CaptionsAdapter: past end time but user still present        # end time passed, user still in meeting — stay
+CaptionsAdapter: past end time and user has left — auto-leaving  # both conditions met — leave
+CaptionsAdapter: clicked Leave call
 CaptionsAdapter: browser closed
 AgentRunner: caption loop ended
 CaptionsAdapter: left meeting
+State → idle (Waiting for meeting...)
+POLLING meeting ended — waiting for next
+```
+
+**Calendar polling mode (no meeting URL argument):**
+```
+CalendarPoller: started (polling every 30s)
+STARTUP polling mode — waiting for meetings
+State → idle (Waiting for meeting...)
+CalendarPoller: calendar loaded — Google Calendar - Tuesday, April 7, 2026, today
+CalendarPoller: 'test' already ended — skipping https://meet.google.com/xxx-yyyy-zzz  # past end time
+CalendarPoller: 'standup' starts in -5.3m — https://meet.google.com/xxx-yyyy-zzz       # within join window
+CalendarPoller: joining 'standup' (-5.3m until start)
+POLLING received meeting URL: https://meet.google.com/xxx-yyyy-zzz
+```
+
+**Pre-join gate failure (user never appeared):**
+```
+CaptionsAdapter: waiting for 'Jojo Shapiro' on pre-join screen...
+CaptionsAdapter: user never appeared — not joining           # leave() called or user_not_present
+STARTUP join failed: user_not_present
 ```
 
 ---

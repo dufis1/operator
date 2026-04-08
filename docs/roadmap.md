@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 55)*
+*Last updated: April 7, 2026 (session 56)*
 
-> **Current status: Chat MVP feature-complete (sessions 53–54), shutdown hardened (session 55).** 1-on-1 auto-respond, MutationObserver chat, first-name greeting, MCP tool use, clean Ctrl+C at any startup phase. Step 8.3 (ship to friend) is next.
+> **Current status: Chat MVP feature-complete, meeting lifecycle overhaul (session 56).** Pre-join user gate, calendar end-time awareness, auto-leave when user departs post-end-time. Step 8.3 (ship to friend) is next.
 
 ---
 
@@ -71,6 +71,7 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 | 8.1 | Chat I/O proof of concept — bot reads and writes Google Chat messages during a live meeting (echo test, no LLM). Create `ChatRunner` alongside `AgentRunner` — same `LLMClient`, simpler I/O loop. No codebase reorg needed; existing connector/pipeline separation already fits. | ✅ echo test passing e2e |
 | 8.2 | Wire up the brain — connect chat input to LLM, respond in chat | ✅ |
 | 8.2.1 | Chat hardening — history cap (configurable), wake phrase gating for multi-participant, sender field extraction from DOM | ✅ |
+| 8.2.2 | Meeting lifecycle — pre-join user gate, end-time auto-leave, stale meeting skip, Ctrl+C clean shutdown | ✅ |
 | 8.3 | Ship to friend — minimal setup, clear instructions, get it in his hands | ⬜ |
 
 ---
