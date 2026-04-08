@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 56)*
+*Last updated: April 7, 2026 (session 57)*
 
-> **Current status: Chat MVP feature-complete, meeting lifecycle overhaul (session 56).** Pre-join user gate, calendar end-time awareness, auto-leave when user departs post-end-time. Step 8.3 (ship to friend) is next.
+> **Current status: Chat MVP feature-complete, GitHub MCP enabled (session 57).** GitHub MCP server added to config alongside Linear. Step 8.3 (ship to friend) is next.
 
 ---
 
@@ -100,6 +100,7 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 | 10.3 | Rewrite `README.md` — what it is, quick start, architecture | ⬜ |
 | 10.4 | Setup wizard (`operator setup`) with re-runnable subcommands | ⬜ |
 | 10.5 | MCP OAuth setup step in wizard — walk user through authenticating each configured MCP server (Linear, GitHub, etc.) so tokens are cached before first meeting | ⬜ |
+| 10.6 | Upgrade GitHub MCP server — deprecated npm package → official Go binary from `github/github-mcp-server` | ⬜ |
 
 ---
 

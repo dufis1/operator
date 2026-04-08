@@ -18,16 +18,11 @@
 ## Current Status
 
 **Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), meeting lifecycle overhauled.
-**What just happened (session 56, April 7, 2026):**
+**What just happened (session 57, April 7, 2026):**
 
-Session 56: Complete meeting lifecycle overhaul — Operator now follows the user like a pet instead of blindly following the calendar. Changes:
+Session 57: Enabled GitHub MCP server in config.yaml (uncommented the existing block). Verified it works end-to-end via stdio initialize handshake (github-mcp-server v0.6.2). Discovered the npm package `@modelcontextprotocol/server-github` is deprecated — official replacement is a Go binary from `github/github-mcp-server` releases (v0.32.0). Deferred the upgrade to step 10.6 in roadmap since the npm package still works.
 
-- **Calendar end-time extraction** — `_find_event_times()` returns both start and end times (was only start). Meetings past their end time are skipped. Queue items are now `(url, end_dt)` tuples.
-- **Pre-join user gate** — `_wait_for_user_presence()` polls the pre-join screen text for the user's display name (configured as `user_display_name` in config.yaml). Operator won't click "Join now" until the user is detected in the call. Prevents joining meetings with strangers.
-- **In-meeting auto-leave** — After calendar end time passes, checks participant DOM every 30s via `_is_user_in_meeting()`. Leaves only when BOTH conditions are true: past end time AND user not present. Uses aria-label (primary, survives all layouts including portrait) and `[data-participant-id]` innerText (fallback).
-- **Removed idle timeout** — No more auto-leave after 10 min of silence. Operator stays as long as the user is present.
-- **Ctrl+C re-join bug fixed** — `run_polling()` was clearing `_stop_event` after each meeting, so a queued second URL would be picked up during shutdown. Now checks `_stop_event.is_set()` before looping back.
-- **`user_display_name` config** — New field in config.yaml under `agent:`. Used for both pre-join gate and in-meeting presence detection.
+**Previous session (56):** Complete meeting lifecycle overhaul — pre-join user gate, calendar end-time auto-leave, stale meeting skip, Ctrl+C re-join fix.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
@@ -122,6 +117,12 @@ Session 56: Complete meeting lifecycle overhaul — Operator now follows the use
 - **In-meeting participant detection: `innerText` vs `aria-label`.** `[data-participant-id]` elements carry participant names in `innerText` in normal view but NOT in portrait mode. `aria-label` attributes (e.g., "More options for Jojo Shapiro") survive all layouts. Fix: check aria-label first, innerText as fallback.
 - **Shutdown blocks 14s after browser closes.** `read_chat()` and `get_participant_count()` queue commands for the browser thread. After browser closes, the browser thread stops processing, so callers block until their `result_q.get(timeout=...)` expires (10s + 5s). Fix: drain pending queue commands in the browser thread's finally block, responding with empty results so callers unblock immediately.
 - **Ctrl+C during waiting room leaves Chrome running ~60s.** The browser cleanup `finally` only wrapped the in-meeting hold loop. Early returns from auth failure, no join button, or admission cancel/timeout skipped `browser.close()` entirely. With `start_new_session=True` (needed so terminal SIGINT doesn't kill Chrome directly), Chrome outlives Python and stays in the meeting until Meet's heartbeat times out. Fix: lift the `try/finally` to start right after `self._page = page` so all exit paths go through cleanup. Also make `leave()` idempotent (guard on `_leave_event.is_set()`) since both `_shutdown()` and ChatRunner/AgentRunner call it.
+
+---
+
+## To-Do (non-urgent)
+
+1. **Upgrade GitHub MCP server package.** `@modelcontextprotocol/server-github` (npm) is deprecated. Official replacement is the Go binary from `github/github-mcp-server` releases. Download the Darwin arm64 binary, put on PATH, update `config.yaml` command from `npx` to the binary. v0.32.0 is latest as of April 2026.
 
 ---
 
