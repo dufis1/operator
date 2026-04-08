@@ -2,7 +2,7 @@
 
 *Last updated: April 7, 2026 (session 58)*
 
-> **Current status: Demo prep for ship-to-friend (session 58).** Created `dufis1/demo-api` repo on GitHub as a demo target. Wrote a 3-beat demo script (chat → Linear issue → GitHub code investigation). Step 8.3 in progress.
+> **Current status: Demo rehearsal in progress (session 58).** Upgraded GitHub MCP to Go binary (fixing search_code auth). Fixed parallel tool_calls crash. Demo repo live at `dufis1/demo-api`. Step 8.3 in progress — continuing iteration on demo flow.
 
 ---
 
@@ -100,7 +100,7 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 | 10.3 | Rewrite `README.md` — what it is, quick start, architecture | ⬜ |
 | 10.4 | Setup wizard (`operator setup`) with re-runnable subcommands | ⬜ |
 | 10.5 | MCP OAuth setup step in wizard — walk user through authenticating each configured MCP server (Linear, GitHub, etc.) so tokens are cached before first meeting | ⬜ |
-| 10.6 | Upgrade GitHub MCP server — deprecated npm package → official Go binary from `github/github-mcp-server` | ⬜ |
+| 10.6 | Upgrade GitHub MCP server — deprecated npm package → official Go binary from `github/github-mcp-server` | ✅ |
 
 ---
 

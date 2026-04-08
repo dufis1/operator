@@ -20,13 +20,13 @@
 **Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), demo prep for ship-to-friend.
 **What just happened (session 58, April 7, 2026):**
 
-Session 58: Demo prep for step 8.3. Created `dufis1/demo-api` on GitHub — a small FastAPI task queue API with an intentional bug (`update_task` doesn't refresh `updated_at`) and an unwired auth middleware, both designed as demo targets. Wrote a 3-beat demo script: (1) casual chat, (2) create a Linear issue for the bug, (3) ask Operator to find the bug in the GitHub repo. The GitHub token doesn't have repo-creation scope so the repo was created manually.
+Session 58: Demo prep and rehearsal for step 8.3. Created `dufis1/demo-api` on GitHub as a demo target (FastAPI task queue with intentional bug + unwired auth). During rehearsal, discovered two bugs: (1) deprecated npm `@modelcontextprotocol/server-github` fails `search_code` with auth error — upgraded to official Go binary v0.32.0 (step 10.6 complete). The Go binary uses `GITHUB_PERSONAL_ACCESS_TOKEN` env var (not `GITHUB_TOKEN`). (2) OpenAI parallel tool calls crash — model returns 2+ tool_calls in one response, but ChatRunner only handles one, causing "tool_call_id not responded" 400 error. Fixed with `parallel_tool_calls=False` in LLM request kwargs. Demo still needs further iteration — LLM sometimes uses wrong GitHub username or guesses file paths.
 
-**Previous session (57):** Enabled GitHub MCP server in config.yaml. Verified end-to-end. Discovered `@modelcontextprotocol/server-github` npm package is deprecated — upgrade tracked at step 10.6.
+**Previous session (57):** Enabled GitHub MCP server in config.yaml. Verified end-to-end.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
-**Next action:** Step 8.3 (ship to friend). Demo repo (`dufis1/demo-api`) is live on GitHub. Demo script ready. Run the demo with a friend, get feedback, iterate. Chat-first MVP with MCP tool use is working end-to-end with clean startup (~4s), clean shutdown at any phase, and polished UX (auto-respond in 1-on-1, first-name greeting).
+**Next action:** Continue demo iteration for step 8.3. GitHub MCP and parallel tool call bugs are fixed. Remaining issue: LLM doesn't reliably scope GitHub searches to the user's account (has `get_me` tool but doesn't always use it, or uses display name instead of login). Either improve prompting or accept that demo prompts should include `dufis1/demo-api` explicitly. Demo repo at `dufis1/demo-api`.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
@@ -117,12 +117,12 @@ Session 58: Demo prep for step 8.3. Created `dufis1/demo-api` on GitHub — a sm
 - **In-meeting participant detection: `innerText` vs `aria-label`.** `[data-participant-id]` elements carry participant names in `innerText` in normal view but NOT in portrait mode. `aria-label` attributes (e.g., "More options for Jojo Shapiro") survive all layouts. Fix: check aria-label first, innerText as fallback.
 - **Shutdown blocks 14s after browser closes.** `read_chat()` and `get_participant_count()` queue commands for the browser thread. After browser closes, the browser thread stops processing, so callers block until their `result_q.get(timeout=...)` expires (10s + 5s). Fix: drain pending queue commands in the browser thread's finally block, responding with empty results so callers unblock immediately.
 - **Ctrl+C during waiting room leaves Chrome running ~60s.** The browser cleanup `finally` only wrapped the in-meeting hold loop. Early returns from auth failure, no join button, or admission cancel/timeout skipped `browser.close()` entirely. With `start_new_session=True` (needed so terminal SIGINT doesn't kill Chrome directly), Chrome outlives Python and stays in the meeting until Meet's heartbeat times out. Fix: lift the `try/finally` to start right after `self._page = page` so all exit paths go through cleanup. Also make `leave()` idempotent (guard on `_leave_event.is_set()`) since both `_shutdown()` and ChatRunner/AgentRunner call it.
+- **Deprecated npm `@modelcontextprotocol/server-github` (v0.6.2) fails `search_code` with "Authentication Failed".** The npm package doesn't pass the auth token for the code search endpoint. Other tools like `get_file_contents` work fine. Fix: replaced with official Go binary from `github/github-mcp-server` releases (v0.32.0). The Go binary expects `GITHUB_PERSONAL_ACCESS_TOKEN` (not `GITHUB_TOKEN`).
+- **OpenAI parallel tool_calls crash ChatRunner.** When the model returns 2+ tool_calls in one assistant message, `ask()` only returns the first one. The assistant message (with all tool_call_ids) is appended to history, but only one tool result is sent back. OpenAI rejects this with 400: "tool_call_ids did not have response messages." Fix: `parallel_tool_calls=False` in the LLM request. Full parallel support would require ChatRunner to handle multiple confirmations per response.
 
 ---
 
 ## To-Do (non-urgent)
-
-1. **Upgrade GitHub MCP server package.** `@modelcontextprotocol/server-github` (npm) is deprecated. Official replacement is the Go binary from `github/github-mcp-server` releases. Download the Darwin arm64 binary, put on PATH, update `config.yaml` command from `npx` to the binary. v0.32.0 is latest as of April 2026.
 
 ---
 
