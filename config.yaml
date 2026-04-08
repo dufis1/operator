@@ -15,6 +15,7 @@ agent:
     errors (e.g. "shop advice" instead of "Shopify's"). Use surrounding
     context to infer the intended words.
   chat_wake_phrase: "@operator"    # word that must appear in chat to trigger a response
+  user_display_name: "Jojo Shapiro"  # your name as it appears on Google Meet pre-join screens
   interaction_mode: "voice"      # voice | chat | both
   conversation_timeout: 20       # seconds in listening mode after a response
   echo_guard_seconds: 0.6        # delay after TTS before resuming caption capture (absorbs echo)
@@ -70,8 +71,8 @@ mcp_servers:
   linear:
     command: "npx"
     args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
-  # github:
-  #   command: "npx"
-  #   args: ["-y", "@modelcontextprotocol/server-github"]
-  #   env:
-  #     GITHUB_TOKEN: "${GITHUB_TOKEN}"
+  github:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"

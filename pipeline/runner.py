@@ -106,6 +106,7 @@ class AgentRunner:
         self._last_utterance = None   # raw user prompt text (for classifier context)
         self._last_reply = None       # raw LLM reply text (for classifier context)
         self._latency_probe = LatencyProbe()
+        self._meeting_end_dt = None   # UTC end time from calendar (None = no auto-leave)
 
     # ------------------------------------------------------------------
     # Entry point
@@ -123,21 +124,35 @@ class AgentRunner:
 
         while not self._stop_event.is_set():
             try:
-                meeting_url = meeting_queue.get(timeout=1.0)
+                item = meeting_queue.get(timeout=1.0)
             except _queue.Empty:
                 continue
 
-            if meeting_url is None:  # sentinel from poller.stop()
+            if item is None:  # sentinel from poller.stop()
                 break
+
+            # Queue items are (url, end_dt) tuples from CalendarPoller
+            if isinstance(item, tuple):
+                meeting_url, end_dt = item
+            else:
+                meeting_url, end_dt = item, None
 
             log.info(f"POLLING received meeting URL: {meeting_url}")
             self._on_state_change("idle", f"Joining {meeting_url}...")
 
+            self._meeting_end_dt = end_dt
+            # Pass end time to connector for auto-leave logic
+            if hasattr(self.connector, 'meeting_end_dt'):
+                self.connector.meeting_end_dt = end_dt
             self.run(meeting_url)
 
             # Clean up after meeting
             self.connector.leave()
-            self._stop_event.clear()
+            self._meeting_end_dt = None
+            if hasattr(self.connector, 'meeting_end_dt'):
+                self.connector.meeting_end_dt = None
+            if self._stop_event.is_set():
+                break  # shutdown was requested — don't pick up next meeting
             self._transcript_lines.clear()
             self.captions = None
             self.audio = None

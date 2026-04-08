@@ -9,6 +9,7 @@ Still uses Playwright for browser automation and mpv + BlackHole for TTS
 playback (same as MacOSAdapter). The difference is input: DOM text instead
 of raw audio.
 """
+import datetime
 import logging
 import os
 import subprocess
@@ -293,6 +294,7 @@ class CaptionsAdapter(MeetingConnector):
         self._on_disconnect = None  # callback fired when browser session exits
         self._last_caption_time = None  # set on first caption; inactivity timer arms from here
         self._browser_thread = None    # saved so leave() can join it
+        self.meeting_end_dt = None     # UTC end time — set by runner for auto-leave logic
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -497,6 +499,13 @@ class CaptionsAdapter(MeetingConnector):
                     if config.DEBUG_AUDIO:
                         save_debug(page, "pre_join")
 
+                    # Gate: wait for user to be in the meeting before joining
+                    if config.USER_DISPLAY_NAME:
+                        if not self._wait_for_user_presence(page):
+                            log.info("CaptionsAdapter: user never appeared — not joining")
+                            js.signal_failure("user_not_present")
+                            return
+
                     t_join = time.monotonic()
                     # Race all join buttons — avoids 5s timeout per missing button
                     join_now = page.get_by_role("button", name="Join now")
@@ -575,9 +584,9 @@ class CaptionsAdapter(MeetingConnector):
                     self._page = page
                     js.signal_success()
 
-                    # Hold until leave() or inactivity timeout (arms on first caption)
-                    idle_timeout = config.IDLE_TIMEOUT_SECONDS
+                    # Hold until leave() is called externally or auto-leave triggers
                     last_health = time.time()
+                    last_presence_check = 0
                     while not self._leave_event.is_set():
                         # Use Playwright's own wait (pumps the CDP event loop) rather than
                         # time.sleep() which blocks it — expose_function callbacks won't fire
@@ -586,13 +595,20 @@ class CaptionsAdapter(MeetingConnector):
 
                         now = time.time()
 
-                        # Inactivity check — only armed after first caption
-                        if self._last_caption_time is not None:
-                            idle_secs = now - self._last_caption_time
-                            if idle_secs >= idle_timeout:
-                                log.info(f"CaptionsAdapter: no captions for {idle_secs:.0f}s — leaving meeting")
-                                self._leave_event.set()
-                                break
+                        # Auto-leave: past end time + user not in meeting
+                        if (self.meeting_end_dt and config.USER_DISPLAY_NAME
+                                and now - last_presence_check >= 30):
+                            last_presence_check = now
+                            utc_now = datetime.datetime.now(datetime.timezone.utc)
+                            if utc_now > self.meeting_end_dt:
+                                if not self._is_user_in_meeting(page):
+                                    log.info(
+                                        "CaptionsAdapter: past end time and user has left — auto-leaving"
+                                    )
+                                    self._leave_event.set()
+                                    break
+                                else:
+                                    log.debug("CaptionsAdapter: past end time but user still present")
 
                         if now - last_health >= 300:
                             last_health = now
@@ -660,6 +676,77 @@ class CaptionsAdapter(MeetingConnector):
                 pass
             if self._on_disconnect:
                 self._on_disconnect()
+
+    # ── Pre-join user presence gate ─────────────────────────────────
+
+    def _wait_for_user_presence(self, page):
+        """Wait on the pre-join screen until the user is visible in the call.
+
+        Checks the page text for "{user_display_name} is in this call" or
+        similar patterns. Polls every 5 seconds.
+
+        Returns True when the user is detected, False if leave() is called
+        while waiting.
+        """
+        user_name = config.USER_DISPLAY_NAME
+        # Also match just the first name for patterns like "Jojo and 2 others"
+        first_name = user_name.split()[0] if user_name else ""
+        log.info(f"CaptionsAdapter: waiting for '{user_name}' on pre-join screen...")
+
+        while not self._leave_event.is_set():
+            try:
+                page_text = page.inner_text("body")
+            except Exception:
+                log.warning("CaptionsAdapter: could not read pre-join page text")
+                page.wait_for_timeout(5000)
+                continue
+
+            # Match patterns like "Jojo Shapiro is in this call" or
+            # "Jojo Shapiro and 2 others are in this call"
+            if user_name.lower() in page_text.lower():
+                log.info(f"CaptionsAdapter: '{user_name}' detected in call — joining")
+                return True
+            if first_name and f"{first_name.lower()} " in page_text.lower() and "in this call" in page_text.lower():
+                log.info(f"CaptionsAdapter: '{first_name}' detected in call — joining")
+                return True
+
+            page.wait_for_timeout(5000)
+
+        log.info("CaptionsAdapter: pre-join wait cancelled (leave called)")
+        return False
+
+    def _is_user_in_meeting(self, page):
+        """Check if user_display_name appears in the in-meeting participant list.
+
+        Queries aria-labels and title attributes on participant-related DOM
+        elements — no panel toggling needed.
+        """
+        user_name = config.USER_DISPLAY_NAME
+        if not user_name:
+            return True  # no user configured — can't check, assume present
+
+        try:
+            found = page.evaluate("""(userName) => {
+                const lower = userName.toLowerCase();
+                // Primary: aria-labels like "More options for Jojo Shapiro" (survives all layouts)
+                for (const el of document.querySelectorAll('[aria-label]')) {
+                    if ((el.getAttribute('aria-label') || '').toLowerCase().includes(lower))
+                        return "aria-label";
+                }
+                // Fallback: participant tile innerText (not available in portrait mode)
+                for (const el of document.querySelectorAll('[data-participant-id]')) {
+                    if ((el.innerText || '').toLowerCase().includes(lower))
+                        return "innerText";
+                }
+                return "";
+            }""", user_name)
+            if found:
+                log.info(f"CaptionsAdapter: user detected via {found}")
+            found = bool(found)
+            return found
+        except Exception as e:
+            log.warning(f"CaptionsAdapter: participant check failed: {e}")
+            return True  # assume present on error to avoid premature leave
 
     # ── Waiting room ─────────────────────────────────────────────────
 

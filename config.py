@@ -15,6 +15,7 @@ CHAT_WAKE_PHRASE     = _config["agent"].get("chat_wake_phrase", "operator")
 INTERACTION_MODE     = _config["agent"]["interaction_mode"]
 CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
 ECHO_GUARD_SECONDS   = _config["agent"].get("echo_guard_seconds", 1.0)
+USER_DISPLAY_NAME    = _config["agent"].get("user_display_name", "")
 
 # LLM
 LLM_PROVIDER         = _config["llm"]["provider"]

@@ -157,8 +157,8 @@ class CalendarPoller:
             if not meet_url:
                 continue
 
-            # Extract start time from page source
-            start_dt = self._find_start_time(full_html, event_id)
+            # Extract start and end time from page source
+            start_dt, end_dt = self._find_event_times(full_html, event_id)
             if not start_dt:
                 continue
 
@@ -167,6 +167,14 @@ class CalendarPoller:
             title = lines[1].strip() if len(lines) > 1 else "(no title)"
 
             minutes_until = (start_dt - now).total_seconds() / 60
+
+            # Skip meetings that have already ended
+            if end_dt and now > end_dt:
+                log.debug(
+                    f"CalendarPoller: '{title}' already ended — skipping {meet_url}"
+                )
+                continue
+
             log.debug(
                 f"CalendarPoller: '{title}' starts in {minutes_until:.1f}m — {meet_url}"
             )
@@ -176,7 +184,7 @@ class CalendarPoller:
                     f"CalendarPoller: joining '{title}' ({minutes_until:.1f}m until start)"
                 )
                 self._joined_event_ids.add(event_id)
-                self._meeting_queue.put(meet_url)
+                self._meeting_queue.put((meet_url, end_dt))
 
     @staticmethod
     def _find_meet_url(html, event_id):
@@ -196,20 +204,27 @@ class CalendarPoller:
             idx += 1
 
     @staticmethod
-    def _find_start_time(html, event_id):
-        """Extract the event start time (UTC) from page source data."""
+    def _find_event_times(html, event_id):
+        """Extract event start and end times (UTC) from page source data.
+
+        Returns (start_dt, end_dt) — end_dt may be None if only start is found.
+        """
         idx = 0
         while True:
             idx = html.find(event_id, idx)
             if idx == -1:
-                return None
+                return None, None
             nearby = html[idx : idx + 2000]
             # Pattern: [null,[epoch_ms],"timezone"]
             matches = re.findall(r'\[null,\[(\d{13})\],"([^"]+)"\]', nearby)
             if matches:
-                # First match is start time, second is end time
-                epoch_ms = int(matches[0][0])
-                return datetime.datetime.fromtimestamp(
-                    epoch_ms / 1000, tz=datetime.timezone.utc
+                start_dt = datetime.datetime.fromtimestamp(
+                    int(matches[0][0]) / 1000, tz=datetime.timezone.utc
                 )
+                end_dt = None
+                if len(matches) >= 2:
+                    end_dt = datetime.datetime.fromtimestamp(
+                        int(matches[1][0]) / 1000, tz=datetime.timezone.utc
+                    )
+                return start_dt, end_dt
             idx += 1
