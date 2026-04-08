@@ -45,6 +45,7 @@ class MacOSAdapter(MeetingConnector):
         self._page = None
         self._seen_message_ids = set()
         self._chat_queue = queue.Queue()  # (command, args, result_queue)
+        self._observer_installed = False
 
     # ------------------------------------------------------------------
     # MeetingConnector interface
@@ -108,6 +109,15 @@ class MacOSAdapter(MeetingConnector):
         except queue.Empty:
             return []
 
+    def get_participant_count(self):
+        """Return participant count via browser thread."""
+        result_q = queue.Queue()
+        self._chat_queue.put(("participant_count", None, result_q))
+        try:
+            return result_q.get(timeout=5)
+        except queue.Empty:
+            return 0
+
     # --- Browser-thread chat implementations (called from _process_chat_queue) ---
 
     def _ensure_chat_open(self, page):
@@ -143,45 +153,103 @@ class MacOSAdapter(MeetingConnector):
         except Exception as e:
             log.warning(f"MacOSAdapter: send_chat failed: {e}")
 
-    def _do_read_chat(self, page):
-        """Actual read_chat logic — must run on browser thread."""
-        self._ensure_chat_open(page)
+    def _install_chat_observer(self, page):
+        """Inject a MutationObserver that queues new chat messages in JS.
 
-        new_messages = []
+        The observer watches for new div[data-message-id] elements and
+        stores them in window.__operatorChatQueue. _do_read_chat drains
+        this queue instead of scanning the full DOM each time.
+        """
+        if self._observer_installed:
+            return
         try:
-            msg_els = page.locator("div[data-message-id]")
-            count = msg_els.count()
-            for i in range(count):
-                el = msg_els.nth(i)
-                msg_id = el.get_attribute("data-message-id")
-                if msg_id in self._seen_message_ids:
-                    continue
-                self._seen_message_ids.add(msg_id)
-                text_el = el.locator('div[jsname="dTKtvb"]')
-                text = text_el.inner_text().strip() if text_el.count() > 0 else el.inner_text().strip()
-                # Sender name lives in sibling div.HNucUd in the parent group.
-                # Format: "SenderName\nTime" for others, just "Time" for self.
-                sender = ""
-                try:
-                    sender = el.evaluate("""el => {
-                        let node = el;
-                        for (let d = 0; d < 4; d++) {
-                            node = node.parentElement;
-                            if (!node) break;
-                            const h = node.querySelector(':scope > div.HNucUd');
-                            if (h) {
-                                const lines = h.innerText.trim().split('\\n');
-                                return lines.length >= 2 ? lines[0] : '';
+            page.evaluate("""() => {
+                if (window.__operatorChatObserver) return;
+                window.__operatorChatQueue = [];
+                window.__operatorSeenIds = new Set();
+
+                // Seed seen IDs with all existing messages so we don't re-process history
+                document.querySelectorAll('div[data-message-id]').forEach(el => {
+                    window.__operatorSeenIds.add(el.getAttribute('data-message-id'));
+                });
+
+                function extractMessage(el) {
+                    const msgId = el.getAttribute('data-message-id');
+                    if (!msgId || window.__operatorSeenIds.has(msgId)) return null;
+                    window.__operatorSeenIds.add(msgId);
+                    // Extract text
+                    const textEl = el.querySelector('div[jsname="dTKtvb"]');
+                    const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
+                    // Extract sender
+                    let sender = '';
+                    let node = el;
+                    for (let d = 0; d < 4; d++) {
+                        node = node.parentElement;
+                        if (!node) break;
+                        const h = node.querySelector(':scope > div.HNucUd');
+                        if (h) {
+                            const lines = h.innerText.trim().split('\\n');
+                            sender = lines.length >= 2 ? lines[0] : '';
+                            break;
+                        }
+                    }
+                    return {id: msgId, sender: sender, text: text};
+                }
+
+                const container = document.querySelector('[data-panel-id="2"]');
+                if (!container) return;
+
+                window.__operatorChatObserver = new MutationObserver(mutations => {
+                    for (const mut of mutations) {
+                        for (const node of mut.addedNodes) {
+                            if (node.nodeType !== 1) continue;
+                            // Check if the added node itself is a message
+                            if (node.matches && node.matches('div[data-message-id]')) {
+                                const msg = extractMessage(node);
+                                if (msg) window.__operatorChatQueue.push(msg);
+                            }
+                            // Check descendants
+                            if (node.querySelectorAll) {
+                                node.querySelectorAll('div[data-message-id]').forEach(el => {
+                                    const msg = extractMessage(el);
+                                    if (msg) window.__operatorChatQueue.push(msg);
+                                });
                             }
                         }
-                        return '';
-                    }""")
-                except Exception:
-                    pass
-                new_messages.append({"id": msg_id, "sender": sender, "text": text})
+                    }
+                });
+                window.__operatorChatObserver.observe(container, {childList: true, subtree: true});
+            }""")
+            self._observer_installed = True
+            log.info("MacOSAdapter: chat MutationObserver installed")
+        except Exception as e:
+            log.warning(f"MacOSAdapter: failed to install chat observer: {e}")
+
+    def _do_read_chat(self, page):
+        """Drain the JS-side chat queue populated by the MutationObserver."""
+        self._ensure_chat_open(page)
+        self._install_chat_observer(page)
+
+        try:
+            messages = page.evaluate("""() => {
+                const q = window.__operatorChatQueue || [];
+                window.__operatorChatQueue = [];
+                return q;
+            }""")
+            if messages:
+                log.debug(f"MacOSAdapter: observer drained {len(messages)} new messages")
+            return messages
         except Exception as e:
             log.warning(f"MacOSAdapter: read_chat failed: {e}")
-        return new_messages
+            return []
+
+    def _do_get_participant_count(self, page):
+        """Count participants via data-requested-participant-id elements."""
+        try:
+            return page.locator('[data-requested-participant-id]').count()
+        except Exception as e:
+            log.warning(f"MacOSAdapter: get_participant_count failed: {e}")
+            return 0
 
     def _process_chat_queue(self, page):
         """Drain the chat command queue. Called from browser thread's idle loop."""
@@ -196,6 +264,9 @@ class MacOSAdapter(MeetingConnector):
             elif cmd == "read":
                 messages = self._do_read_chat(page)
                 result_q.put(messages)
+            elif cmd == "participant_count":
+                count = self._do_get_participant_count(page)
+                result_q.put(count)
 
     # ── Waiting room ─────────────────────────────────────────────────
 
@@ -331,6 +402,7 @@ class MacOSAdapter(MeetingConnector):
         _write_operator_pid(singleton_lock)
         js = self.join_status
         browser = None
+        t_start = time.monotonic()
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch_persistent_context(
@@ -339,10 +411,14 @@ class MacOSAdapter(MeetingConnector):
                     executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
                     args=["--use-fake-ui-for-media-stream", "--headless=new", "--mute-audio"],
                 )
+                t_browser = time.monotonic()
+                log.info(f"TIMING browser_launch={t_browser - t_start:.1f}s")
                 page = browser.pages[0] if browser.pages else browser.new_page()
                 self._page = page
 
                 page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                t_nav = time.monotonic()
+                log.info(f"TIMING navigation={t_nav - t_browser:.1f}s")
                 # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s
                 try:
                     page.wait_for_selector(
@@ -355,12 +431,15 @@ class MacOSAdapter(MeetingConnector):
                     )
                 except Exception:
                     log.warning("MacOSAdapter: no pre-join element detected — proceeding anyway")
+                log.info(f"TIMING pre_join_ready={time.monotonic() - t_nav:.1f}s")
 
                 if config.DEBUG_AUDIO:
                     save_debug(page, "initial_load")
 
                 # --- Session recovery ladder ---
+                t_state = time.monotonic()
                 state = detect_page_state(page)
+                log.info(f"TIMING detect_page_state={time.monotonic() - t_state:.1f}s (state={state})")
                 recovered = False
 
                 if state == "logged_out":
@@ -400,21 +479,12 @@ class MacOSAdapter(MeetingConnector):
 
                 # --- Pre-join screen actions ---
 
-                # Dismiss notifications popup if present
-                try:
-                    not_now = page.get_by_role("button", name="Not now")
-                    not_now.wait_for(timeout=3000)
-                    not_now.click()
-                    page.wait_for_timeout(500)
-                    log.debug("MacOSAdapter: dismissed notifications popup")
-                except Exception:
-                    pass
-
                 # Race both camera states — resolves instantly when one already exists
+                t_prejoin = time.monotonic()
                 cam_off = page.get_by_role("button", name="Turn off camera")
                 cam_on = page.get_by_role("button", name="Turn on camera")
                 try:
-                    cam_off.or_(cam_on).wait_for(timeout=3000)
+                    cam_off.or_(cam_on).wait_for(timeout=2000)
                     if cam_off.is_visible():
                         cam_off.click()
                         log.debug("MacOSAdapter: camera turned off")
@@ -422,11 +492,13 @@ class MacOSAdapter(MeetingConnector):
                         log.debug("MacOSAdapter: camera already off")
                 except Exception:
                     log.debug("MacOSAdapter: camera button not found")
+                log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
 
                 if config.DEBUG_AUDIO:
                     save_debug(page, "pre_join")
 
                 # Race all join buttons — avoids 5s timeout per missing button
+                t_join = time.monotonic()
                 join_now = page.get_by_role("button", name="Join now")
                 ask_join = page.get_by_role("button", name="Ask to join")
                 switch_here = page.get_by_role("button", name="Switch here")
@@ -448,6 +520,8 @@ class MacOSAdapter(MeetingConnector):
                     js.signal_failure("no_join_button")
                     return
 
+                log.info(f"TIMING join_click={time.monotonic() - t_join:.1f}s ({clicked_label})")
+
                 if clicked_label == "Ask to join":
                     if not self._wait_for_admission(page):
                         save_debug(page, "admission_fail")
@@ -459,15 +533,31 @@ class MacOSAdapter(MeetingConnector):
 
                 try:
                     # Event-driven: wait for in-meeting UI instead of sleeping 3s
+                    t_in_meeting = time.monotonic()
                     try:
                         page.wait_for_selector(
                             'button[aria-label*="Leave call"]',
-                            timeout=15000,
+                            timeout=5000,
                         )
                     except Exception:
                         log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
+                    log.info(f"TIMING in_meeting_wait={time.monotonic() - t_in_meeting:.1f}s")
+
+                    # Re-check camera after join (Meet can re-enable it)
+                    cam_off = page.get_by_role("button", name="Turn off camera")
+                    cam_on = page.get_by_role("button", name="Turn on camera")
+                    try:
+                        cam_off.or_(cam_on).wait_for(timeout=2000)
+                        if cam_off.is_visible():
+                            cam_off.click()
+                            log.info("MacOSAdapter: camera re-disabled after join")
+                        else:
+                            log.debug("MacOSAdapter: camera still off after join")
+                    except Exception:
+                        log.debug("MacOSAdapter: camera button not found in-meeting")
 
                     # Race both mic states — resolves instantly when mic is already on
+                    t_mic = time.monotonic()
                     mic_on_btn = page.get_by_role("button", name="Turn on microphone")
                     mic_off_btn = page.get_by_role("button", name="Turn off microphone")
                     try:
@@ -479,8 +569,10 @@ class MacOSAdapter(MeetingConnector):
                             log.debug("MacOSAdapter: mic already on")
                     except Exception:
                         log.debug("MacOSAdapter: mic button not found")
+                    log.info(f"TIMING mic_check={time.monotonic() - t_mic:.1f}s")
 
                     log.info("MacOSAdapter: in meeting — holding browser open")
+                    log.info(f"TIMING total_join={time.monotonic() - t_start:.1f}s")
 
                     # Hold until leave() signals or 4-hour hard cap.
                     # Loop every 1s to service chat queue promptly.
@@ -488,7 +580,7 @@ class MacOSAdapter(MeetingConnector):
                     last_health = time.time()
                     while not self._leave_event.is_set() and time.time() < deadline:
                         self._process_chat_queue(page)
-                        page.wait_for_timeout(1000)
+                        page.wait_for_timeout(500)
                         # In-meeting health check every 5 minutes
                         if time.time() - last_health >= 300:
                             last_health = time.time()
@@ -501,14 +593,22 @@ class MacOSAdapter(MeetingConnector):
 
                 finally:
                     # ── Clean leave — runs on ALL exit paths ──────────
-                    # Navigate away so Meet fires the leave signal, then
-                    # close the browser before the `with` block exits.
+                    # Click Leave call so Meet's server registers the
+                    # disconnect immediately (avoids ~60s ghost session).
                     self._page = None
                     try:
-                        page.goto("about:blank", timeout=5000)
-                        log.info("MacOSAdapter: navigated away — left meeting cleanly")
+                        leave_btn = page.get_by_role("button", name="Leave call")
+                        leave_btn.wait_for(timeout=2000)
+                        leave_btn.click()
+                        page.wait_for_timeout(500)
+                        log.info("MacOSAdapter: clicked Leave call")
                     except Exception:
-                        pass
+                        # Fall back to navigating away if Leave button not found
+                        try:
+                            page.goto("about:blank", timeout=3000)
+                            log.info("MacOSAdapter: navigated away (Leave button not found)")
+                        except Exception:
+                            pass
                     def _close_browser():
                         try:
                             browser.close()
@@ -521,7 +621,29 @@ class MacOSAdapter(MeetingConnector):
                         log.warning("MacOSAdapter: browser.close() timed out (5s) — forcing exit")
                     else:
                         log.info("MacOSAdapter: browser closed")
+                    # Drain any pending chat queue commands so callers unblock
+                    # immediately instead of waiting for their full timeout.
+                    while not self._chat_queue.empty():
+                        try:
+                            cmd, args, result_q = self._chat_queue.get_nowait()
+                            if cmd == "read":
+                                result_q.put([])
+                            elif cmd == "participant_count":
+                                result_q.put(0)
+                            else:
+                                result_q.put(None)
+                        except queue.Empty:
+                            break
                     self._browser_closed.set()
+                    # Suppress Playwright teardown noise (greenlet/asyncio)
+                    import asyncio, io, sys
+                    try:
+                        loop = asyncio.get_event_loop()
+                        loop.set_exception_handler(lambda _loop, _ctx: None)
+                    except Exception:
+                        pass
+                    self._orig_stderr = sys.stderr
+                    sys.stderr = io.StringIO()
 
         except Exception as e:
             log.error(f"MacOSAdapter: browser session error: {e}")

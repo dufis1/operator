@@ -31,6 +31,7 @@ llm:
     Be direct. No preamble, no filler.
     When you have access to tools, describe what you can do if asked.
     If you decide to use a tool, explain what you're about to do.
+    Use a person's name only when greeting them for the first time. Do not repeat their name in subsequent replies.
 
 tts:
   provider: "local"             # local | openai | elevenlabs

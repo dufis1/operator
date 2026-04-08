@@ -10,6 +10,8 @@ import config
 
 log = logging.getLogger(__name__)
 
+MAX_TRANSCRIPT_LINES = 100  # rolling transcript history limit
+
 class LLMClient:
     """Sends prompts to GPT and maintains per-session conversation history.
 

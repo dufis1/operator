@@ -22,5 +22,12 @@ class MeetingConnector:
         """
         raise NotImplementedError
 
+    def get_participant_count(self):
+        """Return the number of participants currently in the meeting.
+
+        Returns 0 if the count cannot be determined.
+        """
+        return 0
+
     def leave(self):
         raise NotImplementedError

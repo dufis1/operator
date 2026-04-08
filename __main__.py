@@ -116,6 +116,9 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
     mcp = None  # only used in chat mode
 
     if use_chat:
+        import time as _time
+        import threading as _threading
+        t_chat_start = _time.monotonic()
         from openai import OpenAI
         from connectors.macos_adapter import MacOSAdapter
         from pipeline.chat_runner import ChatRunner
@@ -123,16 +126,34 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         connector = MacOSAdapter(force=force)
         llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY), mode="chat")
 
-        if config.MCP_SERVERS:
+        # Start MCP connection in background while browser joins
+        _mcp_result = {"client": None}
+        def _connect_mcp():
+            t_mcp = _time.monotonic()
             from pipeline.mcp_client import MCPClient
-            mcp = MCPClient()
+            client = MCPClient()
             try:
-                tool_names = mcp.connect_all()
-                log.info(f"MCP tools discovered: {tool_names}")
+                tool_names = client.connect_all()
+                log.info(f"TIMING mcp_connect={_time.monotonic() - t_mcp:.1f}s ({len(tool_names)} tools)")
+                _mcp_result["client"] = client
             except Exception as e:
                 log.error(f"MCP client startup failed: {e}")
-                mcp = None
 
+        if config.MCP_SERVERS:
+            mcp_thread = _threading.Thread(target=_connect_mcp, daemon=True)
+            mcp_thread.start()
+        else:
+            mcp_thread = None
+
+        # Start browser join (runs in its own thread inside connector)
+        connector.join(meeting_url)
+
+        # Wait for MCP to finish (overlaps with browser join)
+        if mcp_thread:
+            mcp_thread.join()
+            mcp = _mcp_result["client"]
+
+        log.info(f"TIMING chat_setup={_time.monotonic() - t_chat_start:.1f}s")
         runner = ChatRunner(connector, llm, mcp_client=mcp)
     else:
         from pipeline.runner import AgentRunner

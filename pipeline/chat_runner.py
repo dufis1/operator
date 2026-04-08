@@ -14,7 +14,9 @@ import config
 
 log = logging.getLogger(__name__)
 
-POLL_INTERVAL = 1.5  # seconds between read_chat() calls
+POLL_INTERVAL = 0.5  # seconds between read_chat() calls
+PARTICIPANT_CHECK_INTERVAL = 3  # seconds between participant count checks
+ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip wake phrase)
 
 
 class ChatRunner:
@@ -31,11 +33,15 @@ class ChatRunner:
         self._seen_ids: set[str] = set()
         # Pending tool call awaiting user confirmation
         self._pending_tool_call: dict | None = None
+        # Track first names we've already responded to
+        self._greeted: set[str] = set()
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
         log.info(f"ChatRunner: joining {meeting_url}")
-        self._connector.join(meeting_url)
+        # Skip join if connector was already started (e.g. for parallel MCP init)
+        if not self._connector.join_status:
+            self._connector.join(meeting_url)
 
         # Wait for browser to actually join (same logic as AgentRunner)
         join_status = self._connector.join_status
@@ -72,12 +78,34 @@ class ChatRunner:
 
     def _loop(self):
         """Main polling loop."""
+        last_participant_check = 0
+        participant_count = 0
         while not self._stop_event.is_set():
             try:
                 messages = self._connector.read_chat()
             except Exception as e:
                 log.warning(f"ChatRunner: read_chat failed: {e}")
                 messages = []
+
+            # Periodically refresh participant count
+            now = time.time()
+            if now - last_participant_check >= PARTICIPANT_CHECK_INTERVAL:
+                last_participant_check = now
+                try:
+                    new_count = self._connector.get_participant_count()
+                    if new_count != participant_count:
+                        log.info(f"ChatRunner: participant count changed {participant_count} → {new_count}")
+                    participant_count = new_count
+                except Exception as e:
+                    log.warning(f"ChatRunner: get_participant_count failed: {e}")
+
+            one_on_one = participant_count <= ONE_ON_ONE_THRESHOLD
+
+            # Track which own-message texts matched this batch so we can
+            # discard AFTER the full batch — Meet creates multiple DOM
+            # elements per message (different IDs, same text), so we must
+            # keep the text in the set until all duplicates are filtered.
+            own_matched = set()
 
             for msg in messages:
                 msg_id = msg.get("id", "")
@@ -99,31 +127,44 @@ class ChatRunner:
                     log.debug(f"ChatRunner: skipping own message (sender={sender!r})")
                     continue
                 if not sender and text in self._own_messages:
-                    self._own_messages.discard(text)
+                    log.debug(f"ChatRunner: skipping own message (text match)")
+                    own_matched.add(text)
                     continue
 
-                log.info(f"ChatRunner: new message sender={sender!r} id={msg_id!r} text={text!r}")
+                log.info(f"ChatRunner: new message sender={sender!r} id={msg_id!r} text={text!r} one_on_one={one_on_one}")
 
                 # If we're waiting for tool confirmation, any message is a response
                 if self._pending_tool_call:
                     self._handle_confirmation(text)
                     continue
 
-                # Wake phrase gating: only respond when message contains the wake phrase
+                # In 1-on-1 mode, every message is treated as addressed to us
                 wake = config.CHAT_WAKE_PHRASE.lower()
                 lower = text.lower()
-                if wake in lower:
-                    # Strip the wake phrase from the prompt sent to the LLM
-                    prompt = re.sub(re.escape(config.CHAT_WAKE_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
+                has_wake = wake in lower
+
+                if has_wake or one_on_one:
+                    # Strip the wake phrase if present
+                    if has_wake:
+                        prompt = re.sub(re.escape(config.CHAT_WAKE_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
+                    else:
+                        prompt = text
                     if prompt:
-                        # Include sender context for the LLM
-                        llm_text = f"{sender}: {prompt}" if sender else prompt
+                        # Include sender context for the LLM (first name only)
+                        first_name = sender.split()[0] if sender else ""
+                        llm_text = f"{first_name}: {prompt}" if first_name else prompt
+                        if first_name and first_name not in self._greeted:
+                            llm_text += f" (First time talking to {first_name})"
+                            self._greeted.add(first_name)
                         self._handle_message(llm_text)
                 else:
                     # Not addressed to us — store as context so LLM knows what was said
-                    context = f"{sender}: {text}" if sender else text
+                    first_name = sender.split()[0] if sender else ""
+                    context = f"{first_name}: {text}" if first_name else text
                     self._llm.add_context(context)
                     log.debug(f"ChatRunner: stored as context (no wake phrase)")
+
+            self._own_messages -= own_matched
 
             self._stop_event.wait(POLL_INTERVAL)
 

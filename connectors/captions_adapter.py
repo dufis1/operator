@@ -605,13 +605,21 @@ class CaptionsAdapter(MeetingConnector):
 
                 finally:
                     # ── Clean leave — runs on ALL exit paths ──────────
-                    # Navigate away so Meet fires the leave signal, then
-                    # close the browser before the `with` block exits.
+                    # Click Leave call so Meet's server registers the
+                    # disconnect immediately (avoids ~60s ghost session).
                     try:
-                        page.goto("about:blank", timeout=5000)
-                        log.info("CaptionsAdapter: navigated away — left meeting cleanly")
+                        leave_btn = page.get_by_role("button", name="Leave call")
+                        leave_btn.wait_for(timeout=2000)
+                        leave_btn.click()
+                        page.wait_for_timeout(500)
+                        log.info("CaptionsAdapter: clicked Leave call")
                     except Exception:
-                        pass
+                        # Fall back to navigating away if Leave button not found
+                        try:
+                            page.goto("about:blank", timeout=3000)
+                            log.info("CaptionsAdapter: navigated away (Leave button not found)")
+                        except Exception:
+                            pass
                     def _close_browser():
                         try:
                             browser.close()
