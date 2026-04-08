@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 58)*
+*Last updated: April 7, 2026 (session 59)*
 
-> **Current status: Demo rehearsal in progress (session 58).** Upgraded GitHub MCP to Go binary (fixing search_code auth). Fixed parallel tool_calls crash. Demo repo live at `dufis1/demo-api`. Step 8.3 in progress — continuing iteration on demo flow.
+> **Current status: Demo rehearsal progressing (session 59).** GitHub MCP integration now working end-to-end — tool chaining, file content extraction, and username resolution all fixed. Demo repo updated (removed hint comment). Step 8.3 in progress — ready for natural-language demo test.
 
 ---
 
