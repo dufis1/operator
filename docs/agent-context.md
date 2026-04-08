@@ -17,16 +17,16 @@
 
 ## Current Status
 
-**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), meeting lifecycle overhauled.
-**What just happened (session 57, April 7, 2026):**
+**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), demo prep for ship-to-friend.
+**What just happened (session 58, April 7, 2026):**
 
-Session 57: Enabled GitHub MCP server in config.yaml (uncommented the existing block). Verified it works end-to-end via stdio initialize handshake (github-mcp-server v0.6.2). Discovered the npm package `@modelcontextprotocol/server-github` is deprecated — official replacement is a Go binary from `github/github-mcp-server` releases (v0.32.0). Deferred the upgrade to step 10.6 in roadmap since the npm package still works.
+Session 58: Demo prep for step 8.3. Created `dufis1/demo-api` on GitHub — a small FastAPI task queue API with an intentional bug (`update_task` doesn't refresh `updated_at`) and an unwired auth middleware, both designed as demo targets. Wrote a 3-beat demo script: (1) casual chat, (2) create a Linear issue for the bug, (3) ask Operator to find the bug in the GitHub repo. The GitHub token doesn't have repo-creation scope so the repo was created manually.
 
-**Previous session (56):** Complete meeting lifecycle overhaul — pre-join user gate, calendar end-time auto-leave, stale meeting skip, Ctrl+C re-join fix.
+**Previous session (57):** Enabled GitHub MCP server in config.yaml. Verified end-to-end. Discovered `@modelcontextprotocol/server-github` npm package is deprecated — upgrade tracked at step 10.6.
 
 **MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
 
-**Next action:** Step 8.3 (ship to friend). Chat-first MVP with MCP tool use is working end-to-end with clean startup (~4s), clean shutdown at any phase, and polished UX (auto-respond in 1-on-1, first-name greeting).
+**Next action:** Step 8.3 (ship to friend). Demo repo (`dufis1/demo-api`) is live on GitHub. Demo script ready. Run the demo with a friend, get feedback, iterate. Chat-first MVP with MCP tool use is working end-to-end with clean startup (~4s), clean shutdown at any phase, and polished UX (auto-respond in 1-on-1, first-name greeting).
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 

@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 57)*
+*Last updated: April 7, 2026 (session 58)*
 
-> **Current status: Chat MVP feature-complete, GitHub MCP enabled (session 57).** GitHub MCP server added to config alongside Linear. Step 8.3 (ship to friend) is next.
+> **Current status: Demo prep for ship-to-friend (session 58).** Created `dufis1/demo-api` repo on GitHub as a demo target. Wrote a 3-beat demo script (chat → Linear issue → GitHub code investigation). Step 8.3 in progress.
 
 ---
 
