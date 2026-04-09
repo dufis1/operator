@@ -62,24 +62,30 @@ class CalendarPoller:
             print("   Run: python scripts/auth_export.py\n")
             return
 
-        # Copy the browser profile so calendar and meeting browsers don't conflict
-        try:
-            if os.path.exists(_CAL_PROFILE):
-                shutil.rmtree(_CAL_PROFILE)
-            shutil.copytree(
-                src_profile, _CAL_PROFILE,
-                ignore=shutil.ignore_patterns(
-                    "SingletonLock", "SingletonSocket", "SingletonCookie",
-                    "RunningChromeVersion",
-                    ".operator.pid",
-                ),
-            )
-        except shutil.Error as e:
-            # shutil.Error collects per-file failures — the copy mostly succeeded
-            log.warning(f"CalendarPoller: partial copy errors (non-fatal): {e}")
-        except Exception as e:
-            log.error(f"CalendarPoller: failed to copy browser profile: {e}")
-            return
+        # Copy the browser profile so calendar and meeting browsers don't
+        # conflict. Skip the copy if our existing copy is already up to date
+        # with the source's cookie store — copytree preserves mtimes, so a
+        # stale cookie file is the right signal that auth state has moved on.
+        if self._cal_profile_is_stale(src_profile, _CAL_PROFILE):
+            try:
+                if os.path.exists(_CAL_PROFILE):
+                    shutil.rmtree(_CAL_PROFILE)
+                shutil.copytree(
+                    src_profile, _CAL_PROFILE,
+                    ignore=shutil.ignore_patterns(
+                        "SingletonLock", "SingletonSocket", "SingletonCookie",
+                        "RunningChromeVersion",
+                        ".operator.pid",
+                    ),
+                )
+            except shutil.Error as e:
+                # shutil.Error collects per-file failures — the copy mostly succeeded
+                log.warning(f"CalendarPoller: partial copy errors (non-fatal): {e}")
+            except Exception as e:
+                log.error(f"CalendarPoller: failed to copy browser profile: {e}")
+                return
+        else:
+            log.info("CalendarPoller: reusing cached profile copy (cookies unchanged)")
 
         self._running = True
         self._thread = threading.Thread(
@@ -87,6 +93,22 @@ class CalendarPoller:
         )
         self._thread.start()
         log.info(f"CalendarPoller: started (polling every {POLL_INTERVAL}s)")
+
+    @staticmethod
+    def _cal_profile_is_stale(src_profile, cal_profile):
+        """Return True if the calendar profile needs to be (re)copied.
+
+        Compares mtimes of the Chromium Cookies file in src vs the cached
+        copy. shutil.copytree preserves mtimes, so equal mtimes mean the
+        cached copy is fresh enough to reuse.
+        """
+        if not os.path.exists(cal_profile):
+            return True
+        src_cookies = os.path.join(src_profile, "Default", "Cookies")
+        dst_cookies = os.path.join(cal_profile, "Default", "Cookies")
+        if not os.path.exists(src_cookies) or not os.path.exists(dst_cookies):
+            return True
+        return os.path.getmtime(src_cookies) > os.path.getmtime(dst_cookies)
 
     def stop(self):
         self._running = False
@@ -105,7 +127,14 @@ class CalendarPoller:
                 page = browser.pages[0] if browser.pages else browser.new_page()
 
                 page.goto(_CALENDAR_DAY_URL, wait_until="domcontentloaded", timeout=30000)
-                time.sleep(8)  # let calendar JS render
+                # Wait briefly for calendar JS to render event nodes. On
+                # empty-calendar days the selector never appears, so we cap
+                # this at 3s — if events show up later the next poll catches
+                # them, and the login redirect check below still runs.
+                try:
+                    page.wait_for_selector("[data-eventid]", timeout=3000)
+                except Exception:
+                    pass
 
                 if "accounts.google.com" in page.url:
                     log.error(
@@ -132,7 +161,13 @@ class CalendarPoller:
                     if self._running:
                         try:
                             page.reload(wait_until="domcontentloaded", timeout=30000)
-                            time.sleep(5)  # let calendar JS re-render
+                            # Same fast-wait pattern as the initial goto:
+                            # cap at 3s and fall through if the day has no
+                            # events.
+                            try:
+                                page.wait_for_selector("[data-eventid]", timeout=3000)
+                            except Exception:
+                                pass
                         except Exception as e:
                             log.error(f"CalendarPoller: reload error: {e}")
 

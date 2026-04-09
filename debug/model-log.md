@@ -670,10 +670,11 @@ POLLING meeting ended — waiting for next
 
 **Calendar polling mode (no meeting URL argument):**
 ```
+CalendarPoller: reusing cached profile copy (cookies unchanged)   # appears on warm restart only — session 67 mtime gate skipped the rmtree+copytree
 CalendarPoller: started (polling every 30s)
 STARTUP polling mode — waiting for meetings
 State → idle (Waiting for meeting...)
-CalendarPoller: calendar loaded — Google Calendar - Tuesday, April 7, 2026, today
+CalendarPoller: calendar loaded — Google Calendar - Tuesday, April 7, 2026, today    # session 67: gap from `started` is now ~1.5–4.5s (was ~9–10s)
 CalendarPoller: 'test' already ended — skipping https://meet.google.com/xxx-yyyy-zzz  # logged once per event_id, not every poll (session 66)
 CalendarPoller: 'standup' starts in -5.3m — https://meet.google.com/xxx-yyyy-zzz       # within join window
 CalendarPoller: joining 'standup' (-5.3m until start)
