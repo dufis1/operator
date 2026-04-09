@@ -193,8 +193,9 @@ class MacOSAdapter(MeetingConnector):
                     // text matches "Name + Timestamp". Avoids depending on obfuscated class names.
                     const TIME_RE = new RegExp('\\\\d{1,2}:\\\\d{2}\\\\s*(AM|PM)', 'i');
                     let sender = '';
+                    let foundSender = false;
                     let node = el;
-                    for (let d = 0; d < 4; d++) {
+                    for (let d = 0; d < 4 && !foundSender; d++) {
                         node = node.parentElement;
                         if (!node) break;
                         for (const sib of node.children) {
@@ -202,10 +203,10 @@ class MacOSAdapter(MeetingConnector):
                             if (t && TIME_RE.test(t)) {
                                 const lines = t.split('\\n');
                                 sender = lines.length >= 2 ? lines[0] : '';
+                                foundSender = true;
                                 break;
                             }
                         }
-                        if (sender) break;
                     }
                     return {id: msgId, sender: sender, text: text};
                 }
