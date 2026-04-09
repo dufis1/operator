@@ -17,16 +17,16 @@
 
 ## Current Status
 
-**Phase:** V1 release roadmap defined. Chat MVP + MCP integration feature-complete. Hardening in progress.
-**What just happened (session 62, April 8, 2026):**
+**Phase:** Phase 9 hardening in progress. Chat MVP + MCP integration feature-complete.
+**What just happened (session 63, April 8, 2026):**
 
-Session 62: Hardened the camera-off toggle across all four adapters (macOS, captions, Linux, Docker). Replaced the race-both-states pattern with a direct click on `"Turn off camera"` followed by DOM confirmation via `data-is-muted="true"`. Increased button wait timeout from 2s to 5s. Added WARNING-level logging and debug screenshots on failure (`camera_btn_missing`, `camera_not_confirmed`, `pre_camera_toggle`). Removed the post-join camera re-check from macOS adapter — camera is now gated at pre-join only. Root cause of intermittent camera-on bug: the 2s race timeout expired on slow-rendering pre-join screens, silently skipping the toggle. Follow-up fix: the initial `data-is-muted` confirmation selector used `button[...]` but Meet's camera toggle is `<div role="button">` — changed to `[role="button"][...]`. Added pre-toggle screenshot for future diagnostics. Verified end-to-end: camera confirmed off in 0.7s.
+Session 63: Completed step 9.1 (UI dependency audit). Created `docs/ui-dependency-audit.md` inventorying every DOM selector across all adapters, classified as stable/semi-stable/fragile. Then hardened all three fragile v1-critical selectors with live-tested structural approaches: (1) `data-panel-id="2"` → dynamic discovery via `textarea.closest('[data-panel-id]')`, (2) `div[jsname="dTKtvb"]` → `div[jsname]` (any value) with fallback to first child text node, (3) `div.HNucUd` sender class → time-pattern regex (`/\d{1,2}:\d{2}\s*(AM|PM)/i`) on sibling divs with `foundSender` flag to prevent false matches on self-messages. All three changes validated end-to-end in a 3-participant meeting (user + Deepak + Operator). Hit and fixed: Python `\n` in JS comment broke the evaluate string; self-message sender leaked due to falsy empty-string check.
 
-**Previous session (61):** Strategy session — competitive eval of Pika Skills, v1 roadmap restructure, positioning defined.
+**Previous sessions:** Session 62: camera toggle hardening. Session 61: competitive eval, roadmap restructure.
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Step 8.3 — ship to friend. Test the natural-language demo flow first, then get it in his hands.
+**Next action:** Step 9.2 — DOM regression test suite. Automated tests against a live Meet session to catch selector breakage early.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
@@ -124,6 +124,8 @@ Session 62: Hardened the camera-off toggle across all four adapters (macOS, capt
 - **GitHub MCP `get_file_contents` returns file content as `EmbeddedResource`, not text.** The MCP result has two content parts: a text part ("successfully downloaded text file (SHA: ...)") and an `EmbeddedResource` part containing the actual file content in `c.resource.text`. If you only extract `c.text`, you get the 81-char confirmation and the LLM hallucinates the file contents. Fix: check `hasattr(c, "resource")` and extract `c.resource.text`.
 - **GitHub Code Search doesn't index small/new repos.** `search_code` with `repo:dufis1/demo-api` returns 0 results even for code that definitely exists. GitHub's code search indexing is unreliable for repos with few stars/activity. Fix: steer the LLM away from `search_code` toward browsing with `get_file_contents` on directories. System prompt hint: "Avoid search_code — it often returns no results for small repos."
 - **LLM uses chat display name as GitHub owner.** When the chat sender is "Jojo Shapiro", gpt-4.1-mini guesses `owner='Jojo'` for GitHub API calls, causing 404s. The `get_me` tool returns the correct login but the model doesn't reliably call it. Fix: resolve `get_me` once at startup in `MCPClient.resolve_github_user()`, inject the login into the LLM system prompt via `inject_github_user()`.
+- **Python `\n` in JS comments inside `page.evaluate()` breaks the script.** A comment like `// matches "Name\nTimestamp"` in a triple-quoted Python string sends a literal newline to JS, splitting the comment mid-line and causing a SyntaxError. Fix: avoid `\n` in any JS string/comment inside `evaluate()` — use `"Name + Timestamp"` or similar. Same applies to any Python escape sequence that isn't explicitly doubled.
+- **Falsy empty-string check skips self-message sender match.** When extracting sender name via parent-walk, self-messages return `sender = ''`. If the outer loop uses `if (sender) break`, empty string is falsy — the loop continues walking up and matches a different message group's sender div, returning a wrong name. Fix: use a `foundSender` boolean flag to stop on first time-pattern match regardless of whether sender is empty.
 
 ---
 

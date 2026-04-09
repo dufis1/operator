@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 8, 2026 (session 62)*
+*Last updated: April 8, 2026 (session 63)*
 
-> **Current status: v1 release roadmap defined (session 61).** Chat MVP + MCP integration feature-complete. Roadmap rejiggered around competitive v1 positioning: "meetings that produce artifacts, not just words." V1 release path: 8.3 Ship to Friend → 9 Hardening → 10 Open-Source Packaging (release gate). Post-v1: 11 Multi-Model → 12 MCP Extensibility → 13 Voice → 14 Platform Expansion.
+> **Current status: Phase 9 hardening in progress (session 63).** Step 9.1 (UI dependency audit) complete — inventoried all DOM selectors, hardened three fragile v1-critical selectors with structural approaches. Next: 9.2 (DOM regression test suite).
 
 ---
 
