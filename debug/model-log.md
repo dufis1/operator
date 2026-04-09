@@ -51,6 +51,8 @@ TIMING navigation=0.8s                         # page.goto to Meet URL
 TIMING pre_join_ready=0.5s                     # wait for pre-join DOM elements
 TIMING detect_page_state=0.0s (state=pre_join) # auth/session state check
 TIMING tts_kokoro_import=3.0s                  # background: from kokoro import KPipeline
+session: screenshot saved to debug/pre_camera_toggle.png  # pre-toggle snapshot
+session: HTML saved to debug/pre_camera_toggle.html
 CaptionsAdapter: clicked 'Turn off camera'       # click camera toggle
 CaptionsAdapter: camera confirmed off (data-is-muted=true)  # DOM confirmation
 TIMING camera_toggle=0.5s                      # wait + click + confirm camera button
@@ -539,9 +541,11 @@ TIMING browser_launch=0.9s
 TIMING navigation=0.8s
 TIMING pre_join_ready=0.5s
 TIMING detect_page_state=0.0s (state=pre_join)
+session: screenshot saved to debug/pre_camera_toggle.png  # pre-toggle snapshot
+session: HTML saved to debug/pre_camera_toggle.html
 MacOSAdapter: clicked 'Turn off camera'           # click camera toggle
 MacOSAdapter: camera confirmed off (data-is-muted=true)  # DOM confirmation
-TIMING camera_toggle=0.5s
+TIMING camera_toggle=0.7s
 MacOSAdapter: clicked 'Join now'                 # or 'Ask to join' or 'Switch here'
 TIMING join_click=0.1s (Join now)
 MacOSAdapter: joined meeting successfully
