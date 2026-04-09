@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 8, 2026 (session 65)*
+*Last updated: April 8, 2026 (session 66)*
 
-> **Current status: Phase 9 hardening in progress (session 65).** Steps 9.1 (selector hardening), 9.4 (race condition audit), and 9.5 (security audit) complete. Steps 9.2/9.3 deferred to Phase 12. Next: 9.6 (simultaneous meeting handling).
+> **Current status: Phase 9 hardening in progress (session 66).** Steps 9.1 (selector hardening), 9.4 (race condition audit), 9.5 (security audit), and 9.6 (simultaneous meeting handling) complete. Steps 9.2/9.3 deferred to Phase 12. Next: 9.7 (calendar polling startup latency).
 
 ---
 
@@ -74,7 +74,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 9.3 | ~~Self-healing selectors~~ — deferred to Phase 12 (follows regression suite) | ⏭️ | — |
 | 9.4 | Race condition audit — systematic review of threading, queue interactions, shutdown paths, and browser thread coordination | ✅ | ~3h |
 | 9.5 | Security vulnerability audit — input sanitization, credential handling, MCP server sandboxing, dependency audit | ✅ | ~2h |
-| 9.6 | Simultaneous meeting handling — test and define behavior when Operator is invited to two overlapping events | ⬜ | ~2h |
+| 9.6 | Simultaneous meeting handling — single-meeting design: queue overlaps, skip ended meetings, log warnings | ✅ | ~1h |
 | 9.7 | Calendar polling startup latency — profile and optimize the slow path from launch to first meeting join | ⬜ | ~1h |
 | 9.8 | Log cleanup — structured, consistent log levels; clean stdout for normal operation, verbose for debug | ⬜ | ~2h |
 | 9.9 | Latency audit — profile end-to-end chat path, identify and shave unnecessary delays | ⬜ | ~2h |

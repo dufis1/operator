@@ -674,10 +674,27 @@ CalendarPoller: started (polling every 30s)
 STARTUP polling mode — waiting for meetings
 State → idle (Waiting for meeting...)
 CalendarPoller: calendar loaded — Google Calendar - Tuesday, April 7, 2026, today
-CalendarPoller: 'test' already ended — skipping https://meet.google.com/xxx-yyyy-zzz  # past end time
+CalendarPoller: 'test' already ended — skipping https://meet.google.com/xxx-yyyy-zzz  # logged once per event_id, not every poll (session 66)
 CalendarPoller: 'standup' starts in -5.3m — https://meet.google.com/xxx-yyyy-zzz       # within join window
 CalendarPoller: joining 'standup' (-5.3m until start)
 POLLING received meeting URL: https://meet.google.com/xxx-yyyy-zzz
+```
+
+**Overlapping meetings (single-meeting design, session 66):**
+```
+CalendarPoller: joining 'meeting 1' (0.5m until start)
+POLLING received meeting URL: https://meet.google.com/xxx-yyyy-zzz
+# ... meeting 1 is running ...
+CalendarPoller: queuing 'meeting 2' while another meeting is active (busy=True, pending=0) — Operator handles one meeting at a time; will join after current ends
+CalendarPoller: joining 'meeting 2' (1.0m until start)
+# ... meeting 1 ends / user leaves ...
+POLLING meeting ended — waiting for next
+POLLING received meeting URL: https://meet.google.com/xxx-yyyy-zzz   # meeting 2 dequeued
+```
+
+**Stale meeting skipped on dequeue (session 66):**
+```
+POLLING skipping https://meet.google.com/xxx-yyyy-zzz — meeting ended while queued
 ```
 
 **Pre-join gate failure (user never appeared):**
