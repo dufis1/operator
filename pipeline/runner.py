@@ -107,6 +107,7 @@ class AgentRunner:
         self._last_reply = None       # raw LLM reply text (for classifier context)
         self._latency_probe = LatencyProbe()
         self._meeting_end_dt = None   # UTC end time from calendar (None = no auto-leave)
+        self._in_meeting = False      # True while run() is active (single-meeting guard)
 
     # ------------------------------------------------------------------
     # Entry point
@@ -117,7 +118,12 @@ class AgentRunner:
 
         Used by the macOS menu bar app with CalDAV polling.
         Blocks until stop() is called or a None sentinel is received.
+
+        Operator joins one meeting at a time. If multiple meetings overlap,
+        they are queued and joined sequentially after the current one ends.
+        Meetings whose end_dt has already passed are skipped on dequeue.
         """
+        import datetime
         import queue as _queue
         log.info("STARTUP polling mode — waiting for meetings")
         self._on_state_change("idle", "Waiting for meeting...")
@@ -137,6 +143,15 @@ class AgentRunner:
             else:
                 meeting_url, end_dt = item, None
 
+            # Skip meetings that have already ended while waiting in queue
+            if end_dt:
+                now = datetime.datetime.now(datetime.timezone.utc)
+                if now > end_dt:
+                    log.info(
+                        f"POLLING skipping {meeting_url} — meeting ended while queued"
+                    )
+                    continue
+
             log.info(f"POLLING received meeting URL: {meeting_url}")
             self._on_state_change("idle", f"Joining {meeting_url}...")
 
@@ -144,9 +159,12 @@ class AgentRunner:
             # Pass end time to connector for auto-leave logic
             if hasattr(self.connector, 'meeting_end_dt'):
                 self.connector.meeting_end_dt = end_dt
+
+            self._in_meeting = True
             self.run(meeting_url)
 
             # Clean up after meeting
+            self._in_meeting = False
             self.connector.leave()
             self._meeting_end_dt = None
             if hasattr(self.connector, 'meeting_end_dt'):

@@ -223,7 +223,10 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         else:
             from pipeline.calendar_poller import CalendarPoller
             meeting_queue = queue.Queue()
-            poller = CalendarPoller(meeting_queue)
+            poller = CalendarPoller(
+                meeting_queue,
+                is_busy=lambda: runner._in_meeting,
+            )
             poller.start()
             runner.run_polling(meeting_queue)
     except KeyboardInterrupt:

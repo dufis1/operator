@@ -35,9 +35,19 @@ _CAL_PROFILE = os.path.join(_BASE, "browser_profile_calendar")
 
 
 class CalendarPoller:
-    def __init__(self, meeting_queue: queue.Queue):
+    def __init__(self, meeting_queue: queue.Queue, is_busy=None):
+        """
+        Args:
+            meeting_queue: shared queue where detected meetings are put
+            is_busy:       optional callable returning True if a meeting is
+                           currently running. Used to log a warning when a
+                           new meeting is queued while one is active
+                           (Operator handles one meeting at a time).
+        """
         self._meeting_queue = meeting_queue
+        self._is_busy = is_busy or (lambda: False)
         self._joined_event_ids = set()
+        self._ended_event_ids = set()   # log ended events once, not every poll
         self._running = False
         self._thread = None
 
@@ -168,11 +178,13 @@ class CalendarPoller:
 
             minutes_until = (start_dt - now).total_seconds() / 60
 
-            # Skip meetings that have already ended
+            # Skip meetings that have already ended — log once per event_id
             if end_dt and now > end_dt:
-                log.debug(
-                    f"CalendarPoller: '{title}' already ended — skipping {meet_url}"
-                )
+                if event_id not in self._ended_event_ids:
+                    log.debug(
+                        f"CalendarPoller: '{title}' already ended — skipping {meet_url}"
+                    )
+                    self._ended_event_ids.add(event_id)
                 continue
 
             log.debug(
@@ -180,6 +192,14 @@ class CalendarPoller:
             )
 
             if minutes_until <= JOIN_WINDOW_MINUTES:
+                busy = self._is_busy()
+                pending = self._meeting_queue.qsize()
+                if busy or pending > 0:
+                    log.warning(
+                        f"CalendarPoller: queuing '{title}' while another meeting "
+                        f"is active (busy={busy}, pending={pending}) — Operator "
+                        f"handles one meeting at a time; will join after current ends"
+                    )
                 log.info(
                     f"CalendarPoller: joining '{title}' ({minutes_until:.1f}m until start)"
                 )
