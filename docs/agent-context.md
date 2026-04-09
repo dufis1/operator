@@ -17,12 +17,12 @@
 
 ## Current Status
 
-**Phase:** V1 release roadmap defined. Chat MVP + MCP integration feature-complete. Roadmap restructured around competitive positioning.
-**What just happened (session 61, April 8, 2026):**
+**Phase:** V1 release roadmap defined. Chat MVP + MCP integration feature-complete. Hardening in progress.
+**What just happened (session 62, April 8, 2026):**
 
-Session 61: Strategy and planning session — no functional code changes. Hands-on evaluation of Pika Skills (pikastream-video-meeting): cloned repo, set up dev key, joined a live Google Meet as "Deepak" with avatar and default voice. Confirmed Pika's architecture is fire-and-forget — static system prompt at join time, LLM loop runs on Pika's servers, no mid-session tool calls or context injection. Key finding: Pika is a presentation layer (avatar, voice clone), not an agent. Operator's moat is owning the LLM loop, enabling MCP tool use during meetings. Added competitive landscape section to `docs/product-strategy.md` with direct evaluations of Pika and Recall.ai. Defined v1 MVP positioning: "meetings that produce artifacts, not just words." Restructured entire roadmap: collapsed completed phases, reordered Packaging before Multi-Model (packaging is the v1 release gate), added 30+ new items across Hardening (UI audit, DOM tests, self-healing selectors, race conditions, security, error handling, edge cases, context window management, idempotency, reconnection) and Packaging (config cleanup, setup wizard, demo GIF, CI/CD, contributing guide, compatibility matrix, issue templates, code of conduct, architecture docs, example configs, dependency pinning). Tagged post-v1 items.
+Session 62: Hardened the camera-off toggle across all four adapters (macOS, captions, Linux, Docker). Replaced the race-both-states pattern (`"Turn off camera"` vs `"Turn on camera"`) with a direct click on `"Turn off camera"` followed by DOM confirmation via `data-is-muted="true"` attribute. Increased button wait timeout from 2s to 5s. Added WARNING-level logging and debug screenshots (`camera_btn_missing`, `camera_not_confirmed`) on failure. Removed the post-join camera re-check from macOS adapter — camera is now gated at pre-join only. Root cause of intermittent camera-on bug: the 2s race timeout expired on slow-rendering pre-join screens, silently skipping the toggle.
 
-**Previous session (60):** Retrospective and planning — diagnosed session 59 MCP bugs, added Phase 12 (MCP Hardening).
+**Previous session (61):** Strategy session — competitive eval of Pika Skills, v1 roadmap restructure, positioning defined.
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
@@ -74,7 +74,7 @@ Session 61: Strategy and planning session — no functional code changes. Hands-
 - **Playwright teardown can hang 20s+** — use `_browser_closed` event, don't join the thread.
 - **`_shutdown()` double-call on Ctrl+C** — guard with `_shutdown_called` flag.
 - **Browser cleanup must run on ALL exit paths** — wrap in try/finally inside `with sync_playwright()`.
-- **Camera toggle needs wait even in headless** — use `wait_for(timeout=2000)`.
+- **Camera toggle needs wait even in headless** — use `wait_for(timeout=5000)`, then confirm via `data-is-muted="true"`.
 - **`in_meeting_wait` required before caption enable** — Meet needs transition time after join.
 - **Kokoro voice `am_cloud` does not exist** — use `am_michael` or `am_puck` for American Male.
 - **Ctrl+C → Chrome stays in meeting 60s (three issues):** (1) rumps swallows SIGINT, (2) SIGINT kills Chrome via process group — fix with `start_new_session=True`, (3) `browser.close()` ≠ leaving — navigate to `about:blank` first.
@@ -110,7 +110,7 @@ Session 61: Strategy and planning session — no functional code changes. Hands-
 - **`@linear/mcp-server` npm package does not exist.** Linear's official MCP server is remote at `https://mcp.linear.app/mcp`. Use `npx -y mcp-remote https://mcp.linear.app/mcp` to bridge it as a stdio subprocess. Auth is OAuth (browser popup on first run), token cached locally by `mcp-remote`. No `LINEAR_API_KEY` needed.
 - **MacOSAdapter/LinuxAdapter "joined" before admission.** Clicking "Ask to join" set `joined = True` immediately without waiting for the host to admit. Operator proceeded to open chat panel while still in the waiting room. Fix: track `clicked_label`, and if "Ask to join" was clicked, call `_wait_for_admission()` (two-phase event-driven: wait for lobby image to appear, then watch for it to disappear). Already existed in CaptionsAdapter.
 - **Google Meet creates 2 DOM elements per chat message (different IDs, same text).** When Operator sends a message, the MutationObserver catches both elements. If the echo filter (`_own_messages`) discards the text on the first match, the second element slips through and triggers an echo loop. Fix: batch the discard — collect matched texts during the full message batch, then remove from `_own_messages` after the loop.
-- **Google Meet re-enables camera after join.** Camera toggled off on the pre-join screen can reappear as on after clicking Join. Fix: add a second camera check after the in-meeting indicator is detected.
+- **Camera toggle must be confirmed before join.** Meet defaults to camera on at the pre-join screen. The old race-both-states approach with a 2s timeout silently skipped the toggle on slow renders. Fix (session 62): click "Turn off camera", then wait for `data-is-muted="true"` on the camera button as confirmation. Log WARNING + screenshot if confirmation fails. No post-join re-check — gate it at pre-join.
 - **`[data-participant-id]` counts UI elements, not participants.** Returns ~2× actual count due to duplicate DOM entries per participant. Use `[data-requested-participant-id]` instead — reliably matches actual in-call participants (tested: 1-on-1, multi-participant, participant leave, invited-but-absent).
 - **Calendar poller joins meetings that ended hours ago.** `minutes_until <= JOIN_WINDOW_MINUTES` has no lower bound — a meeting that started 103 minutes ago has `minutes_until = -103.3`, which is `<= 2`. Fix: extract event end time and skip meetings where `now > end_dt`.
 - **`run_polling()` re-join on Ctrl+C.** After `run()` returns, the loop called `_stop_event.clear()` then checked the queue — but the second meeting URL was already queued, so it tried to join mid-shutdown. Fix: check `_stop_event.is_set()` before clearing and looping back.

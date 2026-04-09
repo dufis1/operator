@@ -51,8 +51,9 @@ TIMING navigation=0.8s                         # page.goto to Meet URL
 TIMING pre_join_ready=0.5s                     # wait for pre-join DOM elements
 TIMING detect_page_state=0.0s (state=pre_join) # auth/session state check
 TIMING tts_kokoro_import=3.0s                  # background: from kokoro import KPipeline
-CaptionsAdapter: camera turned off              # or "camera already off"
-TIMING camera_toggle=0.5s                      # wait + click camera button
+CaptionsAdapter: clicked 'Turn off camera'       # click camera toggle
+CaptionsAdapter: camera confirmed off (data-is-muted=true)  # DOM confirmation
+TIMING camera_toggle=0.5s                      # wait + click + confirm camera button
 CaptionsAdapter: waiting for 'Jojo Shapiro' on pre-join screen...   # only if user_display_name configured
 CaptionsAdapter: 'Jojo Shapiro' detected in call — joining          # user found on pre-join screen
 CaptionsAdapter: clicked 'Join now'             # or 'Ask to join' or 'Switch here'
@@ -538,14 +539,14 @@ TIMING browser_launch=0.9s
 TIMING navigation=0.8s
 TIMING pre_join_ready=0.5s
 TIMING detect_page_state=0.0s (state=pre_join)
-MacOSAdapter: camera turned off                  # or "camera already off"
+MacOSAdapter: clicked 'Turn off camera'           # click camera toggle
+MacOSAdapter: camera confirmed off (data-is-muted=true)  # DOM confirmation
 TIMING camera_toggle=0.5s
 MacOSAdapter: clicked 'Join now'                 # or 'Ask to join' or 'Switch here'
 TIMING join_click=0.1s (Join now)
 MacOSAdapter: joined meeting successfully
 ChatRunner: joined — starting chat loop
 TIMING in_meeting_wait=1.4s
-MacOSAdapter: camera still off after join        # post-join camera re-check; or "camera re-disabled after join"
 MacOSAdapter: mic already on                     # or "microphone unmuted"
 TIMING mic_check=0.0s
 MacOSAdapter: in meeting — holding browser open
