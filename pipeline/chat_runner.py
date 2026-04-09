@@ -239,7 +239,7 @@ class ChatRunner:
             tool_result = self._mcp.execute_tool(tc["name"], tc["arguments"])
         except Exception as e:
             log.error(f"ChatRunner: tool execution failed: {e}")
-            self._send(f"Tool call failed: {e}")
+            self._send("Sorry, that tool call failed. Check the logs for details.")
             try:
                 self._llm.send_tool_result(tc["id"], tc["name"], f"Error: {e}")
             except Exception:
