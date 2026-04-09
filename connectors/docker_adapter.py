@@ -198,15 +198,30 @@ class DockerAdapter(MeetingConnector):
                 except Exception:
                     pass
 
-                # Turn off camera
+                # Turn off camera and confirm before joining
                 try:
                     cam_btn = page.get_by_role("button", name="Turn off camera")
-                    cam_btn.wait_for(timeout=3000)
+                    cam_btn.wait_for(timeout=5000)
                     cam_btn.click()
-                    page.wait_for_timeout(300)
-                    log.debug("DockerAdapter: camera turned off")
+                    log.info("DockerAdapter: clicked 'Turn off camera'")
+                    try:
+                        page.wait_for_selector(
+                            'button[data-is-muted="true"][aria-label*="camera"]',
+                            timeout=3000,
+                        )
+                        log.info("DockerAdapter: camera confirmed off (data-is-muted=true)")
+                    except Exception:
+                        log.warning("DockerAdapter: camera toggle clicked but could not confirm off state")
+                        try:
+                            page.screenshot(path="/tmp/camera_not_confirmed.png")
+                        except Exception:
+                            pass
                 except Exception:
-                    log.debug("DockerAdapter: camera button not found or already off")
+                    log.warning("DockerAdapter: 'Turn off camera' button not found — camera may be on")
+                    try:
+                        page.screenshot(path="/tmp/camera_btn_missing.png")
+                    except Exception:
+                        pass
 
                 # Ensure microphone is on before joining.
                 # On the pre-join screen, a muted mic means Chrome won't call

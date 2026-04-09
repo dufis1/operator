@@ -410,15 +410,24 @@ class LinuxAdapter(MeetingConnector):
                 except Exception:
                     pass
 
-                # Turn off camera
+                # Turn off camera and confirm before joining
                 try:
                     cam_btn = page.get_by_role("button", name="Turn off camera")
-                    cam_btn.wait_for(timeout=3000)
+                    cam_btn.wait_for(timeout=5000)
                     cam_btn.click()
-                    page.wait_for_timeout(300)
-                    log.debug("LinuxAdapter: camera turned off")
+                    log.info("LinuxAdapter: clicked 'Turn off camera'")
+                    try:
+                        page.wait_for_selector(
+                            'button[data-is-muted="true"][aria-label*="camera"]',
+                            timeout=3000,
+                        )
+                        log.info("LinuxAdapter: camera confirmed off (data-is-muted=true)")
+                    except Exception:
+                        log.warning("LinuxAdapter: camera toggle clicked but could not confirm off state")
+                        save_debug(page, "camera_not_confirmed")
                 except Exception:
-                    log.debug("LinuxAdapter: camera button not found or already off")
+                    log.warning("LinuxAdapter: 'Turn off camera' button not found — camera may be on")
+                    save_debug(page, "camera_btn_missing")
 
                 # Ensure microphone is on before joining.
                 # On the pre-join screen, a muted mic means Chrome won't call

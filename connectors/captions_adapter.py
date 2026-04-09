@@ -479,21 +479,27 @@ class CaptionsAdapter(MeetingConnector):
                         return
 
                     # --- Pre-join screen ---
-                    # Camera: wait briefly for the button, then click if visible.
+                    # Turn off camera and confirm before joining.
                     # We run headless so there's no real camera, but Meet may
                     # still show a black feed to other participants.
                     t_prejoin = time.monotonic()
                     cam_off = page.get_by_role("button", name="Turn off camera")
-                    cam_on = page.get_by_role("button", name="Turn on camera")
                     try:
-                        cam_off.or_(cam_on).wait_for(timeout=2000)
-                        if cam_off.is_visible():
-                            cam_off.click()
-                            log.debug("CaptionsAdapter: camera turned off")
-                        else:
-                            log.debug("CaptionsAdapter: camera already off")
+                        cam_off.wait_for(timeout=5000)
+                        cam_off.click()
+                        log.info("CaptionsAdapter: clicked 'Turn off camera'")
+                        try:
+                            page.wait_for_selector(
+                                'button[data-is-muted="true"][aria-label*="camera"]',
+                                timeout=3000,
+                            )
+                            log.info("CaptionsAdapter: camera confirmed off (data-is-muted=true)")
+                        except Exception:
+                            log.warning("CaptionsAdapter: camera toggle clicked but could not confirm off state")
+                            save_debug(page, "camera_not_confirmed")
                     except Exception:
-                        log.debug("CaptionsAdapter: camera button not found")
+                        log.warning("CaptionsAdapter: 'Turn off camera' button not found — camera may be on")
+                        save_debug(page, "camera_btn_missing")
                     log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
 
                     if config.DEBUG_AUDIO:

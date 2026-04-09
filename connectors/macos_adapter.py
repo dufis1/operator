@@ -484,19 +484,26 @@ class MacOSAdapter(MeetingConnector):
 
                     # --- Pre-join screen actions ---
 
-                    # Race both camera states — resolves instantly when one already exists
+                    # Turn off camera and confirm before joining
                     t_prejoin = time.monotonic()
                     cam_off = page.get_by_role("button", name="Turn off camera")
-                    cam_on = page.get_by_role("button", name="Turn on camera")
                     try:
-                        cam_off.or_(cam_on).wait_for(timeout=2000)
-                        if cam_off.is_visible():
-                            cam_off.click()
-                            log.debug("MacOSAdapter: camera turned off")
-                        else:
-                            log.debug("MacOSAdapter: camera already off")
+                        cam_off.wait_for(timeout=5000)
+                        cam_off.click()
+                        log.info("MacOSAdapter: clicked 'Turn off camera'")
+                        # Confirm camera is actually off via data-is-muted attribute
+                        try:
+                            page.wait_for_selector(
+                                'button[data-is-muted="true"][aria-label*="camera"]',
+                                timeout=3000,
+                            )
+                            log.info("MacOSAdapter: camera confirmed off (data-is-muted=true)")
+                        except Exception:
+                            log.warning("MacOSAdapter: camera toggle clicked but could not confirm off state")
+                            save_debug(page, "camera_not_confirmed")
                     except Exception:
-                        log.debug("MacOSAdapter: camera button not found")
+                        log.warning("MacOSAdapter: 'Turn off camera' button not found — camera may be on")
+                        save_debug(page, "camera_btn_missing")
                     log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
 
                     if config.DEBUG_AUDIO:
@@ -547,19 +554,6 @@ class MacOSAdapter(MeetingConnector):
                     except Exception:
                         log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
                     log.info(f"TIMING in_meeting_wait={time.monotonic() - t_in_meeting:.1f}s")
-
-                    # Re-check camera after join (Meet can re-enable it)
-                    cam_off = page.get_by_role("button", name="Turn off camera")
-                    cam_on = page.get_by_role("button", name="Turn on camera")
-                    try:
-                        cam_off.or_(cam_on).wait_for(timeout=2000)
-                        if cam_off.is_visible():
-                            cam_off.click()
-                            log.info("MacOSAdapter: camera re-disabled after join")
-                        else:
-                            log.debug("MacOSAdapter: camera still off after join")
-                    except Exception:
-                        log.debug("MacOSAdapter: camera button not found in-meeting")
 
                     # Race both mic states — resolves instantly when mic is already on
                     t_mic = time.monotonic()
