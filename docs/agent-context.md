@@ -17,20 +17,20 @@
 
 ## Current Status
 
-**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), demo prep for ship-to-friend. New Phase 12 (MCP Hardening & Extensibility) added to roadmap.
-**What just happened (session 60, April 8, 2026):**
+**Phase:** V1 release roadmap defined. Chat MVP + MCP integration feature-complete. Roadmap restructured around competitive positioning.
+**What just happened (session 61, April 8, 2026):**
 
-Session 60: Retrospective and planning session — no code changes. Reviewed session 59's three GitHub MCP bugs and diagnosed root causes: (1) tool chaining bug was in our OpenAI glue code (`llm.py`), not MCP-related — `send_tool_result` didn't re-pass the tools list; (2) EmbeddedResource extraction was a gap in our MCP client's content type handling — GitHub returns files as `EmbeddedResource` while Linear returns plain text; (3) username resolution was an LLM prompting gap, not MCP. Key insight: all three bugs lived in our custom bridge between MCP SDK and OpenAI's tool-calling API, not in the MCP servers themselves. Added new Phase 12 to roadmap: MCP Hardening & Extensibility — covers per-MCP hints config, configurable tool confirmation modes (auto-all / read-auto / confirm-all / session-trust + batch preview), systematic tool pressure testing, user-defined MCP servers with guard rails, and optional managed MCP client layer. Also discussed setup wizard auto-populating hints via identity resolution calls during onboarding.
+Session 61: Strategy and planning session — no functional code changes. Hands-on evaluation of Pika Skills (pikastream-video-meeting): cloned repo, set up dev key, joined a live Google Meet as "Deepak" with avatar and default voice. Confirmed Pika's architecture is fire-and-forget — static system prompt at join time, LLM loop runs on Pika's servers, no mid-session tool calls or context injection. Key finding: Pika is a presentation layer (avatar, voice clone), not an agent. Operator's moat is owning the LLM loop, enabling MCP tool use during meetings. Added competitive landscape section to `docs/product-strategy.md` with direct evaluations of Pika and Recall.ai. Defined v1 MVP positioning: "meetings that produce artifacts, not just words." Restructured entire roadmap: collapsed completed phases, reordered Packaging before Multi-Model (packaging is the v1 release gate), added 30+ new items across Hardening (UI audit, DOM tests, self-healing selectors, race conditions, security, error handling, edge cases, context window management, idempotency, reconnection) and Packaging (config cleanup, setup wizard, demo GIF, CI/CD, contributing guide, compatibility matrix, issue templates, code of conduct, architecture docs, example configs, dependency pinning). Tagged post-v1 items.
 
-**Previous session (59):** Fixed three critical GitHub MCP bugs, got clean demo run.
+**Previous session (60):** Retrospective and planning — diagnosed session 59 MCP bugs, added Phase 12 (MCP Hardening).
 
-**MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 13 unless a real user needs it.
+**MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Test the natural-language demo flow — user describes symptom ("users say last-modified time stays the same after editing a task") without naming files or endpoints, and Operator navigates the repo to find the root cause. If that works, step 8.3 demo is ready.
+**Next action:** Step 8.3 — ship to friend. Test the natural-language demo flow first, then get it in his hands.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
-**Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 9.
+**Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 13 (Voice).
 
 **Architecture note (session 47):** CaptionsAdapter and MacOSAdapter have duplicated browser session logic (~150 lines each). User considered refactoring into a shared base but decided against it — chat is shipping first, so keeping them separate avoids unnecessary abstraction. Revisit when both paths need parallel maintenance.
 
