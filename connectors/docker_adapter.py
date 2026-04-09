@@ -200,13 +200,17 @@ class DockerAdapter(MeetingConnector):
 
                 # Turn off camera and confirm before joining
                 try:
+                    page.screenshot(path="/tmp/pre_camera_toggle.png")
+                except Exception:
+                    pass
+                try:
                     cam_btn = page.get_by_role("button", name="Turn off camera")
                     cam_btn.wait_for(timeout=5000)
                     cam_btn.click()
                     log.info("DockerAdapter: clicked 'Turn off camera'")
                     try:
                         page.wait_for_selector(
-                            'button[data-is-muted="true"][aria-label*="camera"]',
+                            '[role="button"][data-is-muted="true"][aria-label*="camera"]',
                             timeout=3000,
                         )
                         log.info("DockerAdapter: camera confirmed off (data-is-muted=true)")

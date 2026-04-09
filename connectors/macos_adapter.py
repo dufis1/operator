@@ -177,26 +177,41 @@ class MacOSAdapter(MeetingConnector):
                     const msgId = el.getAttribute('data-message-id');
                     if (!msgId || window.__operatorSeenIds.has(msgId)) return null;
                     window.__operatorSeenIds.add(msgId);
-                    // Extract text
-                    const textEl = el.querySelector('div[jsname="dTKtvb"]');
-                    const text = textEl ? textEl.innerText.trim() : el.innerText.trim();
-                    // Extract sender
+                    // Extract text — prefer first div[jsname] inside message (any jsname value),
+                    // fall back to first child's first text node, then raw innerText.
+                    const jsnameEl = el.querySelector('div[jsname]');
+                    let text = '';
+                    if (jsnameEl) {
+                        text = jsnameEl.innerText.trim();
+                    } else if (el.children[0]) {
+                        const fc = el.children[0].childNodes[0];
+                        text = (fc && fc.textContent) ? fc.textContent.trim() : el.innerText.trim();
+                    } else {
+                        text = el.innerText.trim();
+                    }
+                    // Extract sender — walk up to 4 parents, find a sibling div whose
+                    // text matches "Name + Timestamp". Avoids depending on obfuscated class names.
+                    const TIME_RE = new RegExp('\\\\d{1,2}:\\\\d{2}\\\\s*(AM|PM)', 'i');
                     let sender = '';
                     let node = el;
                     for (let d = 0; d < 4; d++) {
                         node = node.parentElement;
                         if (!node) break;
-                        const h = node.querySelector(':scope > div.HNucUd');
-                        if (h) {
-                            const lines = h.innerText.trim().split('\\n');
-                            sender = lines.length >= 2 ? lines[0] : '';
-                            break;
+                        for (const sib of node.children) {
+                            const t = sib.innerText?.trim();
+                            if (t && TIME_RE.test(t)) {
+                                const lines = t.split('\\n');
+                                sender = lines.length >= 2 ? lines[0] : '';
+                                break;
+                            }
                         }
+                        if (sender) break;
                     }
                     return {id: msgId, sender: sender, text: text};
                 }
 
-                const container = document.querySelector('[data-panel-id="2"]');
+                const textarea = document.querySelector('textarea[aria-label="Send a message"]');
+                const container = textarea ? textarea.closest('[data-panel-id]') : null;
                 if (!container) return;
 
                 window.__operatorChatObserver = new MutationObserver(mutations => {
@@ -486,6 +501,7 @@ class MacOSAdapter(MeetingConnector):
 
                     # Turn off camera and confirm before joining
                     t_prejoin = time.monotonic()
+                    save_debug(page, "pre_camera_toggle")
                     cam_off = page.get_by_role("button", name="Turn off camera")
                     try:
                         cam_off.wait_for(timeout=5000)
@@ -494,7 +510,7 @@ class MacOSAdapter(MeetingConnector):
                         # Confirm camera is actually off via data-is-muted attribute
                         try:
                             page.wait_for_selector(
-                                'button[data-is-muted="true"][aria-label*="camera"]',
+                                '[role="button"][data-is-muted="true"][aria-label*="camera"]',
                                 timeout=3000,
                             )
                             log.info("MacOSAdapter: camera confirmed off (data-is-muted=true)")

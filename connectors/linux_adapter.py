@@ -176,21 +176,31 @@ class LinuxAdapter(MeetingConnector):
                 if msg_id in self._seen_message_ids:
                     continue
                 self._seen_message_ids.add(msg_id)
-                text_el = el.locator('div[jsname="dTKtvb"]')
-                text = text_el.inner_text().strip() if text_el.count() > 0 else el.inner_text().strip()
-                # Sender name lives in sibling div.HNucUd in the parent group.
-                # Format: "SenderName\nTime" for others, just "Time" for self.
+                # Extract text — prefer first div[jsname] (any value), fallback chain
+                jsname_el = el.locator('div[jsname]')
+                if jsname_el.count() > 0:
+                    text = jsname_el.first.inner_text().strip()
+                else:
+                    text = el.evaluate("""el => {
+                        const fc = el.children[0]?.childNodes[0];
+                        return (fc && fc.textContent) ? fc.textContent.trim() : el.innerText.trim();
+                    }""")
+                # Extract sender — walk up to 4 parents, find sibling div whose text
+                # matches "Name\nTimestamp". Avoids depending on obfuscated class names.
                 sender = ""
                 try:
                     sender = el.evaluate("""el => {
+                        const TIME_RE = /\\d{1,2}:\\d{2}\\s*(AM|PM)/i;
                         let node = el;
                         for (let d = 0; d < 4; d++) {
                             node = node.parentElement;
                             if (!node) break;
-                            const h = node.querySelector(':scope > div.HNucUd');
-                            if (h) {
-                                const lines = h.innerText.trim().split('\\n');
-                                return lines.length >= 2 ? lines[0] : '';
+                            for (const sib of node.children) {
+                                const t = sib.innerText?.trim();
+                                if (t && TIME_RE.test(t)) {
+                                    const lines = t.split('\\n');
+                                    return lines.length >= 2 ? lines[0] : '';
+                                }
                             }
                         }
                         return '';
@@ -411,6 +421,7 @@ class LinuxAdapter(MeetingConnector):
                     pass
 
                 # Turn off camera and confirm before joining
+                save_debug(page, "pre_camera_toggle")
                 try:
                     cam_btn = page.get_by_role("button", name="Turn off camera")
                     cam_btn.wait_for(timeout=5000)
@@ -418,7 +429,7 @@ class LinuxAdapter(MeetingConnector):
                     log.info("LinuxAdapter: clicked 'Turn off camera'")
                     try:
                         page.wait_for_selector(
-                            'button[data-is-muted="true"][aria-label*="camera"]',
+                            '[role="button"][data-is-muted="true"][aria-label*="camera"]',
                             timeout=3000,
                         )
                         log.info("LinuxAdapter: camera confirmed off (data-is-muted=true)")

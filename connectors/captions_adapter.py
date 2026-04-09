@@ -483,6 +483,7 @@ class CaptionsAdapter(MeetingConnector):
                     # We run headless so there's no real camera, but Meet may
                     # still show a black feed to other participants.
                     t_prejoin = time.monotonic()
+                    save_debug(page, "pre_camera_toggle")
                     cam_off = page.get_by_role("button", name="Turn off camera")
                     try:
                         cam_off.wait_for(timeout=5000)
@@ -490,7 +491,7 @@ class CaptionsAdapter(MeetingConnector):
                         log.info("CaptionsAdapter: clicked 'Turn off camera'")
                         try:
                             page.wait_for_selector(
-                                'button[data-is-muted="true"][aria-label*="camera"]',
+                                '[role="button"][data-is-muted="true"][aria-label*="camera"]',
                                 timeout=3000,
                             )
                             log.info("CaptionsAdapter: camera confirmed off (data-is-muted=true)")
