@@ -2,7 +2,7 @@
 
 *Last updated: April 8, 2026 (session 64)*
 
-> **Current status: Phase 9 hardening in progress (session 64).** Step 9.1 (UI dependency audit + selector hardening) complete. Step 9.2 (DOM regression test suite) deferred to Phase 12 — selectors are validated e2e, regression suite is maintenance tooling not a ship blocker.
+> **Current status: Phase 9 hardening in progress (session 64).** Steps 9.1 (selector hardening) and 9.4 (race condition audit) complete. Steps 9.2/9.3 deferred to Phase 12. Next: 9.5 (security vulnerability audit).
 
 ---
 
@@ -72,7 +72,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 9.1 | UI dependency audit — inventory every DOM selector and UI interaction; classify as stable (API-backed) vs. fragile (class names, layout-dependent) | ✅ | ~2h |
 | 9.2 | ~~DOM regression test suite~~ — deferred to Phase 12 (post-MVP maintenance tooling) | ⏭️ | — |
 | 9.3 | ~~Self-healing selectors~~ — deferred to Phase 12 (follows regression suite) | ⏭️ | — |
-| 9.4 | Race condition audit — systematic review of threading, queue interactions, shutdown paths, and browser thread coordination | ⬜ | ~3h |
+| 9.4 | Race condition audit — systematic review of threading, queue interactions, shutdown paths, and browser thread coordination | ✅ | ~3h |
 | 9.5 | Security vulnerability audit — input sanitization, credential handling, MCP server sandboxing, dependency audit | ⬜ | ~2h |
 | 9.6 | Simultaneous meeting handling — test and define behavior when Operator is invited to two overlapping events | ⬜ | ~2h |
 | 9.7 | Calendar polling startup latency — profile and optimize the slow path from launch to first meeting join | ⬜ | ~1h |

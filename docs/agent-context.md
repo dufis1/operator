@@ -18,15 +18,15 @@
 ## Current Status
 
 **Phase:** Phase 9 hardening in progress. Chat MVP + MCP integration feature-complete.
-**What just happened (session 63, April 8, 2026):**
+**What just happened (session 64, April 8, 2026):**
 
-Session 63: Completed step 9.1 (UI dependency audit). Created `docs/ui-dependency-audit.md` inventorying every DOM selector across all adapters, classified as stable/semi-stable/fragile. Then hardened all three fragile v1-critical selectors with live-tested structural approaches: (1) `data-panel-id="2"` → dynamic discovery via `textarea.closest('[data-panel-id]')`, (2) `div[jsname="dTKtvb"]` → `div[jsname]` (any value) with fallback to first child text node, (3) `div.HNucUd` sender class → time-pattern regex (`/\d{1,2}:\d{2}\s*(AM|PM)/i`) on sibling divs with `foundSender` flag to prevent false matches on self-messages. All three changes validated end-to-end in a 3-participant meeting (user + Deepak + Operator). Hit and fixed: Python `\n` in JS comment broke the evaluate string; self-message sender leaked due to falsy empty-string check.
+Session 64: Completed step 9.4 (race condition audit). Systematically reviewed all threads, queues, shutdown paths, and browser thread coordination across the codebase. Found 9 issues (4 medium, 4 low, 1 very low) — full findings in `docs/race-condition-audit.md`. Fixed 7: LinuxAdapter restructured with try/finally (was using scattered manual returns that skipped cleanup), added chat queue drain on exit (was blocking 10-15s on shutdown), added `_browser_closed` event + idempotent `leave()`, replaced `time.sleep(1)` with `page.wait_for_timeout(500)` in hold loop. Also fixed CaptionProcessor abort state writes without lock, MacOSAdapter stderr never restored, and Linux `_shutdown()` missing double-call guard. Also deferred steps 9.2 (DOM regression suite) and 9.3 (self-healing selectors) to Phase 12 as post-MVP maintenance tooling.
 
-**Previous sessions:** Session 62: camera toggle hardening. Session 61: competitive eval, roadmap restructure.
+**Previous sessions:** Session 63: step 9.1 (UI dependency audit + selector hardening). Session 62: camera toggle hardening. Session 61: competitive eval, roadmap restructure.
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Step 9.4+ — continue Phase 9 hardening. Steps 9.2 (DOM regression suite) and 9.3 (self-healing selectors) deferred to Phase 12 as post-MVP maintenance tooling.
+**Next action:** Step 9.5 (security vulnerability audit) — input sanitization, credential handling, MCP server sandboxing, dependency audit. Steps 9.2/9.3 deferred to Phase 12.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
