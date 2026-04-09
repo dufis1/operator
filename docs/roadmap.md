@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 7, 2026 (session 59)*
+*Last updated: April 8, 2026 (session 60)*
 
-> **Current status: Demo rehearsal progressing (session 59).** GitHub MCP integration now working end-to-end — tool chaining, file content extraction, and username resolution all fixed. Demo repo updated (removed hint comment). Step 8.3 in progress — ready for natural-language demo test.
+> **Current status: Demo rehearsal progressing, MCP extensibility planned (session 60).** Step 8.3 in progress — natural-language demo test is next. New Phase 12 (MCP Hardening & Extensibility) added: per-MCP hints, configurable confirmation modes, user-defined MCP servers with guard rails, systematic tool pressure testing.
 
 ---
 
@@ -138,7 +138,24 @@ Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Elimi
 
 ---
 
-## Phase 12: Meeting Platform Expansion (demand-driven)
+## Phase 12: MCP Hardening & Extensibility
+
+*Make MCP integration robust, configurable, and open to user-defined servers.*
+
+| Step | Description | Status |
+|------|-------------|--------|
+| 12.1 | Per-MCP `hints` field in config — server-specific LLM guidance injected into system prompt | ⬜ |
+| 12.2 | Setup wizard auto-populates hints — resolve identity (GitHub `get_me`, etc.) during onboarding, store in config | ⬜ |
+| 12.3 | Configurable tool confirmation modes — `auto-all`, `read-auto`, `confirm-all`, `session-trust` + `batch_preview` toggle | ⬜ |
+| 12.4 | Read-only tool classification — tag tools at discovery time from descriptions, auto-approve reads in `read-auto` mode | ⬜ |
+| 12.5 | MCP tool pressure testing — systematic test matrix: every tool × every supported model, explicit + implicit + indirect requests | ⬜ |
+| 12.6 | User-defined MCP servers — users add custom servers in config with command, args, env, hints | ⬜ |
+| 12.7 | User-defined MCP guard rails — validation at setup, execution timeouts, result size caps, `confirm-all` default for untrusted servers | ⬜ |
+| 12.8 | Optional managed MCP client layer — allow users to point at an MCP proxy/gateway instead of local stdio servers (Cloudflare, etc.) | ⬜ |
+
+---
+
+## Phase 13: Meeting Platform Expansion (demand-driven)
 
 *Add support for Zoom and/or Microsoft Teams. Only pursue when a real user needs it.*
 
@@ -146,9 +163,9 @@ Each platform requires: DOM chat selectors, join flow, auth handling, and ongoin
 
 | Step | Description | Status |
 |------|-------------|--------|
-| 12.1 | Define `ChatConnector` interface (read messages, send messages, platform identity) | ⬜ |
-| 12.2 | Zoom — spike on chat DOM, implement connector | ⬜ |
-| 12.3 | Microsoft Teams — spike on chat DOM, implement connector | ⬜ |
+| 13.1 | Define `ChatConnector` interface (read messages, send messages, platform identity) | ⬜ |
+| 13.2 | Zoom — spike on chat DOM, implement connector | ⬜ |
+| 13.3 | Microsoft Teams — spike on chat DOM, implement connector | ⬜ |
 
 ---
 

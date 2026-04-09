@@ -17,14 +17,14 @@
 
 ## Current Status
 
-**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), demo prep for ship-to-friend.
-**What just happened (session 59, April 7, 2026):**
+**Phase:** Chat MVP feature-complete (Phase 8 + 11 in roadmap), demo prep for ship-to-friend. New Phase 12 (MCP Hardening & Extensibility) added to roadmap.
+**What just happened (session 60, April 8, 2026):**
 
-Session 59: Fixed three critical bugs in GitHub MCP integration and got a clean demo run. (1) `send_tool_result` didn't pass tools to the API, so the LLM couldn't make follow-up tool calls after the first — it would announce "now retrieving auth.py" but had no way to actually do it. Fixed by adding `tools` param to `send_tool_result` and handling tool_call responses in `_handle_confirmation`. (2) GitHub MCP `get_file_contents` returns file content as `EmbeddedResource` (accessed via `c.resource.text`), but our MCP client only extracted `c.text` — actual code was silently dropped, LLM received only "successfully downloaded text file" and hallucinated entire file contents. Fixed in `_execute_tool`. (3) LLM used display name ("Jojo") as GitHub owner instead of login ("dufis1"). Fixed by resolving via `get_me` at startup and injecting username into system prompt. Also updated system prompt to steer away from `search_code` (broken for small/new repos) toward directory browsing with `get_file_contents`. Updated demo repo to remove `# BUG:` comment so the model must actually analyze the code.
+Session 60: Retrospective and planning session — no code changes. Reviewed session 59's three GitHub MCP bugs and diagnosed root causes: (1) tool chaining bug was in our OpenAI glue code (`llm.py`), not MCP-related — `send_tool_result` didn't re-pass the tools list; (2) EmbeddedResource extraction was a gap in our MCP client's content type handling — GitHub returns files as `EmbeddedResource` while Linear returns plain text; (3) username resolution was an LLM prompting gap, not MCP. Key insight: all three bugs lived in our custom bridge between MCP SDK and OpenAI's tool-calling API, not in the MCP servers themselves. Added new Phase 12 to roadmap: MCP Hardening & Extensibility — covers per-MCP hints config, configurable tool confirmation modes (auto-all / read-auto / confirm-all / session-trust + batch preview), systematic tool pressure testing, user-defined MCP servers with guard rails, and optional managed MCP client layer. Also discussed setup wizard auto-populating hints via identity resolution calls during onboarding.
 
-**Previous session (58):** Created demo repo, upgraded GitHub MCP to Go binary, fixed parallel tool_calls crash.
+**Previous session (59):** Fixed three critical GitHub MCP bugs, got clean demo run.
 
-**MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 12 unless a real user needs it.
+**MVP scope:** Google Meet only, Mac + Linux. The OS axis is nearly free (Playwright is cross-platform for chat). The costly axis is meeting platforms (DOM selectors, join flow, auth) — Zoom/Teams deferred to Phase 13 unless a real user needs it.
 
 **Next action:** Test the natural-language demo flow — user describes symptom ("users say last-modified time stays the same after editing a task") without naming files or endpoints, and Operator navigates the repo to find the root cause. If that works, step 8.3 demo is ready.
 
