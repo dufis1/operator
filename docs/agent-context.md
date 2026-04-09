@@ -18,15 +18,15 @@
 ## Current Status
 
 **Phase:** Phase 9 hardening in progress. Chat MVP + MCP integration feature-complete.
-**What just happened (session 64, April 8, 2026):**
+**What just happened (session 65, April 8, 2026):**
 
-Session 64: Completed step 9.4 (race condition audit). Systematically reviewed all threads, queues, shutdown paths, and browser thread coordination across the codebase. Found 9 issues (4 medium, 4 low, 1 very low) — full findings in `docs/race-condition-audit.md`. Fixed 7: LinuxAdapter restructured with try/finally (was using scattered manual returns that skipped cleanup), added chat queue drain on exit (was blocking 10-15s on shutdown), added `_browser_closed` event + idempotent `leave()`, replaced `time.sleep(1)` with `page.wait_for_timeout(500)` in hold loop. Also fixed CaptionProcessor abort state writes without lock, MacOSAdapter stderr never restored, and Linux `_shutdown()` missing double-call guard. Also deferred steps 9.2 (DOM regression suite) and 9.3 (self-healing selectors) to Phase 12 as post-MVP maintenance tooling.
+Session 65: Completed step 9.5 (security vulnerability audit). Reviewed input sanitization, credential handling, MCP server sandboxing, and dependencies. Found 5 issues (1 medium, 3 low, 1 very low). Fixed the medium issue: raw Python exception messages were being sent to meeting chat when MCP tool calls failed, leaking internal paths/details to all participants. Replaced with generic error message. Noted but deferred: MCP servers inherit full env (including API keys), no tool chain depth limit, unpinned dependencies, world-readable log file. Full findings in `docs/security-audit.md`. Also added steps 12.10–12.13 to roadmap for dependency/MCP health monitoring (version pinning, Dependabot, weekly health checks, runtime failure tracking).
 
-**Previous sessions:** Session 63: step 9.1 (UI dependency audit + selector hardening). Session 62: camera toggle hardening. Session 61: competitive eval, roadmap restructure.
+**Previous sessions:** Session 64: step 9.4 (race condition audit). Session 63: step 9.1 (UI dependency audit + selector hardening). Session 62: camera toggle hardening.
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Step 9.5 (security vulnerability audit) — input sanitization, credential handling, MCP server sandboxing, dependency audit. Steps 9.2/9.3 deferred to Phase 12.
+**Next action:** Step 9.6 (simultaneous meeting handling) — test and define behavior when Operator is invited to two overlapping events.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 

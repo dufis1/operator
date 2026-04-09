@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 8, 2026 (session 64)*
+*Last updated: April 8, 2026 (session 65)*
 
-> **Current status: Phase 9 hardening in progress (session 64).** Steps 9.1 (selector hardening) and 9.4 (race condition audit) complete. Steps 9.2/9.3 deferred to Phase 12. Next: 9.5 (security vulnerability audit).
+> **Current status: Phase 9 hardening in progress (session 65).** Steps 9.1 (selector hardening), 9.4 (race condition audit), and 9.5 (security audit) complete. Steps 9.2/9.3 deferred to Phase 12. Next: 9.6 (simultaneous meeting handling).
 
 ---
 
@@ -73,7 +73,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 9.2 | ~~DOM regression test suite~~ — deferred to Phase 12 (post-MVP maintenance tooling) | ⏭️ | — |
 | 9.3 | ~~Self-healing selectors~~ — deferred to Phase 12 (follows regression suite) | ⏭️ | — |
 | 9.4 | Race condition audit — systematic review of threading, queue interactions, shutdown paths, and browser thread coordination | ✅ | ~3h |
-| 9.5 | Security vulnerability audit — input sanitization, credential handling, MCP server sandboxing, dependency audit | ⬜ | ~2h |
+| 9.5 | Security vulnerability audit — input sanitization, credential handling, MCP server sandboxing, dependency audit | ✅ | ~2h |
 | 9.6 | Simultaneous meeting handling — test and define behavior when Operator is invited to two overlapping events | ⬜ | ~2h |
 | 9.7 | Calendar polling startup latency — profile and optimize the slow path from launch to first meeting join | ⬜ | ~1h |
 | 9.8 | Log cleanup — structured, consistent log levels; clean stdout for normal operation, verbose for debug | ⬜ | ~2h |
@@ -146,6 +146,10 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 12.7 | Optional managed MCP client layer — allow users to point at an MCP proxy/gateway instead of local stdio servers (Cloudflare, etc.) | ⬜ Post-v1 | ~4h |
 | 12.8 | DOM regression test suite — automated tests against a live Meet session on a schedule, catch selector breakage early (moved from 9.2) | ⬜ | ~4h |
 | 12.9 | Self-healing selectors — fallback strategies when primary selectors fail (multiple selector candidates, semantic search, graceful degradation) (moved from 9.3) | ⬜ | ~6h |
+| 12.10 | Pin MCP server versions — lock `mcp-remote` to a specific version in config, pin GitHub binary version; prevent surprise breakage from upstream changes | ⬜ | ~1h |
+| 12.11 | Dependabot + pip-audit — add `.github/dependabot.yml` for automated dependency PRs; add `pip-audit` step to CI smoke test for CVE detection | ⬜ | ~1h |
+| 12.12 | MCP server health check — weekly CI job that starts each configured MCP server and calls `list_tools()`; alert on failure. Extend step 10.8 smoke test with a dry-run tool call per server | ⬜ | ~2h |
+| 12.13 | MCP tool call failure monitoring — track per-server `MCPToolError` rate at runtime; log warning when failure rate spikes above threshold; surface in diagnostics | ⬜ | ~2h |
 
 ---
 
