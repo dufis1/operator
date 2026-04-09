@@ -55,6 +55,8 @@ class LinuxAdapter(MeetingConnector):
         self._user_data_dir = user_data_dir
         self._auth_state_file = auth_state_file  # path to storage_state JSON from auth_export.py
         self._leave_event = threading.Event()
+        self._browser_closed = threading.Event()
+        self._browser_thread = None
         self._capture_proc = None
         self._page = None  # kept for send_chat/read_chat; set/cleared by browser thread
         self._seen_message_ids = set()
@@ -68,13 +70,15 @@ class LinuxAdapter(MeetingConnector):
         """Start a headless browser session and join the meeting.
         Returns immediately; browser runs in a background thread until leave()."""
         self._leave_event.clear()
+        self._browser_closed.clear()
         self.join_status = JoinStatus()
-        threading.Thread(
+        self._browser_thread = threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
             daemon=True,
             name="LinuxAdapter-browser",
-        ).start()
+        )
+        self._browser_thread.start()
         log.info(f"LinuxAdapter: joining {meeting_url}")
 
     def get_audio_stream(self):
@@ -293,8 +297,16 @@ class LinuxAdapter(MeetingConnector):
         return False
 
     def leave(self):
-        """Signal the browser session to close and stop audio capture."""
+        """Signal the browser session to close and stop audio capture.
+        Safe to call multiple times — only the first call does work."""
+        if self._leave_event.is_set():
+            return
         self._leave_event.set()
+        # Wait for browser.close() to finish (same pattern as MacOSAdapter)
+        if self._browser_thread and self._browser_thread.is_alive():
+            log.info("LinuxAdapter: waiting for browser to close...")
+            if not self._browser_closed.wait(timeout=10):
+                log.warning("LinuxAdapter: browser close timed out (10s)")
         if self._capture_proc:
             try:
                 self._capture_proc.terminate()
@@ -315,6 +327,7 @@ class LinuxAdapter(MeetingConnector):
         """Run headless Playwright/Chromium session. Blocks until leave() is called."""
         os.makedirs(self._user_data_dir, exist_ok=True)
         js = self.join_status
+        browser = None
         try:
             with sync_playwright() as p:
                 # Re-add --no-sandbox here if running as root (e.g. in a container).
@@ -361,201 +374,211 @@ class LinuxAdapter(MeetingConnector):
                 page.add_init_script(STEALTH_JS)
                 self._page = page
 
-                page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(8000)
+                try:
+                    page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                    page.wait_for_timeout(8000)
 
-                # --- Session recovery ladder (authenticated path only) ---
-                recovered = False
-                if _use_auth:
-                    state = detect_page_state(page)
+                    # --- Session recovery ladder (authenticated path only) ---
+                    recovered = False
+                    if _use_auth:
+                        state = detect_page_state(page)
 
-                    if state == "logged_out":
-                        log.warning("LinuxAdapter: session expired — attempting cookie recovery")
-                        auth = validate_auth_state(self._auth_state_file)
-                        if auth and inject_cookies(browser, auth):
-                            page.reload(wait_until="domcontentloaded", timeout=30000)
-                            page.wait_for_timeout(8000)
-                            state = detect_page_state(page)
-                            if state == "pre_join":
-                                log.info("LinuxAdapter: session recovered via cookie injection")
-                                recovered = True
+                        if state == "logged_out":
+                            log.warning("LinuxAdapter: session expired — attempting cookie recovery")
+                            auth = validate_auth_state(self._auth_state_file)
+                            if auth and inject_cookies(browser, auth):
+                                page.reload(wait_until="domcontentloaded", timeout=30000)
+                                page.wait_for_timeout(8000)
+                                state = detect_page_state(page)
+                                if state == "pre_join":
+                                    log.info("LinuxAdapter: session recovered via cookie injection")
+                                    recovered = True
+                                else:
+                                    log.error(f"LinuxAdapter: recovery failed — page state: {state}")
+                                    save_debug(page, "recovery_fail")
+                                    js.signal_failure("session_expired")
+                                    return
                             else:
-                                log.error(f"LinuxAdapter: recovery failed — page state: {state}")
-                                save_debug(page, "recovery_fail")
+                                log.error("LinuxAdapter: no valid auth_state for recovery")
+                                save_debug(page, "no_auth_state")
                                 js.signal_failure("session_expired")
-                                self._page = None
-                                browser.close()
-                                if hasattr(browser, "_raw_browser"):
-                                    browser._raw_browser.close()
                                 return
-                        else:
-                            log.error("LinuxAdapter: no valid auth_state for recovery")
-                            save_debug(page, "no_auth_state")
-                            js.signal_failure("session_expired")
-                            self._page = None
+
+                        if state == "cant_join":
+                            log.error("LinuxAdapter: 'can't join this video call'")
+                            save_debug(page, "cant_join")
+                            js.signal_failure("cant_join")
+                            return
+
+                    # --- Pre-join screen actions ---
+
+                    # Dismiss notifications popup if present
+                    try:
+                        not_now = page.get_by_role("button", name="Not now")
+                        not_now.wait_for(timeout=3000)
+                        not_now.click()
+                        page.wait_for_timeout(500)
+                        log.debug("LinuxAdapter: dismissed notifications popup")
+                    except Exception:
+                        pass
+
+                    # Turn off camera and confirm before joining
+                    save_debug(page, "pre_camera_toggle")
+                    try:
+                        cam_btn = page.get_by_role("button", name="Turn off camera")
+                        cam_btn.wait_for(timeout=5000)
+                        cam_btn.click()
+                        log.info("LinuxAdapter: clicked 'Turn off camera'")
+                        try:
+                            page.wait_for_selector(
+                                '[role="button"][data-is-muted="true"][aria-label*="camera"]',
+                                timeout=3000,
+                            )
+                            log.info("LinuxAdapter: camera confirmed off (data-is-muted=true)")
+                        except Exception:
+                            log.warning("LinuxAdapter: camera toggle clicked but could not confirm off state")
+                            save_debug(page, "camera_not_confirmed")
+                    except Exception:
+                        log.warning("LinuxAdapter: 'Turn off camera' button not found — camera may be on")
+                        save_debug(page, "camera_btn_missing")
+
+                    # Ensure microphone is on before joining.
+                    # On the pre-join screen, a muted mic means Chrome won't call
+                    # getUserMedia and will never appear as a PulseAudio source-output —
+                    # meeting participants won't hear Operator at all.
+                    try:
+                        mic_btn = page.get_by_role("button", name="Turn on microphone")
+                        mic_btn.wait_for(timeout=3000)
+                        mic_btn.click()
+                        page.wait_for_timeout(300)
+                        log.debug("LinuxAdapter: microphone enabled on pre-join screen")
+                    except Exception:
+                        log.debug("LinuxAdapter: mic already on (pre-join) or button not found")
+
+                    # Fill in guest name if present (unauthenticated join shows a name field)
+                    try:
+                        name_input = page.get_by_placeholder("Your name")
+                        name_input.wait_for(timeout=3000)
+                        name_input.fill("Operator")
+                        page.wait_for_timeout(500)
+                        log.debug("LinuxAdapter: filled guest name")
+                    except Exception:
+                        pass  # signed-in users don't see this field
+
+                    # Race all join buttons — avoids 5s timeout per missing button
+                    join_now = page.get_by_role("button", name="Join now")
+                    ask_join = page.get_by_role("button", name="Ask to join")
+                    switch_here = page.get_by_role("button", name="Switch here")
+                    clicked_label = None
+                    try:
+                        join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
+                        for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
+                            if btn.is_visible():
+                                btn.click()
+                                clicked_label = label
+                                log.debug(f"LinuxAdapter: clicked {label!r}")
+                                break
+                    except Exception:
+                        pass
+
+                    if clicked_label is None:
+                        save_debug(page, "join_fail")
+                        log.warning("LinuxAdapter: could not find join button")
+                        js.signal_failure("no_join_button")
+                        return
+
+                    if clicked_label == "Ask to join":
+                        if not self._wait_for_admission(page):
+                            save_debug(page, "admission_fail")
+                            js.signal_failure("admission_timeout")
+                            return
+
+                    log.info("LinuxAdapter: joined meeting successfully")
+                    js.signal_success(recovered=recovered)
+
+                    # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
+                    page.wait_for_timeout(5000)
+                    try:
+                        mic_btn = page.get_by_role("button", name="Turn on microphone")
+                        mic_btn.wait_for(timeout=5000)
+                        mic_btn.click()
+                        log.debug("LinuxAdapter: microphone unmuted (post-join)")
+                    except Exception:
+                        log.debug("LinuxAdapter: mic already on or button not found (post-join)")
+
+                    # Diagnostic screenshot
+                    try:
+                        page.screenshot(path="/tmp/meet_after_join.png")
+                        log.debug("LinuxAdapter: screenshot saved to /tmp/meet_after_join.png")
+                    except Exception as e:
+                        log.warning(f"LinuxAdapter: screenshot failed: {e}")
+
+                    log.info("LinuxAdapter: in meeting — holding browser open")
+
+                    # Hold until leave() signals or 4-hour hard cap.
+                    deadline = time.time() + 4 * 3600
+                    last_health = time.time()
+                    while not self._leave_event.is_set() and time.time() < deadline:
+                        self._process_chat_queue(page)
+                        page.wait_for_timeout(500)
+                        # In-meeting health check every 5 minutes
+                        if time.time() - last_health >= 300:
+                            last_health = time.time()
+                            try:
+                                current_url = page.url
+                                if "meet.google.com" not in current_url:
+                                    log.warning(f"LinuxAdapter: health check — unexpected URL: {current_url}")
+                            except Exception:
+                                log.warning("LinuxAdapter: health check — page not accessible")
+
+                finally:
+                    # ── Clean leave — runs on ALL exit paths ──────────
+                    self._page = None
+                    try:
+                        leave_btn = page.get_by_role("button", name="Leave call")
+                        leave_btn.wait_for(timeout=2000)
+                        leave_btn.click()
+                        page.wait_for_timeout(500)
+                        log.info("LinuxAdapter: clicked Leave call")
+                    except Exception:
+                        try:
+                            page.goto("about:blank", timeout=3000)
+                            log.info("LinuxAdapter: navigated away (Leave button not found)")
+                        except Exception:
+                            pass
+                    def _close_browser():
+                        try:
                             browser.close()
                             if hasattr(browser, "_raw_browser"):
                                 browser._raw_browser.close()
-                            return
-
-                    if state == "cant_join":
-                        log.error("LinuxAdapter: 'can't join this video call'")
-                        save_debug(page, "cant_join")
-                        js.signal_failure("cant_join")
-                        self._page = None
-                        browser.close()
-                        if hasattr(browser, "_raw_browser"):
-                            browser._raw_browser.close()
-                        return
-
-                # --- Pre-join screen actions ---
-
-                # Dismiss notifications popup if present
-                try:
-                    not_now = page.get_by_role("button", name="Not now")
-                    not_now.wait_for(timeout=3000)
-                    not_now.click()
-                    page.wait_for_timeout(500)
-                    log.debug("LinuxAdapter: dismissed notifications popup")
-                except Exception:
-                    pass
-
-                # Turn off camera and confirm before joining
-                save_debug(page, "pre_camera_toggle")
-                try:
-                    cam_btn = page.get_by_role("button", name="Turn off camera")
-                    cam_btn.wait_for(timeout=5000)
-                    cam_btn.click()
-                    log.info("LinuxAdapter: clicked 'Turn off camera'")
-                    try:
-                        page.wait_for_selector(
-                            '[role="button"][data-is-muted="true"][aria-label*="camera"]',
-                            timeout=3000,
-                        )
-                        log.info("LinuxAdapter: camera confirmed off (data-is-muted=true)")
-                    except Exception:
-                        log.warning("LinuxAdapter: camera toggle clicked but could not confirm off state")
-                        save_debug(page, "camera_not_confirmed")
-                except Exception:
-                    log.warning("LinuxAdapter: 'Turn off camera' button not found — camera may be on")
-                    save_debug(page, "camera_btn_missing")
-
-                # Ensure microphone is on before joining.
-                # On the pre-join screen, a muted mic means Chrome won't call
-                # getUserMedia and will never appear as a PulseAudio source-output —
-                # meeting participants won't hear Operator at all.
-                try:
-                    mic_btn = page.get_by_role("button", name="Turn on microphone")
-                    mic_btn.wait_for(timeout=3000)
-                    mic_btn.click()
-                    page.wait_for_timeout(300)
-                    log.debug("LinuxAdapter: microphone enabled on pre-join screen")
-                except Exception:
-                    log.debug("LinuxAdapter: mic already on (pre-join) or button not found")
-
-                # Fill in guest name if present (unauthenticated join shows a name field)
-                try:
-                    name_input = page.get_by_placeholder("Your name")
-                    name_input.wait_for(timeout=3000)
-                    name_input.fill("Operator")
-                    page.wait_for_timeout(500)
-                    log.debug("LinuxAdapter: filled guest name")
-                except Exception:
-                    pass  # signed-in users don't see this field
-
-                # Race all join buttons — avoids 5s timeout per missing button
-                join_now = page.get_by_role("button", name="Join now")
-                ask_join = page.get_by_role("button", name="Ask to join")
-                switch_here = page.get_by_role("button", name="Switch here")
-                clicked_label = None
-                try:
-                    join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
-                    for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
-                        if btn.is_visible():
-                            btn.click()
-                            clicked_label = label
-                            log.debug(f"LinuxAdapter: clicked {label!r}")
-                            break
-                except Exception:
-                    pass
-
-                if clicked_label is None:
-                    save_debug(page, "join_fail")
-                    log.warning("LinuxAdapter: could not find join button")
-                    js.signal_failure("no_join_button")
-                    self._page = None
-                    browser.close()
-                    if hasattr(browser, "_raw_browser"):
-                        browser._raw_browser.close()
-                    return
-
-                if clicked_label == "Ask to join":
-                    if not self._wait_for_admission(page):
-                        save_debug(page, "admission_fail")
-                        js.signal_failure("admission_timeout")
-                        self._page = None
-                        browser.close()
-                        if hasattr(browser, "_raw_browser"):
-                            browser._raw_browser.close()
-                        return
-
-                log.info("LinuxAdapter: joined meeting successfully")
-                js.signal_success(recovered=recovered)
-
-                # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
-                page.wait_for_timeout(5000)
-                try:
-                    mic_btn = page.get_by_role("button", name="Turn on microphone")
-                    mic_btn.wait_for(timeout=5000)
-                    mic_btn.click()
-                    log.debug("LinuxAdapter: microphone unmuted (post-join)")
-                except Exception:
-                    log.debug("LinuxAdapter: mic already on or button not found (post-join)")
-
-                # Diagnostic screenshot
-                try:
-                    page.screenshot(path="/tmp/meet_after_join.png")
-                    log.debug("LinuxAdapter: screenshot saved to /tmp/meet_after_join.png")
-                except Exception as e:
-                    log.warning(f"LinuxAdapter: screenshot failed: {e}")
-
-                log.info("LinuxAdapter: in meeting — holding browser open")
-
-                # Hold until leave() signals or 4-hour hard cap.
-                # Loop every 1s to service chat queue promptly.
-                deadline = time.time() + 4 * 3600
-                last_health = time.time()
-                while not self._leave_event.is_set() and time.time() < deadline:
-                    self._process_chat_queue(page)
-                    time.sleep(1)
-                    # In-meeting health check every 5 minutes
-                    if time.time() - last_health >= 300:
-                        last_health = time.time()
-                        try:
-                            current_url = page.url
-                            if "meet.google.com" not in current_url:
-                                log.warning(f"LinuxAdapter: health check — unexpected URL: {current_url}")
                         except Exception:
-                            log.warning("LinuxAdapter: health check — page not accessible")
-
-                # Click Leave call before closing to avoid ghost session
-                try:
-                    leave_btn = page.get_by_role("button", name="Leave call")
-                    leave_btn.wait_for(timeout=3000)
-                    leave_btn.click()
-                    page.wait_for_timeout(1000)
-                    log.debug("LinuxAdapter: clicked Leave call")
-                except Exception:
-                    log.debug("LinuxAdapter: Leave call button not found — closing directly")
-
-                self._page = None
-                browser.close()
-                if hasattr(browser, "_raw_browser"):
-                    browser._raw_browser.close()
-                log.info("LinuxAdapter: browser closed")
+                            pass
+                    close_t = threading.Thread(target=_close_browser, daemon=True)
+                    close_t.start()
+                    close_t.join(timeout=5)
+                    if close_t.is_alive():
+                        log.warning("LinuxAdapter: browser.close() timed out (5s) — forcing exit")
+                    else:
+                        log.info("LinuxAdapter: browser closed")
+                    # Drain pending chat queue commands so callers unblock immediately
+                    while not self._chat_queue.empty():
+                        try:
+                            cmd, args, result_q = self._chat_queue.get_nowait()
+                            if cmd == "read":
+                                result_q.put([])
+                            elif cmd == "participant_count":
+                                result_q.put(0)
+                            else:
+                                result_q.put(None)
+                        except queue.Empty:
+                            break
+                    self._browser_closed.set()
 
         except Exception as e:
             log.error(f"LinuxAdapter: browser session error: {e}")
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
+        finally:
             self._page = None
+            if not self._browser_closed.is_set():
+                self._browser_closed.set()

@@ -333,7 +333,13 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
             tts_output_device="pulse/MeetingOutput",
         )
 
+    _shutdown_called = False
+
     def _shutdown(signum=None, frame=None):
+        nonlocal _shutdown_called
+        if _shutdown_called:
+            return
+        _shutdown_called = True
         if signum:
             log.info(f"Received signal {signum} — shutting down")
         runner.stop()

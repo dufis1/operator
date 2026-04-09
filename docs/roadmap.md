@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 8, 2026 (session 63)*
+*Last updated: April 8, 2026 (session 64)*
 
-> **Current status: Phase 9 hardening in progress (session 63).** Step 9.1 (UI dependency audit) complete — inventoried all DOM selectors, hardened three fragile v1-critical selectors with structural approaches. Next: 9.2 (DOM regression test suite).
+> **Current status: Phase 9 hardening in progress (session 64).** Step 9.1 (UI dependency audit + selector hardening) complete. Step 9.2 (DOM regression test suite) deferred to Phase 12 — selectors are validated e2e, regression suite is maintenance tooling not a ship blocker.
 
 ---
 
@@ -70,8 +70,8 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
 | 9.1 | UI dependency audit — inventory every DOM selector and UI interaction; classify as stable (API-backed) vs. fragile (class names, layout-dependent) | ✅ | ~2h |
-| 9.2 | DOM regression test suite — automated tests that run against a live Meet session on a schedule, catch selector breakage early | ⬜ | ~4h |
-| 9.3 | Self-healing selectors — fallback strategies when primary selectors fail (multiple selector candidates, semantic search, graceful degradation) | ⬜ Post-v1 | ~6h |
+| 9.2 | ~~DOM regression test suite~~ — deferred to Phase 12 (post-MVP maintenance tooling) | ⏭️ | — |
+| 9.3 | ~~Self-healing selectors~~ — deferred to Phase 12 (follows regression suite) | ⏭️ | — |
 | 9.4 | Race condition audit — systematic review of threading, queue interactions, shutdown paths, and browser thread coordination | ⬜ | ~3h |
 | 9.5 | Security vulnerability audit — input sanitization, credential handling, MCP server sandboxing, dependency audit | ⬜ | ~2h |
 | 9.6 | Simultaneous meeting handling — test and define behavior when Operator is invited to two overlapping events | ⬜ | ~2h |
@@ -144,6 +144,8 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 12.5 | User-defined MCP servers — users add custom servers in config with command, args, env, hints | ⬜ | ~1h |
 | 12.6 | User-defined MCP guard rails — validation at setup, execution timeouts, result size caps, `confirm-all` default for untrusted servers | ⬜ | ~3h |
 | 12.7 | Optional managed MCP client layer — allow users to point at an MCP proxy/gateway instead of local stdio servers (Cloudflare, etc.) | ⬜ Post-v1 | ~4h |
+| 12.8 | DOM regression test suite — automated tests against a live Meet session on a schedule, catch selector breakage early (moved from 9.2) | ⬜ | ~4h |
+| 12.9 | Self-healing selectors — fallback strategies when primary selectors fail (multiple selector candidates, semantic search, graceful degradation) (moved from 9.3) | ⬜ | ~6h |
 
 ---
 

@@ -26,7 +26,7 @@ Session 63: Completed step 9.1 (UI dependency audit). Created `docs/ui-dependenc
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Step 9.2 — DOM regression test suite. Automated tests against a live Meet session to catch selector breakage early.
+**Next action:** Step 9.4+ — continue Phase 9 hardening. Steps 9.2 (DOM regression suite) and 9.3 (self-healing selectors) deferred to Phase 12 as post-MVP maintenance tooling.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 

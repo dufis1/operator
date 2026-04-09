@@ -666,6 +666,9 @@ class MacOSAdapter(MeetingConnector):
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
+            if hasattr(self, "_orig_stderr"):
+                import sys
+                sys.stderr = self._orig_stderr
             pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
             try:
                 os.remove(pid_file)

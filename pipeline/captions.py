@@ -138,22 +138,22 @@ class CaptionProcessor:
             )
 
             if not is_you:
-                if not self.abort_event.is_set():
-                    if is_echo:
-                        log.info(f"DIAG echo_false_abort_suppressed — caption matches TTS output")
-                    else:
-                        log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
-                        self._abort_speaker = speaker
-                        self._abort_text = text
-                        self.abort_event.set()
-                # Only update _current_text if (a) same speaker who triggered
-                # abort AND (b) new text extends the existing text. Google
-                # sometimes misattributes the bot's audio back to the human
-                # speaker — this creates a discontinuous caption block (e.g.
-                # "What's the capital of?" → "Yep. 12 Right.") that would
-                # poison the abort re-fire.
-                if speaker == self._abort_speaker and not is_echo:
-                    with self._lock:
+                with self._lock:
+                    if not self.abort_event.is_set():
+                        if is_echo:
+                            log.info(f"DIAG echo_false_abort_suppressed — caption matches TTS output")
+                        else:
+                            log.info(f"TIMING abort_caption_detected speaker={speaker} text=\"{text[:60]}\"")
+                            self._abort_speaker = speaker
+                            self._abort_text = text
+                            self.abort_event.set()
+                    # Only update _current_text if (a) same speaker who triggered
+                    # abort AND (b) new text extends the existing text. Google
+                    # sometimes misattributes the bot's audio back to the human
+                    # speaker — this creates a discontinuous caption block (e.g.
+                    # "What's the capital of?" -> "Yep. 12 Right.") that would
+                    # poison the abort re-fire.
+                    if speaker == self._abort_speaker and not is_echo:
                         prev = _normalize_for_match(self._current_text)
                         curr = _normalize_for_match(text)
                         if not prev or curr.startswith(prev) or prev.startswith(curr):
