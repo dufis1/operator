@@ -79,6 +79,12 @@ class ChatRunner:
         last_participant_check = 0
         participant_count = 0
         while not self._stop_event.is_set():
+            # Detect unexpected browser session death (crash, page loss, etc.)
+            if not self._connector.is_connected():
+                log.warning("ChatRunner: connector disconnected unexpectedly — exiting loop")
+                print("\n⚠️  Operator: meeting connection lost — chat loop stopped.")
+                break
+
             try:
                 messages = self._connector.read_chat()
             except Exception as e:

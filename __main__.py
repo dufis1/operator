@@ -215,6 +215,9 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         if meeting_url:
             log.info(f"Starting Operator — joining {meeting_url}")
             runner.run(meeting_url)
+            # If run() returned without an explicit stop, the exit was unexpected
+            if not runner._stop_event.is_set():
+                print(f"\n   Restart with: python __main__.py {'--chat ' if use_chat else ''}{meeting_url}\n")
         elif use_chat:
             log.error("Chat mode requires a meeting URL")
             print("\n❌ Chat mode requires a meeting URL:\n")
@@ -355,6 +358,9 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
 
     try:
         runner.run(meeting_url)
+        # If run() returned without an explicit stop, the exit was unexpected
+        if not runner._stop_event.is_set():
+            print(f"\n   Restart with: python __main__.py {'--chat ' if use_chat else ''}{meeting_url}\n")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:

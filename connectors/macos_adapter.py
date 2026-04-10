@@ -118,6 +118,10 @@ class MacOSAdapter(MeetingConnector):
         except queue.Empty:
             return 0
 
+    def is_connected(self):
+        """Return True if the browser session is still alive."""
+        return not self._browser_closed.is_set()
+
     # --- Browser-thread chat implementations (called from _process_chat_queue) ---
 
     def _ensure_chat_open(self, page):
@@ -141,10 +145,10 @@ class MacOSAdapter(MeetingConnector):
             )
             log.info("MacOSAdapter: chat panel open")
         except Exception as e:
-            log.warning(f"MacOSAdapter: could not open chat panel: {e}")
+            log.debug(f"MacOSAdapter: could not open chat panel: {e}")
             try:
                 page.screenshot(path="debug/chat_btn_not_found.png")
-                log.info("MacOSAdapter: saved debug screenshot to debug/chat_btn_not_found.png")
+                log.debug("MacOSAdapter: saved debug screenshot to debug/chat_btn_not_found.png")
             except Exception:
                 pass
 
@@ -606,21 +610,62 @@ class MacOSAdapter(MeetingConnector):
                     log.info(f"TIMING total_join={time.monotonic() - t_start:.1f}s")
 
                     # Hold until leave() signals or 4-hour hard cap.
-                    # Loop every 1s to service chat queue promptly.
+                    # Loop every 500ms to service chat queue promptly.
                     deadline = time.time() + 4 * 3600
                     last_health = time.time()
+                    last_alert_check = time.time()
+                    network_lost_at = None  # set when alert first detected, cleared on recovery
+                    NETWORK_GRACE_SECONDS = 30  # exit only if alert persists this long
                     while not self._leave_event.is_set() and time.time() < deadline:
                         self._process_chat_queue(page)
                         page.wait_for_timeout(500)
-                        # In-meeting health check every 5 minutes
-                        if time.time() - last_health >= 300:
+
+                        # Network-loss alert check every 5s.
+                        # Polls role="alert" (ARIA standard — stable across Meet UI updates).
+                        # Tracks first-detection time so the 30s grace period starts from
+                        # when the network actually dropped, not from our polling cycle.
+                        if time.time() - last_alert_check >= 5:
+                            last_alert_check = time.time()
+                            try:
+                                alert_text = page.evaluate("""() => {
+                                    const el = document.querySelector('[role="alert"]');
+                                    return el ? el.innerText.trim() : '';
+                                }""")
+                                if "lost your network" in alert_text.lower():
+                                    if network_lost_at is None:
+                                        network_lost_at = time.time()
+                                        log.warning(
+                                            "MacOSAdapter: network connection lost — "
+                                            f"waiting up to {NETWORK_GRACE_SECONDS}s for recovery"
+                                        )
+                                    elif time.time() - network_lost_at >= NETWORK_GRACE_SECONDS:
+                                        log.warning(
+                                            f"MacOSAdapter: network lost for {NETWORK_GRACE_SECONDS}s — exiting"
+                                        )
+                                        print("\n⚠️  Operator: network connection lost — exiting.")
+                                        break
+                                else:
+                                    if network_lost_at is not None:
+                                        log.info("MacOSAdapter: network connection recovered — continuing")
+                                    network_lost_at = None
+                            except Exception:
+                                pass  # page.is_closed() / inaccessible caught by the 30s check below
+
+                        # Health check every 30s — page liveness and URL drift.
+                        if time.time() - last_health >= 30:
                             last_health = time.time()
                             try:
+                                if page.is_closed():
+                                    log.warning("MacOSAdapter: health check — page closed unexpectedly, exiting")
+                                    print("\n⚠️  Operator: browser page closed unexpectedly — exiting.")
+                                    break
                                 current_url = page.url
                                 if "meet.google.com" not in current_url:
                                     log.warning(f"MacOSAdapter: health check — unexpected URL: {current_url}")
                             except Exception:
-                                log.warning("MacOSAdapter: health check — page not accessible")
+                                log.warning("MacOSAdapter: health check — page not accessible, exiting")
+                                print("\n⚠️  Operator: browser became inaccessible — exiting.")
+                                break
 
                 finally:
                     # ── Clean leave — runs on ALL exit paths ──────────

@@ -29,5 +29,14 @@ class MeetingConnector:
         """
         return 0
 
+    def is_connected(self):
+        """Return True if the browser session is still alive.
+
+        Returns False when the browser has exited (crash, page loss, or
+        after leave() has completed). ChatRunner polls this to detect
+        unexpected disconnects and exit the loop cleanly.
+        """
+        return True
+
     def leave(self):
         raise NotImplementedError

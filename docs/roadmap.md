@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 9, 2026 (session 70)*
+*Last updated: April 9, 2026 (session 71)*
 
-> **Current status: Phase 9 in progress (session 70).** Completed: 9.1, 9.4, 9.5, 9.6, 9.7, 9.11, 9.12, 9.13. Deferred to Phase 12: 9.2, 9.3, 9.8, 9.9, 9.10. Remaining active: 9.14, 9.15, 9.16. Next: 9.14 (idempotency guards).
+> **Current status: Phase 9 in progress (session 71).** Completed: 9.1, 9.4, 9.5, 9.6, 9.7, 9.11, 9.12, 9.13, 9.15. Deferred to Phase 12: 9.2, 9.3, 9.8, 9.9, 9.10, 9.14, 9.16. Phase 9 complete — moving to Phase 10.
 
 ---
 
@@ -82,9 +82,9 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 9.11 | Chat message size management — investigate Google Meet chat character limits, truncate/summarize long tool results, fix overly verbose Operator responses | ✅ | ~2h |
 | 9.12 | Tool call timeout + heartbeat — visible "still working..." in chat for long-running calls, hard timeout with graceful failure | ✅ | ~2h |
 | 9.13 | Context window management — strategy for summarizing/truncating older chat history as conversation grows, prevent silent context overflow | ✅ | ~3h |
-| 9.14 | Idempotency guards — prevent duplicate tool actions from repeated requests ("create a ticket" said twice), confirmation before write operations | ⬜ Post-v1 | ~3h |
-| 9.15 | Offline/reconnection behavior — handle internet drops, Playwright page loss, browser crashes; decide: crash, wait, or rejoin | ⬜ | ~4h |
-| 9.16 | Edge case pass — systematic audit of boundary conditions: empty meetings, rapid join/leave, malformed chat input, Unicode/emoji in messages, MCP server returning unexpected data, concurrent tool calls, browser memory leaks in long meetings | ⬜ | ~4h |
+| 9.14 | ~~Idempotency guards~~ — deferred to Phase 12 | ⏭️ | — |
+| 9.15 | Offline/reconnection behavior — detect browser crash/page loss via `is_connected()` on connector; ChatRunner exits loop cleanly; health check tightened to 30s with `page.is_closed()` detection. Decision: exit cleanly (no auto-rejoin). | ✅ | ~2h |
+| 9.16 | ~~Edge case pass~~ — deferred to Phase 12 | ⏭️ | — |
 
 ---
 
@@ -154,6 +154,8 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 12.15 | Latency audit — profile end-to-end chat path, identify and shave unnecessary delays (moved from 9.9) | ⬜ | ~2h |
 | 12.16 | Comprehensive error handling pass — graceful MCP server failure, tool call rate limiting, runaway loop prevention, user-friendly error messages in chat (no stack traces) (moved from 9.10) | ⬜ | ~4h |
 | 12.17 | MCP-specific format and context hints — after finalizing supported MCP servers, add per-server hints covering response format guidance and context window hygiene (e.g. prefer targeted calls over whole-file retrieval). Depends on 12.1 hints infrastructure. Informed by patterns established in step 9.11. | ⬜ | ~2h |
+| 12.18 | Idempotency guards — prevent duplicate tool actions from repeated requests ("create a ticket" said twice), confirmation before write operations (moved from 9.14) | ⬜ | ~3h |
+| 12.19 | Edge case pass — systematic audit of boundary conditions: empty meetings, rapid join/leave, malformed chat input, Unicode/emoji in messages, MCP server returning unexpected data, concurrent tool calls, browser memory leaks in long meetings (moved from 9.16) | ⬜ | ~4h |
 
 ---
 
