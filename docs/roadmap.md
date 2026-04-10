@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 9, 2026 (session 67)*
+*Last updated: April 9, 2026 (session 69)*
 
-> **Current status: Phase 9 hardening in progress (session 67).** Steps 9.1 (selector hardening), 9.4 (race condition audit), 9.5 (security audit), 9.6 (simultaneous meeting handling), and 9.7 (calendar polling startup latency) complete. Steps 9.2/9.3/9.8/9.9/9.10 deferred to Phase 12. Next: 9.11 (chat message size management).
+> **Current status: Phase 9 complete (session 69).** All active steps done: 9.1 (selector hardening), 9.4 (race condition audit), 9.5 (security audit), 9.6 (simultaneous meeting handling), 9.7 (calendar polling startup latency), 9.11 (chat message size management). Steps 9.2/9.3/9.8/9.9/9.10 deferred to Phase 12. Next: Phase 10 (setup & onboarding).
 
 ---
 
@@ -79,7 +79,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 9.8 | ~~Log cleanup~~ — deferred to Phase 12 (post-MVP polish) | ⏭️ | — |
 | 9.9 | ~~Latency audit~~ — deferred to Phase 12 (post-MVP polish) | ⏭️ | — |
 | 9.10 | ~~Comprehensive error handling pass~~ — deferred to Phase 12 (post-MVP polish) | ⏭️ | — |
-| 9.11 | Chat message size management — investigate Google Meet chat character limits, truncate/summarize long tool results, fix overly verbose Operator responses | ⬜ | ~2h |
+| 9.11 | Chat message size management — investigate Google Meet chat character limits, truncate/summarize long tool results, fix overly verbose Operator responses | ✅ | ~2h |
 | 9.12 | Tool call timeout + heartbeat — visible "still working..." in chat for long-running calls, hard timeout with graceful failure | ⬜ | ~2h |
 | 9.13 | Context window management — strategy for summarizing/truncating older chat history as conversation grows, prevent silent context overflow | ⬜ | ~3h |
 | 9.14 | Idempotency guards — prevent duplicate tool actions from repeated requests ("create a ticket" said twice), confirmation before write operations | ⬜ Post-v1 | ~3h |

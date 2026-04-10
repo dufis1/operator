@@ -555,7 +555,9 @@ MacOSAdapter: mic already on                     # or "microphone unmuted"
 TIMING mic_check=0.0s
 MacOSAdapter: in meeting — holding browser open
 TIMING total_join=4.1s
-MacOSAdapter: chat MutationObserver installed     # observer injected on chat panel
+MacOSAdapter: clicked chat button — waiting for panel to render   # opening chat panel
+MacOSAdapter: chat panel open                                     # textarea confirmed visible
+MacOSAdapter: chat MutationObserver installed                     # observer confirmed attached
 ChatRunner: participant count changed 0 → 2       # initial count detection
 ```
 
@@ -570,7 +572,7 @@ MCP server 'linear' connected — 32 tools
 ```
 MacOSAdapter: observer drained 1 new messages                     # MutationObserver caught message instantly
 ChatRunner: new message sender='Jojo Shapiro' id='spaces/.../messages/...' text='whats up' one_on_one=True
-LLM ask model=gpt-4.1-mini mode=chat max_tokens=300 history_msgs=0 prompt_chars=43 tools=32
+LLM ask model=gpt-4.1-mini mode=chat max_tokens=150 history_msgs=0 prompt_chars=43 tools=32
 LLM utterance: Jojo: whats up (First time talking to Jojo)        # first-name only, first-time greeting marker
 LLM reply="Hello Jojo! How can I assist you today?"
 MacOSAdapter: chat sent: 'Hello Jojo! How can I assist you today?'
@@ -624,6 +626,7 @@ ChatRunner: participant count changed 2 → 0        # final count after browser
 - `observer drained 0` repeatedly despite messages → observer not firing; check if panel container changed
 - Echo loop (bot responding to own messages) → check `skipping own message (text match)` appears twice per send; if only once, batch discard may be broken
 - `participant count changed` not appearing → `[data-requested-participant-id]` selector may have changed
+- `MacOSAdapter: chat observer not attached (textarea or panel container not in DOM) — will retry next poll` → observer install attempted before panel rendered; will auto-retry each poll until successful
 - `{Adapter}: could not open chat panel: ...` → chat button selector failed; debug screenshot saved to `debug/chat_btn_not_found.png`
 - `MacOSAdapter: send_chat failed` → textarea selector changed or chat panel closed unexpectedly
 
