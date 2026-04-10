@@ -26,7 +26,7 @@ Session 67: Completed step 9.7 (calendar polling startup latency). All three cha
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Step 9.8 (log cleanup) — structured/consistent log levels, clean stdout for normal operation, verbose for debug.
+**Next action:** Step 9.11 (chat message size management) — investigate Google Meet chat character limits, truncate/summarize long tool results, fix overly verbose Operator responses. Steps 9.8/9.9/9.10 deferred to Phase 12 (post-MVP polish).
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
@@ -138,6 +138,8 @@ Session 67: Completed step 9.7 (calendar polling startup latency). All three cha
 
 - **Sender time-pattern regex assumes AM/PM format.** The structural sender extraction (session 62 hardening) uses `/\d{1,2}:\d{2}\s*(AM|PM)/i` to find the sender div. Breaks in 24h locales where timestamps render as `"22:35"` without AM/PM. Add 24h pattern `\d{2}:\d{2}` as alternative match when locale support matters.
 - **Caption speaker badge still uses fragile class selectors.** `.NWpY1d, .xoMHSc` in `captions_adapter.py` are obfuscated CSS classes. Structural fix identified: use `firstElementChild` positional extraction (speaker is always first child in its wrapper). Not v1-critical — captions are post-v1 voice path (Phase 13).
+- **MCP-specific format and context hints (step 12.17).** After finalizing supported MCP servers, add per-server hints covering response format and context window hygiene (prefer targeted calls, avoid whole-file retrieval). Depends on 12.1 hints infrastructure. GitHub format guidance added in step 9.11 as the first instance of this pattern.
+- **Revisit LLM history compaction if needed.** Context overflow handling in step 9.11 clears history as a last resort. If long meetings with heavy tool use make this a frequent problem, consider summarizing old turns instead of discarding them (one extra LLM call per compaction). Deferred — meetings are short and 128k context is generous.
 
 ---
 

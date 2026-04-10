@@ -2,7 +2,7 @@
 
 *Last updated: April 9, 2026 (session 67)*
 
-> **Current status: Phase 9 hardening in progress (session 67).** Steps 9.1 (selector hardening), 9.4 (race condition audit), 9.5 (security audit), 9.6 (simultaneous meeting handling), and 9.7 (calendar polling startup latency) complete. Steps 9.2/9.3 deferred to Phase 12. Next: 9.8 (log cleanup).
+> **Current status: Phase 9 hardening in progress (session 67).** Steps 9.1 (selector hardening), 9.4 (race condition audit), 9.5 (security audit), 9.6 (simultaneous meeting handling), and 9.7 (calendar polling startup latency) complete. Steps 9.2/9.3/9.8/9.9/9.10 deferred to Phase 12. Next: 9.11 (chat message size management).
 
 ---
 
@@ -76,9 +76,9 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 9.5 | Security vulnerability audit — input sanitization, credential handling, MCP server sandboxing, dependency audit | ✅ | ~2h |
 | 9.6 | Simultaneous meeting handling — single-meeting design: queue overlaps, skip ended meetings, log warnings | ✅ | ~1h |
 | 9.7 | Calendar polling startup latency — profile and optimize the slow path from launch to first meeting join | ✅ | ~1h |
-| 9.8 | Log cleanup — structured, consistent log levels; clean stdout for normal operation, verbose for debug | ⬜ | ~2h |
-| 9.9 | Latency audit — profile end-to-end chat path, identify and shave unnecessary delays | ⬜ | ~2h |
-| 9.10 | Comprehensive error handling pass — graceful MCP server failure, tool call rate limiting, runaway loop prevention, user-friendly error messages in chat (no stack traces) | ⬜ | ~4h |
+| 9.8 | ~~Log cleanup~~ — deferred to Phase 12 (post-MVP polish) | ⏭️ | — |
+| 9.9 | ~~Latency audit~~ — deferred to Phase 12 (post-MVP polish) | ⏭️ | — |
+| 9.10 | ~~Comprehensive error handling pass~~ — deferred to Phase 12 (post-MVP polish) | ⏭️ | — |
 | 9.11 | Chat message size management — investigate Google Meet chat character limits, truncate/summarize long tool results, fix overly verbose Operator responses | ⬜ | ~2h |
 | 9.12 | Tool call timeout + heartbeat — visible "still working..." in chat for long-running calls, hard timeout with graceful failure | ⬜ | ~2h |
 | 9.13 | Context window management — strategy for summarizing/truncating older chat history as conversation grows, prevent silent context overflow | ⬜ | ~3h |
@@ -150,6 +150,10 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 12.11 | Dependabot + pip-audit — add `.github/dependabot.yml` for automated dependency PRs; add `pip-audit` step to CI smoke test for CVE detection | ⬜ | ~1h |
 | 12.12 | MCP server health check — weekly CI job that starts each configured MCP server and calls `list_tools()`; alert on failure. Extend step 10.8 smoke test with a dry-run tool call per server | ⬜ | ~2h |
 | 12.13 | MCP tool call failure monitoring — track per-server `MCPToolError` rate at runtime; log warning when failure rate spikes above threshold; surface in diagnostics | ⬜ | ~2h |
+| 12.14 | Log cleanup — structured, consistent log levels; clean stdout for normal operation, verbose for debug (moved from 9.8) | ⬜ | ~2h |
+| 12.15 | Latency audit — profile end-to-end chat path, identify and shave unnecessary delays (moved from 9.9) | ⬜ | ~2h |
+| 12.16 | Comprehensive error handling pass — graceful MCP server failure, tool call rate limiting, runaway loop prevention, user-friendly error messages in chat (no stack traces) (moved from 9.10) | ⬜ | ~4h |
+| 12.17 | MCP-specific format and context hints — after finalizing supported MCP servers, add per-server hints covering response format guidance and context window hygiene (e.g. prefer targeted calls over whole-file retrieval). Depends on 12.1 hints infrastructure. Informed by patterns established in step 9.11. | ⬜ | ~2h |
 
 ---
 
