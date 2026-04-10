@@ -123,8 +123,18 @@ CaptionsAdapter: another Operator session is already running — stop that sessi
 {Adapter}: admission wait cancelled (leave called after Ns)                              # leave() called while waiting
 {Adapter}: browser closed during admission wait — aborting                               # browser torn down while in lobby
 
-# In-meeting health check (every 5 min in hold loop)
+# In-meeting health check (every 30s in hold loop)
 MacOSAdapter: health check — unexpected URL: ...       # navigated away from meet.google.com
+MacOSAdapter: health check — page closed unexpectedly, exiting  # Chrome page crashed mid-meeting (⚠️ printed to stdout)
+MacOSAdapter: health check — page not accessible, exiting       # page.url threw; browser inaccessible (⚠️ printed to stdout)
+
+# Network loss detection (role=alert DOM poll every 5s, added session 71)
+MacOSAdapter: network connection lost — waiting up to 30s for recovery   # first detection of "You lost your network" alert
+MacOSAdapter: network connection recovered — continuing                  # alert cleared within grace period (self-heal)
+MacOSAdapter: network lost for 30s — exiting                            # grace period expired; exit (⚠️ printed to stdout)
+
+# ChatRunner disconnection (connector.is_connected() failed, added session 71)
+ChatRunner: connector disconnected unexpectedly — exiting loop           # browser thread died; ChatRunner exits (⚠️ printed to stdout)
 
 # Meet system phrases (exit signals — currently logged then filtered, not yet acted on)
 CaptionsAdapter: system phrase detected — 'No one else is in this meeting'  # everyone left naturally
