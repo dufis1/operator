@@ -23,6 +23,8 @@ LLM_MODEL            = _config["llm"]["model"]
 CHAT_HISTORY_TURNS      = _config["llm"].get("chat_history_turns", 20)
 CHAT_MAX_TOKENS         = _config["llm"].get("chat_max_tokens", 150)
 TOOL_RESULT_MAX_CHARS   = _config["llm"].get("tool_result_max_chars", 50000)
+TOOL_TIMEOUT_SECONDS    = _config["llm"].get("tool_timeout_seconds", 60)
+TOOL_HEARTBEAT_SECONDS  = _config["llm"].get("tool_heartbeat_seconds", 8)
 CHAT_SYSTEM_PROMPT      = _config["llm"].get("chat_system_prompt", _config["agent"]["system_prompt"])
 
 # TTS

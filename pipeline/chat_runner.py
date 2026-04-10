@@ -235,11 +235,50 @@ class ChatRunner:
             self._send("Please confirm: yes to proceed, no to cancel.")
             return
 
-        # User confirmed — execute the tool
+        # User confirmed — execute the tool in a background thread with heartbeat + timeout
         self._pending_tool_call = None
-        try:
-            tool_result = self._mcp.execute_tool(tc["name"], tc["arguments"])
-        except Exception as e:
+        result_holder = [None]
+        error_holder = [None]
+        done_event = threading.Event()
+
+        def _run_tool():
+            try:
+                result_holder[0] = self._mcp.execute_tool(tc["name"], tc["arguments"])
+            except Exception as exc:
+                error_holder[0] = exc
+            finally:
+                done_event.set()
+
+        threading.Thread(target=_run_tool, daemon=True).start()
+
+        heartbeat_interval = config.TOOL_HEARTBEAT_SECONDS
+        hard_timeout = config.TOOL_TIMEOUT_SECONDS
+        deadline = time.time() + hard_timeout
+        timed_out = False
+
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                timed_out = True
+                break
+            if done_event.wait(timeout=min(heartbeat_interval, remaining)):
+                break  # tool finished (success or error)
+            # Still running — send heartbeat if deadline not reached
+            if time.time() < deadline:
+                self._send("Still working on that...")
+
+        if timed_out:
+            log.error(f"ChatRunner: tool {tc['name']} timed out after {hard_timeout}s")
+            self._send(f"That took too long — no response after {hard_timeout}s. Try again.")
+            try:
+                self._llm.send_tool_result(
+                    tc["id"], tc["name"], f"Error: tool call timed out after {hard_timeout}s")
+            except Exception:
+                pass
+            return
+
+        if error_holder[0]:
+            e = error_holder[0]
             log.error(f"ChatRunner: tool execution failed: {e}")
             self._send("Sorry, that tool call failed. Check the logs for details.")
             try:
@@ -247,6 +286,8 @@ class ChatRunner:
             except Exception:
                 pass
             return
+
+        tool_result = result_holder[0]
 
         # Feed result back to LLM — it may summarize or request another tool
         try:

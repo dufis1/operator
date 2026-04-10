@@ -251,10 +251,42 @@ class LLMClient:
         reply = message.content
         log.info(f"LLM tool summary=\"{reply[:80]}\"")
         self._history.append({"role": "assistant", "content": reply})
+        self._collapse_tool_exchange()
         self._trim_history()
         if tools:
             return {"type": "text", "content": reply}
         return reply
+
+    def _collapse_tool_exchange(self):
+        """Strip intermediate tool messages after a tool exchange completes.
+
+        Collapses [user, asst[tool_calls], tool, ..., asst[summary]] down to
+        [user, asst[summary]]. The summary is already visible in chat; the raw
+        tool results and tool_call assistant messages are bulk that serves no
+        purpose in future context. If the LLM needs the data again, it re-calls
+        the tool.
+
+        Only runs when the last history entry is a plain assistant text message
+        (not a tool_call request), so chained tool calls are left intact until
+        the final summary arrives.
+        """
+        if not self._history:
+            return
+        summary = self._history[-1]
+        if summary.get("role") != "assistant" or summary.get("tool_calls"):
+            return  # not a final text summary — nothing to collapse yet
+        i = len(self._history) - 2
+        removed = 0
+        while i >= 0:
+            msg = self._history[i]
+            if msg["role"] == "tool" or (msg["role"] == "assistant" and msg.get("tool_calls")):
+                self._history.pop(i)
+                removed += 1
+                i -= 1
+            else:
+                break
+        if removed:
+            log.debug(f"LLM collapsed tool exchange: removed {removed} intermediate messages")
 
     def _trim_history(self):
         """Keep only the most recent _max_pairs user/assistant pairs.

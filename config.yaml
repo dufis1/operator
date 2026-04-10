@@ -26,6 +26,8 @@ llm:
   chat_history_turns: 20       # max user/assistant pairs kept in chat context
   chat_max_tokens: 150         # max tokens for chat responses (voice uses 60); ~600 chars target for meeting chat side panel
   tool_result_max_chars: 50000 # incoming tool result truncation threshold — results over this are archived with a recovery hint
+  tool_timeout_seconds: 60    # hard timeout for a single tool call; graceful failure sent to chat if exceeded
+  tool_heartbeat_seconds: 8   # how often to send "still working..." while a tool call is in flight
   chat_system_prompt: >
     You are Operator, an AI assistant participating in a meeting via chat.
     Meeting chat is a side panel — participants are glancing, not reading.
