@@ -6,6 +6,7 @@ conversation history. No macOS imports.
 """
 import json
 import logging
+import openai
 import config
 
 log = logging.getLogger(__name__)
@@ -42,6 +43,10 @@ class LLMClient:
             f"\n- The authenticated user's login is \"{login}\". Always use \"{login}\" as the owner — never guess from chat display names."
             f"\n- To explore a repo, use get_file_contents to list directories and read files. Start from the root or the path the user mentions. Never guess file paths."
             f"\n- Avoid search_code — it often returns no results for small repos. Prefer browsing the repo with get_file_contents instead."
+            f"\nGitHub response format:"
+            f"\n- Never describe a file's likely contents — read it first, then summarize what it actually says."
+            f"\n- For multi-step tasks (e.g. list directory → read a file), chain your tool calls without pausing to narrate intermediate steps. The confirmation flow asks the user before each tool executes — you don't need to ask in chat."
+            f"\n- When summarizing: filename + 1–2 sentences on actual content. No search narration."
         )
         self._system_prompt += hint
         log.info(f"LLM injected GitHub user hint: {login}")
@@ -76,6 +81,12 @@ class LLMClient:
 
         try:
             response = self._client.chat.completions.create(**kwargs)
+        except openai.BadRequestError as e:
+            if getattr(e, "code", None) == "context_length_exceeded":
+                log.warning(f"LLM context length exceeded — clearing history")
+                self._history = []
+                return {"type": "context_overflow"}
+            raise
         except Exception as e:
             log.error(f"LLM API call failed: {e}", exc_info=True)
             raise
@@ -182,6 +193,14 @@ class LLMClient:
           {"type": "text", "content": "..."}
           {"type": "tool_call", "id": "...", "name": "...", "arguments": {...}}
         """
+        if len(result_content) > config.TOOL_RESULT_MAX_CHARS:
+            shown = config.TOOL_RESULT_MAX_CHARS
+            total = len(result_content)
+            log.warning(f"LLM tool result too large: {total} chars — archiving, showing hint")
+            result_content = (
+                f"[tool result archived — {shown} of {total} chars shown. "
+                f"Call the tool again with a narrower scope to retrieve more]"
+            )
         self._history.append({
             "role": "tool",
             "tool_call_id": tool_call_id,
@@ -204,6 +223,12 @@ class LLMClient:
 
         try:
             response = self._client.chat.completions.create(**kwargs)
+        except openai.BadRequestError as e:
+            if getattr(e, "code", None) == "context_length_exceeded":
+                log.warning(f"LLM context length exceeded in tool result — clearing history")
+                self._history = []
+                return {"type": "context_overflow"}
+            raise
         except Exception as e:
             log.error(f"LLM tool result call failed: {e}", exc_info=True)
             raise

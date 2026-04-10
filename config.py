@@ -20,9 +20,10 @@ USER_DISPLAY_NAME    = _config["agent"].get("user_display_name", "")
 # LLM
 LLM_PROVIDER         = _config["llm"]["provider"]
 LLM_MODEL            = _config["llm"]["model"]
-CHAT_HISTORY_TURNS   = _config["llm"].get("chat_history_turns", 20)
-CHAT_MAX_TOKENS      = _config["llm"].get("chat_max_tokens", 300)
-CHAT_SYSTEM_PROMPT   = _config["llm"].get("chat_system_prompt", _config["agent"]["system_prompt"])
+CHAT_HISTORY_TURNS      = _config["llm"].get("chat_history_turns", 20)
+CHAT_MAX_TOKENS         = _config["llm"].get("chat_max_tokens", 150)
+TOOL_RESULT_MAX_CHARS   = _config["llm"].get("tool_result_max_chars", 50000)
+CHAT_SYSTEM_PROMPT      = _config["llm"].get("chat_system_prompt", _config["agent"]["system_prompt"])
 
 # TTS
 TTS_PROVIDER     = _config["tts"]["provider"]

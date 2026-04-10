@@ -184,6 +184,8 @@ class ChatRunner:
             self._send(result["content"])
         elif result["type"] == "tool_call":
             self._request_confirmation(result)
+        elif result["type"] == "context_overflow":
+            self._send("Our conversation got too long — I've cleared the history. What would you like to do next?")
 
     def _request_confirmation(self, tool_call):
         """Ask user for confirmation before executing a tool."""
@@ -259,6 +261,8 @@ class ChatRunner:
             self._send(result)
         elif result["type"] == "tool_call":
             self._request_confirmation(result)
+        elif result["type"] == "context_overflow":
+            self._send("Our conversation got too long — I've cleared the history. What would you like to do next?")
         else:
             self._send(result["content"])
 

@@ -18,15 +18,15 @@
 ## Current Status
 
 **Phase:** Phase 9 hardening in progress. Chat MVP + MCP integration feature-complete.
-**What just happened (session 68, April 9, 2026):**
+**What just happened (session 69, April 9, 2026):**
 
-Session 68: Planning session for step 9.11 (chat message size management). No code written. Full implementation plan designed. Key decisions: (1) Response length target ~600 chars / ~150 tokens — meeting chat is a side panel, not a dedicated chat UI. (2) Two separate problems identified — LLM verbosity (fix via system prompt + max_tokens) and tool result bloat (fix via size guard + error handling). (3) Truncation sequence: archive all old tool results in one sweep, then clear history entirely as last resort — no intermediate "drop one turn" complexity. (4) "Archive-with-metadata" pattern established: always replace removed content with a placeholder naming what happened and what the model can do about it. (5) Steps 9.8/9.9/9.10 moved to Phase 12 as 12.14/12.15/12.16. (6) New step 12.17 added: MCP-specific format and context hints for all supported servers after 12.1 hints infrastructure is built.
+Session 69: Implemented step 9.11 (chat message size management). Six changes shipped: (1) `config.yaml`: lowered `chat_max_tokens` 300→150, added `tool_result_max_chars: 50000`, rewrote `chat_system_prompt` with meeting-chat conciseness rules. (2) `config.py`: added `TOOL_RESULT_MAX_CHARS`. (3) `pipeline/llm.py`: tool result size guard in `send_tool_result()` — oversized results replaced with archive-with-metadata placeholder. (4) `pipeline/llm.py`: `BadRequestError`/`context_length_exceeded` handler in both `ask()` and `send_tool_result()` — clears history, returns `{"type": "context_overflow"}`. (5) `pipeline/chat_runner.py`: surfaces `context_overflow` to user with a plain message in both `_handle_message()` and `_handle_confirmation()`. (6) `pipeline/llm.py`: extended `inject_github_user()` with GitHub response format guidance (cite filename + function + one sentence, no search narration).
 
-**Previous sessions:** Session 67: step 9.7 (calendar polling startup latency). Session 66: step 9.6 (simultaneous meeting handling). Session 65: step 9.5 (security audit). Session 64: step 9.4 (race condition audit). Session 63: step 9.1 (UI dependency audit + selector hardening).
+**Previous sessions:** Session 68: planning session for 9.11 (no code). Session 67: step 9.7 (calendar polling startup latency). Session 66: step 9.6 (simultaneous meeting handling).
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Step 9.11 (chat message size management) — investigate Google Meet chat character limits, truncate/summarize long tool results, fix overly verbose Operator responses. Steps 9.8/9.9/9.10 deferred to Phase 12 (post-MVP polish).
+**Next action:** Phase 9 complete. Next phase TBD — see `docs/roadmap.md`.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 

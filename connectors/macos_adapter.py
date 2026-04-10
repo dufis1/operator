@@ -132,7 +132,14 @@ class MacOSAdapter(MeetingConnector):
             chat_btn = page.get_by_role("button", name="Chat with everyone")
             chat_btn.wait_for(timeout=3000)
             chat_btn.click()
-            page.wait_for_timeout(500)
+            log.info("MacOSAdapter: clicked chat button — waiting for panel to render")
+            # Wait for the panel to actually render instead of a fixed sleep.
+            # This prevents a race where the observer install runs before the
+            # textarea is in the DOM, causing a silent no-op installation.
+            page.locator('textarea[aria-label="Send a message"]').wait_for(
+                state="visible", timeout=2000
+            )
+            log.info("MacOSAdapter: chat panel open")
         except Exception as e:
             log.warning(f"MacOSAdapter: could not open chat panel: {e}")
             try:
@@ -236,8 +243,16 @@ class MacOSAdapter(MeetingConnector):
                 });
                 window.__operatorChatObserver.observe(container, {childList: true, subtree: true});
             }""")
-            self._observer_installed = True
-            log.info("MacOSAdapter: chat MutationObserver installed")
+            # Verify the observer actually attached. The JS function returns
+            # early (no-op) if the textarea or its panel container isn't in
+            # the DOM yet — page.evaluate() won't throw, so we check the
+            # result explicitly and only mark installed on confirmed success.
+            attached = page.evaluate("() => !!window.__operatorChatObserver")
+            if attached:
+                self._observer_installed = True
+                log.info("MacOSAdapter: chat MutationObserver installed")
+            else:
+                log.warning("MacOSAdapter: chat observer not attached (textarea or panel container not in DOM) — will retry next poll")
         except Exception as e:
             log.warning(f"MacOSAdapter: failed to install chat observer: {e}")
 
