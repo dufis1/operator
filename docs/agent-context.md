@@ -18,15 +18,15 @@
 ## Current Status
 
 **Phase:** Phase 9 hardening in progress. Chat MVP + MCP integration feature-complete.
-**What just happened (session 69, April 9, 2026):**
+**What just happened (session 70, April 9, 2026):**
 
-Session 69: Implemented step 9.11 (chat message size management). Six changes shipped: (1) `config.yaml`: lowered `chat_max_tokens` 300→150, added `tool_result_max_chars: 50000`, rewrote `chat_system_prompt` with meeting-chat conciseness rules. (2) `config.py`: added `TOOL_RESULT_MAX_CHARS`. (3) `pipeline/llm.py`: tool result size guard in `send_tool_result()` — oversized results replaced with archive-with-metadata placeholder. (4) `pipeline/llm.py`: `BadRequestError`/`context_length_exceeded` handler in both `ask()` and `send_tool_result()` — clears history, returns `{"type": "context_overflow"}`. (5) `pipeline/chat_runner.py`: surfaces `context_overflow` to user with a plain message in both `_handle_message()` and `_handle_confirmation()`. (6) `pipeline/llm.py`: extended `inject_github_user()` with GitHub response format guidance (cite filename + function + one sentence, no search narration).
+Session 70: Implemented steps 9.12 and 9.13. **9.12 (tool timeout + heartbeat):** `execute_tool()` now runs in a daemon thread in `chat_runner.py`; polls with `done_event.wait()` in heartbeat-interval chunks (default 8s), sending "Still working on that..." to chat while running. Hard timeout (default 60s) sends a failure message and feeds an error to the LLM to close out the tool call in history. New config keys: `tool_timeout_seconds`, `tool_heartbeat_seconds`. **9.13 (context window management):** Added `_collapse_tool_exchange()` to `LLMClient` — after `send_tool_result()` returns a final text summary, strips all preceding `asst[tool_calls]` and `role=tool` messages, collapsing the exchange to `[user, asst[summary]]`. Raw tool results no longer accumulate in context; LLM re-calls the tool if it needs the data again. Both steps have standalone test files.
 
-**Previous sessions:** Session 68: planning session for 9.11 (no code). Session 67: step 9.7 (calendar polling startup latency). Session 66: step 9.6 (simultaneous meeting handling).
+**Previous sessions:** Session 69: step 9.11 (chat message size management + MutationObserver fix). Session 68: planning. Session 67: step 9.7 (calendar polling startup latency).
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
-**Next action:** Phase 9 complete. Next phase TBD — see `docs/roadmap.md`.
+**Next action:** Step 9.14 (idempotency guards) — prevent duplicate tool actions from repeated requests, confirmation before write operations. Marked Post-v1 in roadmap; confirm priority before starting.
 
 **Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
