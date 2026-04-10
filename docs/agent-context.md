@@ -18,11 +18,11 @@
 ## Current Status
 
 **Phase:** Phase 9 hardening in progress. Chat MVP + MCP integration feature-complete.
-**What just happened (session 67, April 9, 2026):**
+**What just happened (session 68, April 9, 2026):**
 
-Session 67: Completed step 9.7 (calendar polling startup latency). All three changes in `pipeline/calendar_poller.py`. (1) Replaced `time.sleep(8)` after `page.goto()` with `page.wait_for_selector("[data-eventid]", timeout=3000)` — first iteration used a 15s timeout that regressed the no-events case from 9.4s to 16.3s, tightened to 3s after the live test. (2) Same `wait_for_selector` fix applied to the `page.reload()` path which had a parallel `time.sleep(5)`, saving ~5s every 30s poll cycle. (3) Gated `shutil.rmtree`/`copytree` of the browser profile on a new `_cal_profile_is_stale()` helper that compares the mtime of `Default/Cookies` in src vs the cached copy — `copytree` preserves mtimes via `copy2`, so equal mtimes signal "no auth state change, reuse cache." New log line: `CalendarPoller: reusing cached profile copy (cookies unchanged)`. Live-tested both paths: empty calendar 9.4s → 4.47s (−53%), with-events 9.4s → 1.70s (−82%), poll cycle ~36s → ~31s. No new tests written — pure latency optimization, no behavior change. Model-log updated.
+Session 68: Planning session for step 9.11 (chat message size management). No code written. Full implementation plan designed. Key decisions: (1) Response length target ~600 chars / ~150 tokens — meeting chat is a side panel, not a dedicated chat UI. (2) Two separate problems identified — LLM verbosity (fix via system prompt + max_tokens) and tool result bloat (fix via size guard + error handling). (3) Truncation sequence: archive all old tool results in one sweep, then clear history entirely as last resort — no intermediate "drop one turn" complexity. (4) "Archive-with-metadata" pattern established: always replace removed content with a placeholder naming what happened and what the model can do about it. (5) Steps 9.8/9.9/9.10 moved to Phase 12 as 12.14/12.15/12.16. (6) New step 12.17 added: MCP-specific format and context hints for all supported servers after 12.1 hints infrastructure is built.
 
-**Previous sessions:** Session 66: step 9.6 (simultaneous meeting handling). Session 65: step 9.5 (security audit). Session 64: step 9.4 (race condition audit). Session 63: step 9.1 (UI dependency audit + selector hardening). Session 62: camera toggle hardening.
+**Previous sessions:** Session 67: step 9.7 (calendar polling startup latency). Session 66: step 9.6 (simultaneous meeting handling). Session 65: step 9.5 (security audit). Session 64: step 9.4 (race condition audit). Session 63: step 9.1 (UI dependency audit + selector hardening).
 
 **MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
 
@@ -131,6 +131,14 @@ Session 67: Completed step 9.7 (calendar polling startup latency). All three cha
 - **Google Calendar event accessibility label looks like a timestamp but isn't.** `ev.inner_text()` on an event cell returns a comma-separated blob like `'April 7, 2026 at 7pm to April 8, 2026 at 7:52pm, test 2, Operator, Needs RSVP, No location,'`. When this blob appears in a log line next to a local-time Python timestamp like `23:38:02`, it can look like Operator thinks the current time is 7pm. It doesn't — that "7pm" is the scheduled start of the event. Just a reading-the-logs gotcha.
 - **`wait_for_selector` on an absent selector silently regresses startup.** The original `CalendarPoller` had a blind `time.sleep(8)` after `page.goto()`. Replacing it with `wait_for_selector("[data-eventid]", timeout=15000)` looked obviously better — but on empty-calendar days the selector never appears and the wait runs to the full 15s, making startup *worse* (16.3s vs the original 9.4s). Tighten the timeout to ~3s and accept the no-events path waits 3s of nothing — the next 30s poll picks up any late events anyway. Always test the empty case when replacing a sleep with a selector wait.
 - **Browser profile mtime check via Chromium `Default/Cookies`.** `shutil.copytree` uses `copy2` under the hood, which preserves mtimes. So after a copy, the source and destination `Default/Cookies` have *equal* mtimes — and on the next start, comparing those mtimes is a one-stat shortcut for "has auth state moved on since the last copy?" Used in `CalendarPoller._cal_profile_is_stale` to skip the rmtree+copytree on warm restarts. Don't compare directory mtimes — they only change on entry add/remove, not on file edits.
+
+---
+
+## LLM Interaction Principles
+
+Design patterns for working with LLMs in this product. Read before making architectural decisions about context management or model behavior.
+
+- **Archive-with-metadata pattern:** When removing content from the model's context (tool results, history turns), always replace it with a placeholder that names (1) what happened and (2) what the model can do about it. Example: `[tool result archived — call the tool again with a narrower scope to retrieve more]` is better than silent deletion or `[result omitted]` (which implies error). The model reasons better when it understands its own state and has a recovery path. Applies anywhere context is managed: history trimming, tool result truncation, overflow recovery.
 
 ---
 
