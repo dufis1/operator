@@ -17,20 +17,20 @@
 
 ## Current Status
 
-**Phase:** Phase 9 hardening complete. Phase 10 (Open-Source Packaging / V1 Release Gate) is next.
-**What just happened (session 71, April 9, 2026):**
+**Phase:** Phase 10 (MCP Finalization & Hardening) — in progress. Pre-work complete; coding not yet started.
+**What just happened (session 73, April 11, 2026):**
 
-Session 71: Implemented step 9.15 (offline/reconnection detection and clean exit). Three failure modes now handled: (1) **browser crash** — `is_connected()` checks `_browser_closed` event; ChatRunner detects within 0.5s and exits loop with user-facing message; (2) **internet drop** — `role="alert"` DOM poll every 5s detects "You lost your network connection" toast; 30s grace period measured from *first detection* (not polling clock) allows self-healing; resets on recovery; (3) **page liveness** — every 30s checks `page.is_closed()` and URL drift. All exit paths print a restart command. "Could not open chat panel" logs moved from WARNING to DEBUG to reduce noise during network drops. 9.14 and 9.16 deferred to Phase 12 (12.18 and 12.19 in roadmap). All code live-tested with Wi-Fi kill tests.
+Session 73: Pre-work for Phase 10 hints infrastructure. (1) Locked in Notion, Slack, and Brave Search as the three additional default MCP servers — added as commented-out blocks in `config.yaml`. (2) Created `docs/mcp-pressure-test.md` — a living document tracking tool inventories, test matrices, fail modes, and draft hints for all 5 servers. (3) Completed full Linear pressure test: 13 tests run, 11 fail modes documented. Key findings: unfiltered `list_issues` → 185k chars (always blows context); `includeArchived=true` default silently returns stale archived work; state display names differ by team but state *types* (started/unstarted/backlog) work reliably across teams; dual canceled-type statuses resolve non-deterministically; `create_document` has a hidden schema constraint (needs project or issue) not reflected in tool schema. Three active test issues left in Linear workspace (ENG-163, ENG-164, PRO-104) for future realistic testing. One test document left in Linear "Devteam" project — needs manual deletion from Linear UI.
 
-**Previous sessions:** Session 70: steps 9.12 (tool timeout + heartbeat) and 9.13 (context window management). Session 69: step 9.11 (chat message size management + MutationObserver fix).
+**Previous session (session 72, April 10, 2026):** Roadmap restructured. Phases 10–14 reorganized into phases 10–17. MCP hardening (Phase 10) first, then multi-modal/multi-model (Phase 11), pressure testing (Phase 12), audits (Phase 13), housekeeping (Phase 14), setup wizard (Phase 15), README & launch (Phase 16, MVP gate), platform expansion Phase 17 post-MVP.
 
-**MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
+**MVP scope:** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 17, demand-driven.
 
-**Next action:** Phase 10 — Open-Source Packaging (V1 Release Gate). See roadmap for step-by-step breakdown.
+**Next action:** Continue MCP pressure testing — GitHub is next (tool inventory already in `docs/mcp-pressure-test.md`; 6 known fail modes pre-documented from Phase 9). After GitHub, enable and test Notion/Slack/Brave (need user to add API keys to `.env`). Once all 5 servers tested, implement step 10.1 (per-MCP hints field) and 10.11 (fill in hints). See `docs/mcp-pressure-test.md` for full test matrix.
 
-**Setup wizard note (session 52):** Step 10.5 added to roadmap — the setup wizard must include an MCP OAuth step that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
+**Setup wizard note (session 52):** The setup wizard (Phase 15) must include an MCP OAuth step (step 15.2) that walks the user through authenticating each configured MCP server (Linear, GitHub, etc.) before their first meeting. `mcp-remote` caches tokens locally after initial browser-based auth, so this is a one-time step. Without it, the first meeting launch would trigger an OAuth popup mid-join.
 
-**Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 13 (Voice).
+**Top open issue (voice, deferred):** Premature finalization at 0.7s silence threshold cuts off mid-sentence prompts. See `docs/latency.md` for pipeline measurements and six reduction ideas. Will be addressed in Phase 11 (voice steps 11.5–11.8).
 
 **Architecture note (session 47):** CaptionsAdapter and MacOSAdapter have duplicated browser session logic (~150 lines each). User considered refactoring into a shared base but decided against it — chat is shipping first, so keeping them separate avoids unnecessary abstraction. Revisit when both paths need parallel maintenance.
 
@@ -147,8 +147,8 @@ Design patterns for working with LLMs in this product. Read before making archit
 ## To-Do (non-urgent)
 
 - **Sender time-pattern regex assumes AM/PM format.** The structural sender extraction (session 62 hardening) uses `/\d{1,2}:\d{2}\s*(AM|PM)/i` to find the sender div. Breaks in 24h locales where timestamps render as `"22:35"` without AM/PM. Add 24h pattern `\d{2}:\d{2}` as alternative match when locale support matters.
-- **Caption speaker badge still uses fragile class selectors.** `.NWpY1d, .xoMHSc` in `captions_adapter.py` are obfuscated CSS classes. Structural fix identified: use `firstElementChild` positional extraction (speaker is always first child in its wrapper). Not v1-critical — captions are post-v1 voice path (Phase 13).
-- **MCP-specific format and context hints (step 12.17).** After finalizing supported MCP servers, add per-server hints covering response format and context window hygiene (prefer targeted calls, avoid whole-file retrieval). Depends on 12.1 hints infrastructure. GitHub format guidance added in step 9.11 as the first instance of this pattern.
+- **Caption speaker badge still uses fragile class selectors.** `.NWpY1d, .xoMHSc` in `captions_adapter.py` are obfuscated CSS classes. Structural fix identified: use `firstElementChild` positional extraction (speaker is always first child in its wrapper). Not v1-critical — captions are post-v1 voice path (Phase 11, steps 11.5–11.8).
+- **MCP-specific format and context hints (step 10.11).** After finalizing supported MCP servers, add per-server hints covering response format and context window hygiene (prefer targeted calls, avoid whole-file retrieval). Depends on step 10.1 hints infrastructure. GitHub format guidance added in step 9.11 as the first instance of this pattern.
 - **Revisit LLM history compaction if needed.** Context overflow handling in step 9.11 clears history as a last resort. If long meetings with heavy tool use make this a frequent problem, consider summarizing old turns instead of discarding them (one extra LLM call per compaction). Deferred — meetings are short and 128k context is generous.
 
 ---

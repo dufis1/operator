@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 9, 2026 (session 71)*
+*Last updated: April 11, 2026 (session 73)*
 
-> **Current status: Phase 9 in progress (session 71).** Completed: 9.1, 9.4, 9.5, 9.6, 9.7, 9.11, 9.12, 9.13, 9.15. Deferred to Phase 12: 9.2, 9.3, 9.8, 9.9, 9.10, 9.14, 9.16. Phase 9 complete — moving to Phase 10.
+> **Current status: Phase 10 in progress (MCP Finalization & Hardening).** Pre-work for step 10.1: locked in Notion, Slack, Brave Search as default commented-out MCP servers; completed full Linear pressure test (13 tests, 11 fail modes documented in `docs/mcp-pressure-test.md`). GitHub pressure testing is next, then Notion/Slack/Brave (need auth). After all servers tested, implement 10.1 hints field and 10.11 per-server hints.
 
 ---
 
@@ -33,7 +33,7 @@ Shared loop extracted into `pipeline/runner.py`. OS auto-detection via `python -
 Replaced ScreenCaptureKit + Whisper with Google Meet DOM caption scraping. Eliminates echo problem, privacy issues, and Whisper dependency on macOS.
 
 ### Phase 11 (original): MCP Integration ✅
-MCP client connects to configured servers at startup, discovers tools. Tool-call loop in LLMClient handles tool_call → execute → result → re-prompt. Chat-specific LLM settings. Config schema for `mcp_servers`. Validated with Linear and GitHub MCP servers end-to-end in live Meet.
+MCP client connects to configured servers at startup, discovers tools. Tool-call loop in LLMClient handles tool_call → execute → result → re-prompt. Chat-specific LLM settings. Config schema for `mcp_servers`. Validated with Linear and GitHub MCP servers end-to-end in live Meet. GitHub MCP server upgraded from deprecated npm package to official Go binary (`github/github-mcp-server` v0.32.0).
 
 ### Phase 7: Performance Iteration ✅ (partial)
 Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisper), streaming classification, playback interrupt classification, latency docs. Deferred to voice phase: TTS error handling/retry, premature finalization at 0.7s silence threshold.
@@ -88,91 +88,117 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 ---
 
-## Phase 10: Open-Source Packaging ← V1 RELEASE GATE
+## Phase 10: MCP Finalization & Hardening
 
-*Package the project so a stranger can clone, install, and run it in under 15 minutes.*
+*Finalize MCP as a first-class capability before layering more modalities on top.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 10.1 | Config audit & cleanup — remove dead keys, ensure every key is necessary, document what each controls; balance simplicity with tool-oriented customizability | ⬜ | ~2h |
-| 10.2 | Add `pyproject.toml` — package name, Python version, entry points | ⬜ | ~1h |
-| 10.3 | Add `LICENSE` (MIT) | ⬜ | ~5m |
-| 10.4 | Rewrite `README.md` — what it is, quick start, architecture, "meetings that produce artifacts" positioning | ⬜ | ~3h |
-| 10.5 | Demo video/GIF — 30s screen recording of chat-based tool use in a live meeting, embedded at top of README | ⬜ | ~2h |
-| 10.6 | Setup wizard (`operator setup`) — delightful, guided, breezy; auto-detect OS, walk through API keys, voice selection, MCP server auth | ⬜ | ~6h |
-| 10.7 | MCP OAuth setup step in wizard — authenticate each configured MCP server (Linear, GitHub, etc.) so tokens are cached before first meeting | ⬜ | ~4h |
-| 10.8 | First-run smoke test — automated health check after setup: LLM reachable? MCP servers connect? Browser profile valid? Surface issues before first meeting | ⬜ | ~3h |
-| 10.9 | Upgrade GitHub MCP server — deprecated npm package → official Go binary from `github/github-mcp-server` | ✅ | — |
-| 10.10 | Example configs / quickstart templates — pre-built config.yaml examples for common setups (minimal, full MCP, local-only) | ⬜ | ~1h |
-| 10.11 | Dependency pinning + reproducible installs — lockfile, pinned versions, tested Python version matrix (3.11, 3.12) | ⬜ | ~2h |
-| 10.12 | CI/CD pipeline — automated tests on PR, release tagging, PyPI publish workflow | ⬜ | ~4h |
-| 10.13 | Contributing guide — how to contribute, code standards, PR process, how to add MCP servers | ⬜ | ~1h |
-| 10.14 | MCP server compatibility matrix — documented list of tested servers, known quirks, model-specific behavior notes | ⬜ | ~2h |
-| 10.15 | Changelog / release notes — CHANGELOG.md, semver tagging, clear upgrade path between versions | ⬜ | ~1h |
-| 10.16 | Issue templates — GitHub issue/bug/feature request templates for consistent community reporting | ⬜ | ~30m |
-| 10.17 | Code of conduct | ⬜ | ~15m |
-| 10.18 | Architecture docs — visual diagrams (data flow, layer separation), aimed at contributors not just users | ⬜ | ~3h |
+| 10.1 | Per-MCP `hints` field in config — server-specific LLM guidance injected into system prompt | ⬜ | ~1h |
+| 10.2 | Configurable tool confirmation modes — `auto-all`, `read-auto`, `confirm-all`, `session-trust` + `batch_preview` toggle | ⬜ | ~4h |
+| 10.3 | Read-only tool classification — tag tools at discovery time from descriptions, auto-approve reads in `read-auto` mode | ⬜ | ~2h |
+| 10.4 | User-defined MCP servers — users add custom servers in config with command, args, env, hints | ⬜ | ~1h |
+| 10.5 | User-defined MCP guard rails — validation at setup, execution timeouts, result size caps, `confirm-all` default for untrusted servers | ⬜ | ~3h |
+| 10.6 | Optional managed MCP client layer — allow users to point at an MCP proxy/gateway instead of local stdio servers (Cloudflare, etc.) | ⬜ Post-v1 | ~4h |
+| 10.7 | Pin MCP server versions — lock `mcp-remote` to a specific version in config, pin GitHub binary version; prevent surprise breakage from upstream changes | ⬜ | ~1h |
+| 10.8 | MCP server health check — CI job that starts each configured MCP server and calls `list_tools()`; alert on failure; dry-run tool call per server | ⬜ | ~2h |
+| 10.9 | MCP tool call failure monitoring — track per-server `MCPToolError` rate at runtime; log warning when failure rate spikes above threshold; surface in diagnostics | ⬜ | ~2h |
+| 10.10 | Idempotency guards — prevent duplicate tool actions from repeated requests ("create a ticket" said twice), confirmation before write operations | ⬜ | ~3h |
+| 10.11 | MCP-specific format and context hints — after finalizing supported MCP servers, add per-server hints covering response format guidance and context window hygiene (e.g. prefer targeted calls over whole-file retrieval). Depends on 10.1 hints infrastructure. Informed by patterns established in step 9.11. | ⬜ | ~2h |
 
 ---
 
-## Phase 11: Multi-Model & Provider Support
+## Phase 11: Multi-Modal & Multi-Model
 
-*Break the OpenAI lock-in. Enable local-only mode as a differentiator.*
+*Break the OpenAI lock-in and layer voice on top of chat — both are modality expansions.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
 | 11.1 | Abstract LLM provider interface — swap between OpenAI, Anthropic, local without code changes | ⬜ | ~3h |
 | 11.2 | Anthropic API backend — Claude as alternative LLM provider | ⬜ | ~3h |
-| 11.3 | OpenAI model matrix testing — validate behavior across GPT-4.1-mini, GPT-4.1, GPT-4o, o3-mini | ⬜ | ~3h |
-| 11.4 | MCP tool pressure testing — every tool × every supported model, explicit + implicit + indirect requests | ⬜ | ~4h |
-| 11.5 | Meeting transcript as context — feed full meeting chat history (not just current message) to LLM during tool calls | ⬜ | ~2h |
-| 11.6 | Local LLM support — Ollama/llama.cpp for fully zero-API-key deployment (with local Whisper + Kokoro TTS) | ⬜ | ~4h |
-| 11.7 | Telemetry / diagnostics (opt-in) — anonymous usage stats to understand what's breaking in the wild, with clear opt-out | ⬜ | ~4h |
+| 11.3 | Local LLM support — Ollama/llama.cpp for fully zero-API-key deployment (with local Whisper + Kokoro TTS) | ⬜ | ~4h |
+| 11.4 | Meeting transcript as context — feed full meeting chat history (not just current message) to LLM during tool calls | ⬜ | ~2h |
+| 11.5 | Voice: resolve premature finalization (0.7s silence threshold) | ⬜ | ~3h |
+| 11.6 | Voice: TTS reliability — error handling and retry logic | ⬜ | ~2h |
+| 11.7 | Voice: validate partial-wake idea (#6 from latency.md) | ⬜ | ~2h |
+| 11.8 | Voice: add `MODE` key to config.yaml: `voice` \| `chat` \| `both` | ⬜ | ~2h |
 
 ---
 
-## Phase 12: MCP Hardening & Extensibility
+## Phase 12: Pressure Testing & Cross-Modal Validation
 
-*Make MCP integration robust, configurable, and open to user-defined servers.*
+*Prove everything works across all models and modalities before locking the code.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 12.1 | Per-MCP `hints` field in config — server-specific LLM guidance injected into system prompt | ⬜ | ~1h |
-| 12.2 | Setup wizard auto-populates hints — resolve identity (GitHub `get_me`, etc.) during onboarding, store in config | ⬜ | ~2h |
-| 12.3 | Configurable tool confirmation modes — `auto-all`, `read-auto`, `confirm-all`, `session-trust` + `batch_preview` toggle | ⬜ | ~4h |
-| 12.4 | Read-only tool classification — tag tools at discovery time from descriptions, auto-approve reads in `read-auto` mode | ⬜ | ~2h |
-| 12.5 | User-defined MCP servers — users add custom servers in config with command, args, env, hints | ⬜ | ~1h |
-| 12.6 | User-defined MCP guard rails — validation at setup, execution timeouts, result size caps, `confirm-all` default for untrusted servers | ⬜ | ~3h |
-| 12.7 | Optional managed MCP client layer — allow users to point at an MCP proxy/gateway instead of local stdio servers (Cloudflare, etc.) | ⬜ Post-v1 | ~4h |
-| 12.8 | DOM regression test suite — automated tests against a live Meet session on a schedule, catch selector breakage early (moved from 9.2) | ⬜ | ~4h |
-| 12.9 | Self-healing selectors — fallback strategies when primary selectors fail (multiple selector candidates, semantic search, graceful degradation) (moved from 9.3) | ⬜ | ~6h |
-| 12.10 | Pin MCP server versions — lock `mcp-remote` to a specific version in config, pin GitHub binary version; prevent surprise breakage from upstream changes | ⬜ | ~1h |
-| 12.11 | Dependabot + pip-audit — add `.github/dependabot.yml` for automated dependency PRs; add `pip-audit` step to CI smoke test for CVE detection | ⬜ | ~1h |
-| 12.12 | MCP server health check — weekly CI job that starts each configured MCP server and calls `list_tools()`; alert on failure. Extend step 10.8 smoke test with a dry-run tool call per server | ⬜ | ~2h |
-| 12.13 | MCP tool call failure monitoring — track per-server `MCPToolError` rate at runtime; log warning when failure rate spikes above threshold; surface in diagnostics | ⬜ | ~2h |
-| 12.14 | Log cleanup — structured, consistent log levels; clean stdout for normal operation, verbose for debug (moved from 9.8) | ⬜ | ~2h |
-| 12.15 | Latency audit — profile end-to-end chat path, identify and shave unnecessary delays (moved from 9.9) | ⬜ | ~2h |
-| 12.16 | Comprehensive error handling pass — graceful MCP server failure, tool call rate limiting, runaway loop prevention, user-friendly error messages in chat (no stack traces) (moved from 9.10) | ⬜ | ~4h |
-| 12.17 | MCP-specific format and context hints — after finalizing supported MCP servers, add per-server hints covering response format guidance and context window hygiene (e.g. prefer targeted calls over whole-file retrieval). Depends on 12.1 hints infrastructure. Informed by patterns established in step 9.11. | ⬜ | ~2h |
-| 12.18 | Idempotency guards — prevent duplicate tool actions from repeated requests ("create a ticket" said twice), confirmation before write operations (moved from 9.14) | ⬜ | ~3h |
-| 12.19 | Edge case pass — systematic audit of boundary conditions: empty meetings, rapid join/leave, malformed chat input, Unicode/emoji in messages, MCP server returning unexpected data, concurrent tool calls, browser memory leaks in long meetings (moved from 9.16) | ⬜ | ~4h |
+| 12.1 | OpenAI model matrix testing — validate behavior across GPT-4.1-mini, GPT-4.1, GPT-4o, o3-mini | ⬜ | ~3h |
+| 12.2 | MCP tool pressure testing — every tool × every supported model, explicit + implicit + indirect requests | ⬜ | ~4h |
+| 12.3 | DOM regression test suite — automated tests against a live Meet session on a schedule, catch selector breakage early | ⬜ | ~4h |
+| 12.4 | Self-healing selectors — fallback strategies when primary selectors fail (multiple selector candidates, semantic search, graceful degradation) | ⬜ | ~6h |
+| 12.5 | Edge case pass — systematic audit of boundary conditions: empty meetings, rapid join/leave, malformed chat input, Unicode/emoji in messages, MCP server returning unexpected data, concurrent tool calls, browser memory leaks in long meetings | ⬜ | ~4h |
 
 ---
 
-## Phase 13: Voice Interaction
+## Phase 13: Audits & Code Polish
 
-*Layer voice as a second interaction modality on top of the proven chat capability layer.*
+*All cleanup and hardening before the code is considered frozen.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 13.1 | Resolve premature finalization (0.7s silence threshold) | ⬜ | ~3h |
-| 13.2 | TTS reliability — error handling and retry logic | ⬜ | ~2h |
-| 13.3 | Validate partial-wake idea (#6 from latency.md) | ⬜ | ~2h |
-| 13.4 | Add `MODE` key to config.yaml: `voice` \| `chat` \| `both` | ⬜ | ~2h |
+| 13.1 | Config audit & cleanup — remove dead keys, ensure every key is necessary, document what each controls; balance simplicity with tool-oriented customizability | ⬜ | ~2h |
+| 13.2 | Log cleanup — structured, consistent log levels; clean stdout for normal operation, verbose for debug | ⬜ | ~2h |
+| 13.3 | Latency audit — profile end-to-end chat path, identify and shave unnecessary delays | ⬜ | ~2h |
+| 13.4 | Comprehensive error handling pass — graceful MCP server failure, tool call rate limiting, runaway loop prevention, user-friendly error messages in chat (no stack traces) | ⬜ | ~4h |
+| 13.5 | Telemetry / diagnostics (opt-in) — anonymous usage stats to understand what's breaking in the wild, with clear opt-out | ⬜ | ~4h |
+| 13.6 | Dependabot + pip-audit — add `.github/dependabot.yml` for automated dependency PRs; add `pip-audit` step to CI smoke test for CVE detection | ⬜ | ~1h |
 
 ---
 
-## Phase 14: Meeting Platform Expansion (demand-driven)
+## Phase 14: Housekeeping
+
+*Code is frozen. Package it for the world.*
+
+| Step | Description | Status | Est. |
+|------|-------------|--------|------|
+| 14.1 | Add `pyproject.toml` — package name, Python version, entry points | ⬜ | ~1h |
+| 14.2 | Add `LICENSE` (MIT) | ⬜ | ~5m |
+| 14.3 | Dependency pinning + reproducible installs — lockfile, pinned versions, tested Python version matrix (3.11, 3.12) | ⬜ | ~2h |
+| 14.4 | CI/CD pipeline — automated tests on PR, release tagging, PyPI publish workflow | ⬜ | ~4h |
+| 14.5 | Contributing guide — how to contribute, code standards, PR process, how to add MCP servers | ⬜ | ~1h |
+| 14.6 | MCP server compatibility matrix — documented list of tested servers, known quirks, model-specific behavior notes | ⬜ | ~2h |
+| 14.7 | Changelog / release notes — CHANGELOG.md, semver tagging, clear upgrade path between versions | ⬜ | ~1h |
+| 14.8 | Issue templates — GitHub issue/bug/feature request templates for consistent community reporting | ⬜ | ~30m |
+| 14.9 | Code of conduct | ⬜ | ~15m |
+| 14.10 | Architecture docs — visual diagrams (data flow, layer separation), aimed at contributors not just users | ⬜ | ~3h |
+| 14.11 | Example configs / quickstart templates — pre-built config.yaml examples for common setups (minimal, full MCP, local-only) | ⬜ | ~1h |
+
+---
+
+## Phase 15: Setup Wizard
+
+*Guided onboarding so a stranger can be up and running in one sitting.*
+
+| Step | Description | Status | Est. |
+|------|-------------|--------|------|
+| 15.1 | Setup wizard (`operator setup`) — delightful, guided, breezy; auto-detect OS, walk through API keys, voice selection, MCP server auth | ⬜ | ~6h |
+| 15.2 | MCP OAuth setup step in wizard — authenticate each configured MCP server (Linear, GitHub, etc.) so tokens are cached before first meeting | ⬜ | ~4h |
+| 15.3 | Setup wizard auto-populates per-MCP hints — resolve identity (GitHub `get_me`, etc.) during onboarding, store in config | ⬜ | ~2h |
+| 15.4 | First-run smoke test — automated health check after setup: LLM reachable? MCP servers connect? Browser profile valid? Surface issues before first meeting | ⬜ | ~3h |
+
+---
+
+## Phase 16: README & Launch ← MVP GATE
+
+*Ship it.*
+
+| Step | Description | Status | Est. |
+|------|-------------|--------|------|
+| 16.1 | Rewrite `README.md` — what it is, quick start, architecture, "meetings that produce artifacts" positioning | ⬜ | ~3h |
+| 16.2 | Demo video/GIF — 30s screen recording of chat-based tool use in a live meeting, embedded at top of README | ⬜ | ~2h |
+
+---
+
+## Phase 17: Meeting Platform Expansion (demand-driven)
 
 *Add support for Zoom and/or Microsoft Teams. Only pursue when a real user needs it.*
 
@@ -182,9 +208,9 @@ Each platform requires: DOM chat selectors, join flow, auth handling, and ongoin
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 14.1 | Define `ChatConnector` interface (read messages, send messages, platform identity) | ⬜ | ~2h |
-| 14.2 | Zoom — spike on chat DOM, implement connector | ⬜ | ~8h |
-| 14.3 | Microsoft Teams — spike on chat DOM, implement connector | ⬜ | ~8h |
+| 17.1 | Define `ChatConnector` interface (read messages, send messages, platform identity) | ⬜ | ~2h |
+| 17.2 | Zoom — spike on chat DOM, implement connector | ⬜ | ~8h |
+| 17.3 | Microsoft Teams — spike on chat DOM, implement connector | ⬜ | ~8h |
 
 ---
 
@@ -200,7 +226,7 @@ Each platform requires: DOM chat selectors, join flow, auth handling, and ongoin
 - **Licensing:** MIT
 - **Python target:** 3.11
 - **Pivot (April 2026):** Chat-first v1, voice layered on later. Motivated by real user demand for task delegation via meeting chat.
-- **MVP scope (April 2026):** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 14, demand-driven.
+- **MVP scope (April 2026):** Google Meet only, Mac + Linux. Platform cost is in meeting service (DOM selectors, auth), not OS — Playwright is cross-platform. Zoom/Teams deferred to Phase 17, demand-driven.
 - **V1 positioning (April 2026):** "Meetings that produce artifacts, not just words." Tool use during meetings is the moat — no competitor does this. Pika wins on presentation (avatar/voice), Recall wins on infrastructure (multi-platform), Operator wins on capability (MCP tool use, live context, extensibility).
 
 ### Open Questions
