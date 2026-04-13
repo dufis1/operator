@@ -681,6 +681,17 @@ State → idle (Waiting for meeting...)
 POLLING meeting ended — waiting for next
 ```
 
+**Alone-exit auto-leave (session 86 — chat and caption paths):**
+```
+# Chat path (ChatRunner)
+ChatRunner: participant count changed 0 → 2            # observed >1 → saw_others latches true
+ChatRunner: participant count changed 2 → 1            # drop to count==1
+ChatRunner: alone in meeting — grace timer started     # alone_since = now
+ChatRunner: alone for 60s — auto-leaving               # grace expired → connector.leave() + return
+# Caption path (CaptionsAdapter) — same events, CaptionsAdapter prefix. Also possible:
+CaptionsAdapter: participant count failed: ...         # DOM read error (warning, non-fatal — check resumes next cycle)
+```
+
 **Calendar polling mode (no meeting URL argument):**
 ```
 CalendarPoller: reusing cached profile copy (cookies unchanged)   # appears on warm restart only — session 67 mtime gate skipped the rmtree+copytree

@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 12, 2026 (session 85)*
+*Last updated: April 12, 2026 (session 86)*
 
-> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~38h of work against ~50–55h available. All deferred items preserved in Post-MVP section. Phase 10 is next — Linear and GitHub pressure tests already complete (pre-work from sessions 73–74). Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
+> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~38h of work against ~50–55h available. All deferred items preserved in Post-MVP section. Session 86 added alone-exit auto-leave (chat path tested live; voice path implemented, untested). Phase 10 is still next — Linear and GitHub pressure tests already complete (pre-work from sessions 73–74). Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
 
 ---
 
@@ -58,7 +58,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 8.1 | Chat I/O proof of concept — bot reads and writes Google Chat messages during a live meeting (echo test, no LLM). Create `ChatRunner` alongside `AgentRunner` — same `LLMClient`, simpler I/O loop. No codebase reorg needed; existing connector/pipeline separation already fits. | ✅ echo test passing e2e |
 | 8.2 | Wire up the brain — connect chat input to LLM, respond in chat | ✅ |
 | 8.2.1 | Chat hardening — history cap (configurable), wake phrase gating for multi-participant, sender field extraction from DOM | ✅ |
-| 8.2.2 | Meeting lifecycle — pre-join user gate, end-time auto-leave, stale meeting skip, Ctrl+C clean shutdown | ✅ |
+| 8.2.2 | Meeting lifecycle — pre-join user gate, end-time auto-leave, stale meeting skip, Ctrl+C clean shutdown, alone-exit auto-leave (session 86: after others were present, drop count→1 for 60s triggers leave; chat path tested live, voice path mirrored untested) | ✅ |
 | 8.3 | Ship to friend — minimal setup, clear instructions, get it in his hands | ✅ | ~2h |
 
 ---
