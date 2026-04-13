@@ -125,6 +125,30 @@ def _check_mcp() -> int:
     return 0 if not client.failed_servers else 1
 
 
+def _print_mcp_startup_banner(mcp):
+    """Print a one-line MCP status banner to stderr so users see broken
+    servers without needing to tail /tmp/operator.log.
+
+    Called right before the meeting join. Non-blocking — a failed server
+    does not abort startup, it just warns. Users who want a hard gate
+    should run `--check-mcp` before launching.
+    """
+    import config
+    import sys as _sys
+    if not config.MCP_SERVERS:
+        return
+    parts = []
+    for name in config.MCP_SERVERS:
+        if name in mcp.failed_servers:
+            parts.append(f"{name} ✗")
+        else:
+            parts.append(f"{name} ✓")
+    loaded = len(config.MCP_SERVERS) - len(mcp.failed_servers)
+    total = len(config.MCP_SERVERS)
+    suffix = "" if not mcp.failed_servers else " — run --check-mcp for details"
+    print(f"MCP: {loaded}/{total} servers loaded ({', '.join(parts)}){suffix}", file=_sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="operator",
@@ -252,6 +276,7 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
                 llm.inject_mcp_hints(config.MCP_SERVERS)
                 loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
                 llm.inject_mcp_status(loaded, mcp.failed_servers)
+                _print_mcp_startup_banner(mcp)
                 gh_login = mcp.resolve_github_user()
                 if gh_login:
                     llm.inject_github_user(gh_login)
@@ -425,6 +450,7 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
                 llm.inject_mcp_hints(config.MCP_SERVERS)
                 loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
                 llm.inject_mcp_status(loaded, mcp.failed_servers)
+                _print_mcp_startup_banner(mcp)
                 gh_login = mcp.resolve_github_user()
                 if gh_login:
                     llm.inject_github_user(gh_login)
