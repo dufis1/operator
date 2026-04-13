@@ -1,6 +1,6 @@
 # Operator — Roadmap
 
-*Last updated: April 12, 2026 (session 82)*
+*Last updated: April 12, 2026 (session 84)*
 
 > **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~38h of work against ~50–55h available. All deferred items preserved in Post-MVP section. Phase 10 is next — Linear and GitHub pressure tests already complete (pre-work from sessions 73–74). Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
 
