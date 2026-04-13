@@ -106,17 +106,18 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 ---
 
-## Phase 11: Multi-Model
+## Phase 11: Multi-Model & Customization
 
-*Break the OpenAI lock-in. Voice deferred — see Post-MVP.*
+*Break the OpenAI lock-in and deliver the "your AI, not a generic bot" half of the MVP positioning. Voice deferred — see Post-MVP.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
 | 11.1 | Abstract LLM provider interface — swap between OpenAI and Anthropic without code changes | ⬜ | ~3h |
 | 11.2 | Anthropic API backend — Claude as alternative LLM provider | ⬜ | ~3h |
 | 11.3 | Meeting transcript as context — feed full meeting chat history (not just current message) to LLM during tool calls, so requests like "create a ticket for the auth bug Alice just described" actually work | ⬜ | ~2h |
+| 11.4 | Skill file loading — users drop markdown files in a `skills/` directory (path configurable); contents appended to the system prompt at runtime so the bot reflects user identity, team conventions, ticket formats, etc. Delivers the "your AI, not Gemini" customization layer promised in `docs/mvp-bar.md` | ⬜ | ~2h |
 
-**Phase total: ~8h**
+**Phase total: ~10h**
 
 ---
 
@@ -185,7 +186,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 ---
 
-**MVP total: ~38h across Phases 10–16 (against ~50–55h available through April 19, 2026)**
+**MVP total: ~40h across Phases 10–16 (against ~50–55h available through April 19, 2026)**
 
 ---
 
