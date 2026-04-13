@@ -37,6 +37,53 @@ def _detached_popen_init(self, *args, **kwargs):
 subprocess.Popen.__init__ = _detached_popen_init
 
 
+def _kill_orphaned_children():
+    """Last-resort cleanup: kill any child processes that survived graceful shutdown.
+
+    Uses pgrep to find direct children of this process, sends SIGTERM,
+    waits briefly, then SIGKILL any survivors. Works on macOS and Linux.
+    No recursion needed — children use start_new_session=True so killing
+    the direct child is sufficient for its own process group.
+    """
+    import signal as _sig
+    import subprocess as _sp
+    import time as _time
+
+    pid = os.getpid()
+    try:
+        result = _sp.run(
+            ["pgrep", "-P", str(pid)],
+            capture_output=True, text=True, timeout=3,
+            start_new_session=False,
+        )
+    except Exception:
+        return
+
+    child_pids = [int(p) for p in result.stdout.strip().split("\n") if p.strip()]
+    if not child_pids:
+        return
+
+    import logging
+    log = logging.getLogger("operator")
+    log.warning(f"Safety net: killing {len(child_pids)} orphaned child process(es): {child_pids}")
+
+    for cpid in child_pids:
+        try:
+            os.kill(cpid, _sig.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    _time.sleep(0.5)
+
+    for cpid in child_pids:
+        try:
+            os.kill(cpid, 0)  # check if still alive
+            os.kill(cpid, _sig.SIGKILL)
+            log.warning(f"Safety net: SIGKILL sent to pid {cpid}")
+        except ProcessLookupError:
+            pass
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="operator",
@@ -152,8 +199,8 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         if mcp_thread:
             mcp_thread.join()
             mcp = _mcp_result["client"]
-            # Resolve GitHub username and inject into LLM system prompt
             if mcp:
+                llm.inject_mcp_hints(config.MCP_SERVERS)
                 gh_login = mcp.resolve_github_user()
                 if gh_login:
                     llm.inject_github_user(gh_login)
@@ -207,6 +254,7 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         if poller:
             poller.stop()
         connector.leave()
+        _kill_orphaned_children()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
@@ -323,7 +371,7 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
             try:
                 tool_names = mcp.connect_all()
                 log.info(f"MCP tools discovered: {tool_names}")
-                # Resolve GitHub username and inject into LLM system prompt
+                llm.inject_mcp_hints(config.MCP_SERVERS)
                 gh_login = mcp.resolve_github_user()
                 if gh_login:
                     llm.inject_github_user(gh_login)
@@ -352,6 +400,7 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
         if mcp:
             mcp.shutdown()
         connector.leave()
+        _kill_orphaned_children()
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)

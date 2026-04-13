@@ -8,6 +8,7 @@ import json
 import logging
 import openai
 import config
+from pipeline.guardrails import validate_tool_result, log_rejection
 
 log = logging.getLogger(__name__)
 
@@ -33,23 +34,30 @@ class LLMClient:
             self._system_prompt = config.SYSTEM_PROMPT
             self._max_tokens = 60
 
-    def inject_github_user(self, login: str):
-        """Add the authenticated GitHub username to the system prompt.
+    def inject_mcp_hints(self, servers: dict):
+        """Append per-server hints from config to the system prompt.
 
-        This prevents the model from guessing usernames based on display names.
+        servers: config.MCP_SERVERS dict — only entries with non-empty
+        'hints' values are injected.
         """
-        hint = (
-            f"\nGitHub tool usage rules:"
-            f"\n- The authenticated user's login is \"{login}\". Always use \"{login}\" as the owner — never guess from chat display names."
-            f"\n- To explore a repo, use get_file_contents to list directories and read files. Start from the root or the path the user mentions. Never guess file paths."
-            f"\n- Avoid search_code — it often returns no results for small repos. Prefer browsing the repo with get_file_contents instead."
-            f"\nGitHub response format:"
-            f"\n- Never describe a file's likely contents — read it first, then summarize what it actually says."
-            f"\n- For multi-step tasks (e.g. list directory → read a file), chain your tool calls without pausing to narrate intermediate steps. The confirmation flow asks the user before each tool executes — you don't need to ask in chat."
-            f"\n- When summarizing: filename + 1–2 sentences on actual content. No search narration."
-        )
+        sections = []
+        for name, srv in servers.items():
+            hints = srv.get("hints", "").strip()
+            if hints:
+                sections.append(f"\n{name} tool usage:\n{hints}")
+        if sections:
+            self._system_prompt += "\n" + "\n".join(sections)
+            log.info(f"LLM injected MCP hints for: {', '.join(s for s, srv in servers.items() if srv.get('hints', '').strip())}")
+
+    def inject_github_user(self, login: str):
+        """Add the authenticated GitHub login to the system prompt.
+
+        This is dynamic (resolved at startup via get_me) so it lives in code,
+        not in config hints.
+        """
+        hint = f"\nThe authenticated GitHub user's login is \"{login}\". Always use \"{login}\" as the owner — never guess from chat display names."
         self._system_prompt += hint
-        log.info(f"LLM injected GitHub user hint: {login}")
+        log.info(f"LLM injected GitHub user: {login}")
 
     def ask(self, utterance, record=True, tools=None):
         """Send an utterance to GPT and return the reply.
@@ -200,6 +208,14 @@ class LLMClient:
             result_content = (
                 f"[tool result archived — {shown} of {total} chars shown. "
                 f"Call the tool again with a narrower scope to retrieve more]"
+            )
+        # Validate content for binary/non-text data before it enters history
+        is_safe, reason = validate_tool_result(result_content)
+        if not is_safe:
+            log_rejection(tool_name, {"result_length": len(result_content)}, reason, "post-execution")
+            result_content = (
+                f"[tool result blocked — {reason}. "
+                f"Try requesting a text file or a different resource.]"
             )
         self._history.append({
             "role": "tool",

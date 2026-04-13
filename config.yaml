@@ -33,6 +33,8 @@ llm:
     Meeting chat is a side panel — participants are glancing, not reading.
     Lead with the answer. No preamble, no filler, no narrating your process, no trailing offers or follow-up questions.
     Keep every response to 1–3 sentences.
+    If a required parameter is ambiguous or unclear, ask the user to clarify rather than guessing. Do not invent values for owner, repo, team, or assignee that the user did not explicitly state.
+    After any action that creates or modifies an external resource (issue, PR, document, etc.), include the link from the tool result so the user can verify.
     Use a person's name only when greeting them for the first time. Do not repeat their name in subsequent replies.
 
 tts:
@@ -72,17 +74,38 @@ mcp_servers:
   linear:
     command: "npx"
     args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+    confirm_tools: []   # read tools auto-execute; list tool names here to always require confirmation
+    hints: |
+      Always set includeArchived=false unless the user explicitly asks for archived issues.
+      When the user specifies a state, use state types (unstarted, started, backlog, completed, canceled) not display names — status names differ by team. "Todo" is Product team only; Engineering uses "Ready for dev". Do not add a state filter unless the user explicitly asks for one — omitting it returns all states.
+      When setting a specific status (e.g. to cancel an issue), call list_issue_statuses first and use the exact name or ID. If two statuses share a type, use the status ID to avoid ambiguity. If list_issue_statuses returns empty, the name given is probably a project, not a team — ask the user to clarify.
+      For issue detail, use get_issue not list_issues — list_issues truncates descriptions.
+      If hasNextPage=true, the result is partial — tell the user and offer to fetch more.
+      When creating an issue, confirm team, assignee, and priority if not stated by the user.
+      create_document requires a project or issue — ask which project before calling. There is no delete_document tool; warn the user if a document is created in error.
   github:
     command: "./github-mcp-server"
     args: ["stdio"]
+    confirm_tools: []   # read tools auto-execute; list tool names here to always require confirmation
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    hints: |
+      When reading a file on a non-default branch, always pass ref=<branch>. Without ref, the API silently returns the main branch copy or 404.
+      search_code can return 0 results even when matching code exists (GitHub's search index has delays). Empty results don't mean the code is absent.
+      When the user refers to "my repo" or "our repo", scope search_repositories with user:<login> (from get_me) or org:<org>. Unscoped queries return tens of thousands of unrelated results.
+      Set minimal_output=true on search tools when full API objects are not needed.
+      For directory navigation, a single-level listing is fine. Do not traverse recursively — directory entries are verbose.
+      If a write tool returns HTTP 403 "Resource not accessible by personal access token", the PAT is missing permissions — tell the user rather than retrying.
+      To explore a repo, use get_file_contents to list directories and read files. Start from the root or the path the user mentions. Never guess file paths.
+      For multi-step tasks (e.g. list directory then read a file), chain tool calls without pausing to narrate intermediate steps.
+      When summarizing: filename + 1-2 sentences on actual content. No search narration. Never describe a file's likely contents — read it first.
 
   # notion:
   #   command: "npx"
   #   args: ["-y", "@notionhq/notion-mcp-server"]
   #   env:
   #     NOTION_API_KEY: "${NOTION_API_KEY}"       # create at notion.so/profile/integrations
+  #   hints: ""    # fill in after pressure testing
 
   # slack:
   #   command: "npx"
@@ -90,9 +113,11 @@ mcp_servers:
   #   env:
   #     SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"     # Bot User OAuth Token from api.slack.com/apps
   #     SLACK_TEAM_ID: "${SLACK_TEAM_ID}"         # Workspace ID from Settings > About
+  #   hints: ""    # fill in after pressure testing
 
   # brave_search:
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-brave-search"]
   #   env:
   #     BRAVE_API_KEY: "${BRAVE_API_KEY}"         # api.search.brave.com
+  #   hints: ""    # fill in after pressure testing

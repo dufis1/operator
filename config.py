@@ -73,6 +73,8 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         "command": _srv["command"],
         "args": _srv.get("args", []),
         "env": _resolve_env_vars(_srv.get("env", {})),
+        "hints": _srv.get("hints", "").strip(),
+        "confirm_tools": set(_srv.get("confirm_tools", [])),
     }
 
 # Secrets from .env

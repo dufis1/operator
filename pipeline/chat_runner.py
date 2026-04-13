@@ -14,6 +14,29 @@ import config
 
 log = logging.getLogger(__name__)
 
+# Known read-only MCP tool names (without server prefix).
+# These auto-execute without user confirmation.  Unknown tools default to confirm.
+READ_TOOLS = {
+    # Linear
+    "list_issues", "get_issue", "get_issue_status", "list_issue_statuses",
+    "list_projects", "get_project", "list_teams", "get_team",
+    "list_users", "get_user", "list_cycles", "list_milestones", "get_milestone",
+    "list_documents", "get_document", "list_comments",
+    "list_issue_labels", "list_project_labels",
+    "search_documentation", "research",
+    "get_attachment", "list_issue_types",
+    "extract_images",
+    # GitHub
+    "get_me", "get_file_contents", "get_commit", "get_tag",
+    "get_label", "get_latest_release", "get_release_by_tag",
+    "list_branches", "list_commits", "list_issues", "list_pull_requests",
+    "list_releases", "list_tags", "list_issue_types",
+    "get_team_members", "get_teams",
+    "search_code", "search_issues", "search_pull_requests",
+    "search_repositories", "search_users",
+    "issue_read", "pull_request_read",
+}
+
 POLL_INTERVAL = 0.5  # seconds between read_chat() calls
 PARTICIPANT_CHECK_INTERVAL = 3  # seconds between participant count checks
 ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip wake phrase)
@@ -186,18 +209,32 @@ class ChatRunner:
             self._send(result)
             return
 
-        if result["type"] == "text":
-            self._send(result["content"])
-        elif result["type"] == "tool_call":
-            self._request_confirmation(result)
-        elif result["type"] == "context_overflow":
-            self._send("Our conversation got too long — I've cleared the history. What would you like to do next?")
+        self._dispatch_result(result)
+
+    def _needs_confirmation(self, tool_call):
+        """Return True if this tool call requires user confirmation."""
+        name = tool_call["name"]
+        parts = name.split("__", 1)
+        server = parts[0] if len(parts) == 2 else None
+        tool = parts[1] if len(parts) == 2 else name
+
+        # User override: always confirm these even if they're reads
+        if server and server in config.MCP_SERVERS:
+            if tool in config.MCP_SERVERS[server]["confirm_tools"]:
+                return True
+
+        # Default: auto-approve known reads, confirm everything else
+        return tool not in READ_TOOLS
 
     def _request_confirmation(self, tool_call):
         """Ask user for confirmation before executing a tool."""
         self._pending_tool_call = tool_call
         name = tool_call["name"]
         args = tool_call["arguments"]
+
+        # Strip 'limit' the LLM injects unprompted on Linear list calls
+        if name.startswith("linear__"):
+            args.pop("limit", None)
 
         # "linear__create_issue" -> tool "create_issue", server "linear"
         parts = name.split("__", 1)
@@ -216,33 +253,55 @@ class ChatRunner:
     def _handle_confirmation(self, text):
         """Process user's yes/no response to a pending tool call."""
         lower = text.lower()
+        words = set(re.findall(r"\b\w+\b", lower))
 
-        affirmative = any(w in lower for w in
-                          ("yes", "ok", "sure", "go ahead", "do it",
-                           "approve", "confirmed", "yep", "yeah"))
-        negative = any(w in lower for w in
-                       ("no", "cancel", "don't", "stop", "nope",
-                        "nah", "nevermind"))
+        affirmative = bool(words & {
+            "yes", "ok", "sure", "approve", "confirmed", "yep", "yeah"
+        }) or "go ahead" in lower or "do it" in lower
 
         tc = self._pending_tool_call
 
-        if negative:
+        if affirmative:
+            # Fall through to tool execution below
+            pass
+        else:
+            # Not a clear yes — treat as a correction, not a cancellation.
+            # Pass the user's feedback back to the LLM so it can re-propose
+            # with adjusted parameters.
             self._pending_tool_call = None
-            self._send("OK, cancelled.")
+            reason = f"User wants to adjust this call and said: \"{text}\" — re-propose the corrected tool call."
             try:
-                self._llm.send_tool_result(
-                    tc["id"], tc["name"], "User cancelled this action.")
+                tools = self._mcp.get_openai_tools() if self._mcp else None
+                result = self._llm.send_tool_result(
+                    tc["id"], tc["name"], reason, tools=tools)
             except Exception as e:
-                log.warning(f"ChatRunner: cancel result call failed: {e}")
+                log.warning(f"ChatRunner: correction result call failed: {e}")
+                return
+
+            self._dispatch_result(result)
             return
 
-        if not affirmative:
-            # Ambiguous — ask again
-            self._send("Please confirm: yes to proceed, no to cancel.")
-            return
-
-        # User confirmed — execute the tool in a background thread with heartbeat + timeout
+        # User confirmed — execute
         self._pending_tool_call = None
+        self._execute_and_respond(tc)
+
+    def _dispatch_result(self, result):
+        """Route an LLM result (text, tool_call, or context_overflow)."""
+        if isinstance(result, str):
+            self._send(result)
+        elif result["type"] == "text":
+            self._send(result["content"])
+        elif result["type"] == "tool_call":
+            if self._needs_confirmation(result):
+                self._request_confirmation(result)
+            else:
+                self._execute_and_respond(result)
+        elif result["type"] == "context_overflow":
+            self._send("Our conversation got too long — I've cleared the history. What would you like to do next?")
+
+    def _execute_and_respond(self, tc):
+        """Execute a tool call in a background thread with heartbeat + timeout, then feed result to LLM."""
+        log.info(f"ChatRunner: auto-executing {tc['name']}")
         result_holder = [None]
         error_holder = [None]
         done_event = threading.Event()
@@ -304,14 +363,7 @@ class ChatRunner:
             self._send("Tool succeeded but I couldn't summarize the result.")
             return
 
-        if isinstance(result, str):
-            self._send(result)
-        elif result["type"] == "tool_call":
-            self._request_confirmation(result)
-        elif result["type"] == "context_overflow":
-            self._send("Our conversation got too long — I've cleared the history. What would you like to do next?")
-        else:
-            self._send(result["content"])
+        self._dispatch_result(result)
 
     def _send(self, text):
         """Send a chat message and track it as our own."""

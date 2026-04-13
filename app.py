@@ -220,7 +220,46 @@ class OperatorApp(rumps.App):
             self._calendar_poller.stop()
         if self.connector:
             self.connector.leave()
+        self._kill_orphaned_children()
         rumps.quit_application()
+
+    @staticmethod
+    def _kill_orphaned_children():
+        """Last-resort cleanup: kill any child processes that survived shutdown."""
+        import signal as _sig
+
+        pid = os.getpid()
+        try:
+            result = subprocess.run(
+                ["pgrep", "-P", str(pid)],
+                capture_output=True, text=True, timeout=3,
+                start_new_session=False,
+            )
+        except Exception:
+            return
+
+        child_pids = [int(p) for p in result.stdout.strip().split("\n") if p.strip()]
+        if not child_pids:
+            return
+
+        log = logging.getLogger("operator")
+        log.warning(f"Safety net: killing {len(child_pids)} orphaned child process(es): {child_pids}")
+
+        for cpid in child_pids:
+            try:
+                os.kill(cpid, _sig.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+        time.sleep(0.5)
+
+        for cpid in child_pids:
+            try:
+                os.kill(cpid, 0)
+                os.kill(cpid, _sig.SIGKILL)
+                log.warning(f"Safety net: SIGKILL sent to pid {cpid}")
+            except ProcessLookupError:
+                pass
 
 
 if __name__ == "__main__":

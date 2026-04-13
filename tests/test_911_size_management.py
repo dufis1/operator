@@ -78,10 +78,13 @@ def test_tool_result_size_guard():
 
     llm.send_tool_result("call_abc", "dummy_tool", oversized)
 
-    # The tool message appended to history should be the archive placeholder, not the raw result
-    tool_msg = next(m for m in llm._history if m.get("role") == "tool")
+    # _collapse_tool_exchange removes the tool message from history after the
+    # summary, so check what was sent to the API instead.
+    call_args = llm._client.chat.completions.create.call_args
+    messages = call_args.kwargs["messages"]
+    tool_msg = next(m for m in messages if m.get("role") == "tool")
     assert "archived" in tool_msg["content"], f"Expected archive placeholder, got: {tool_msg['content'][:100]}"
-    assert oversized not in tool_msg["content"], "Raw oversized content leaked into history"
+    assert oversized not in tool_msg["content"], "Raw oversized content leaked into API call"
     print("PASS  test_tool_result_size_guard")
 
 

@@ -17,6 +17,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 import config
+from pipeline.guardrails import is_text_file_path, log_rejection
 
 log = logging.getLogger(__name__)
 
@@ -90,6 +91,20 @@ class MCPClient:
         server_name = info["server_name"]
         original_name = tool_name.split("__", 1)[1] if "__" in tool_name else tool_name
         handle = self._servers[server_name]
+
+        # Strip 'limit' the LLM injects unprompted on Linear list calls —
+        # the model ignores prompt hints, so enforce it here.
+        if server_name == "linear" and "limit" in arguments:
+            log.info(f"MCP stripping unprompted limit={arguments['limit']} from {tool_name}")
+            arguments = {k: v for k, v in arguments.items() if k != "limit"}
+
+        # Block binary file reads before the MCP call fires.
+        # Works for any server exposing get_file_contents, not just GitHub.
+        if original_name == "get_file_contents" and "path" in arguments:
+            if not is_text_file_path(arguments["path"]):
+                reason = f"Blocked: '{arguments['path']}' has a non-text file extension — only text files are allowed"
+                log_rejection(tool_name, arguments, reason, "pre-execution")
+                raise MCPToolError(reason)
 
         log.info(f"MCP executing tool={tool_name} server={server_name}")
         log.debug(f"MCP tool arguments: {json.dumps(arguments)}")
@@ -211,28 +226,44 @@ class _ServerHandle:
         except Exception as e:
             raise MCPToolError(f"Tool '{tool_name}' failed: {e}") from e
 
-    def stop(self, timeout=5):
-        """Signal the server task to shut down."""
+    def stop(self, timeout=6):
+        """Signal the server task to shut down and wait for graceful cleanup."""
         if self._shutdown_event:
             self._loop.call_soon_threadsafe(self._shutdown_event.set)
         if self._task:
             try:
                 asyncio.run_coroutine_threadsafe(
-                    self._cancel_task(), self._loop
+                    self._wait_then_cancel(), self._loop
                 ).result(timeout=timeout)
             except Exception:
                 pass
 
-    async def _cancel_task(self):
-        if self._task and not self._task.done():
+    async def _wait_then_cancel(self):
+        """Wait for the task to finish; cancel only as a last resort.
+
+        stdio_client's cleanup sequence (close stdin, wait 2s, SIGTERM,
+        wait 2s, SIGKILL) is bounded to ~4s. We wait 5s for it to
+        complete naturally. Cancelling immediately would inject
+        CancelledError into that cleanup, leaving the subprocess alive.
+        """
+        if not self._task or self._task.done():
+            return
+        try:
+            async with asyncio.timeout(5):
+                await self._task
+        except asyncio.TimeoutError:
+            log.warning(f"MCP server '{self.name}': graceful shutdown timed out, force-cancelling")
             self._task.cancel()
             try:
                 await self._task
             except (asyncio.CancelledError, Exception):
                 pass
+        except (asyncio.CancelledError, Exception):
+            pass
 
     async def _run(self):
         """Long-lived task: connect, discover tools, serve requests, shutdown."""
+        self._task = asyncio.current_task()
         self._shutdown_event = asyncio.Event()
         self._session = None
 

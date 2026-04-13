@@ -1,6 +1,6 @@
 # MCP Pressure Test — Living Document
 
-*Last updated: April 11, 2026 (session 72)*
+*Last updated: April 12, 2026 (session 77 — hint validation complete)*
 
 Running record of tool discovery, test results, and hints derived for each MCP server.
 Update in place as tests are executed. Hints column feeds directly into `config.yaml` per-server `hints` fields (step 10.11).
@@ -196,24 +196,48 @@ These were discovered during Phase 9 hardening:
 
 | ID | Description | Type | Status | Fail Mode | Hint Derived |
 |----|-------------|------|--------|-----------|--------------|
-| G1 | "What PRs are open on my repo?" (no repo specified) | Indirect | ⬜ | | |
-| G2 | "What PRs are open on [repo]?" (repo specified) | Direct | ⬜ | | |
-| G3 | "Find where auth is handled in [repo]" | Indirect | ⬜ | | |
-| G4 | "Read [file] and explain it" | Chained | ⬜ | | |
-| G5 | "Read [file], then read the file it imports" | Deep chain | ⬜ | | |
-| G6 | Large file retrieval (>50k chars) | Edge | ⬜ | | |
-| G7 | Binary/image file retrieval | Edge | ⬜ | | |
-| G8 | "List commits on main" | Direct | ⬜ | | |
-| G9 | "Create a GitHub issue titled X" | Direct | ⬜ | | |
-| G10 | "Show open issues assigned to me" | Indirect | ⬜ | | |
-| G11 | Directory listing (no file path) | Edge | ⬜ | | |
-| G12 | Multi-repo ambiguity ("my operator repo") | Edge | ⬜ | | |
-| G13 | "What repos do I have?" | Indirect | ⬜ | | |
+| G1 | "What PRs are open on my repo?" (no repo specified) | Indirect | ✅ | LLM resolves owner via `get_me` (already injected at startup), then needs a repo — user disambiguates. No crash. | Keep owner injection; prompt for repo name when ambiguous |
+| G2 | "What PRs are open on [repo]?" (repo specified) | Direct | ✅ | Clean — `list_pull_requests` returns expected shape. | None |
+| G3 | "Find where auth is handled in [repo]" | Indirect | ❌ | `search_code` returns 0 results on small/new repo (operator fixture) even when terms exist in the tree. Confirms pre-existing known fail mode. No error raised — silent empty. | Already covered: steer LLM to `get_file_contents` + directory traversal instead of `search_code` on small repos |
+| G4 | "Read [file] and explain it" | Chained | ✅ | `get_file_contents` on small text file works cleanly. Content extracted from `EmbeddedResource.resource.text`. | None |
+| G5 | "Read [file], then read the file it imports" | Deep chain | ⚠️ | Works, but required explicit `ref=<branch>` — on non-default branch (`test/pr-fixture`), calling without `ref` silently returned main's copy of the path (404 since file only existed on the feature branch). | Always pass `ref` when file lives on a non-default branch; don't trust implicit default |
+| G6 | Large file retrieval (>50k chars) | Edge | ❌ | 109,337-char `test/large_log.txt` → **single tool result consumed 164.3k tokens / 82% of context window** in one call. Claude Code auto-archived the result but Operator's pipeline has no equivalent. No `max_bytes` / `offset` / `limit` params on `get_file_contents`. | **Critical:** Check file size via parent directory listing (returns `size` field) before calling `get_file_contents`. Refuse or warn on files >~30KB. |
+| G7 | Binary/image file retrieval | Edge | 🔴 | `test/screenshot.png` (351KB PNG) returned as inline `[image]` block in tool result. **Image got embedded in conversation context and poisoned subsequent API calls with HTTP 400 `"Could not process image"` on every message until `/compact`** — even `/exit` and `/end-session` failed. No way to recover mid-session. | **Critical:** Never call `get_file_contents` on binary/image files. Detect by extension (`.png .jpg .jpeg .gif .webp .pdf .zip .tar .gz .onnx .bin` etc.) and refuse before invoking. |
+| G8 | "List commits on main" | Direct | ✅ | `list_commits` returns 30 commits with full author/committer/verification blocks per entry. Reasonable size (~15KB for 30). | Use `perPage` to cap when only recent commits needed |
+| G9 | "Create a GitHub issue titled X" | Direct | ❌ | Fine-grained PAT (`GITHUB_TOKEN`) is git-protocol scoped; REST calls for `issue_write`, `create_pull_request`, `create_branch`, `create_or_update_file` all return **HTTP 403 "Resource not accessible by personal access token."** User completed these via web UI. | PAT token scope is an env-setup problem, not a tool-hint problem. Document in setup: fine-grained PATs need explicit Contents/Issues/Pull Requests permissions |
+| G10 | "Show open issues assigned to me" | Indirect | ⚠️ | `list_issues` with `assignee=me` returns each issue with a **full user object for creator + assignees + repository object** — ~3KB per issue of redundant nesting. 3 issues ≈ 9KB. Scales poorly. | Use `minimal_output=true` when available; prefer `search_issues` with tight query over `list_issues` for summaries |
+| G11 | Directory listing (no file path) | Edge | ⚠️ | Directory listing returns each entry with `_links.self`, `_links.git`, `_links.html`, `url`, `git_url`, `html_url`, `download_url` — **~10× context bloat vs. just name+path+size+sha**. 30 entries ≈ 8KB. | Directory listings are safe but verbose; fine for single-level navigation. Don't recursively list large trees. |
+| G12 | Multi-repo ambiguity ("my operator repo") | Edge | ✅ | Unscoped `search_repositories(query="operator in:name")` returns **63,680 repos** — first 5 all Kubernetes operators, none the user's. Scoping with `user:dufis1` narrows to 1 result cleanly. | Always scope repo search with `user:<login>` (from `get_me`) or `org:<org>` when the user refers to "my" or "our" repos |
+| G13 | "What repos do I have?" | Indirect | ✅ | `search_repositories(query="user:dufis1", perPage=100)` → 2 repos, ~500 bytes with `minimal_output=true`. Clean. | Use `search_repositories` with `user:<login>` and `minimal_output=true` rather than any listing call |
+
+### Fail Modes Found (session 74)
+
+| # | Fail Mode | Trigger | Severity |
+|---|-----------|---------|----------|
+| 1 | **Large text file poisons context** | `get_file_contents` on any file >~30KB | 🔴 Critical — single call can consume 80%+ of context window; Operator has no auto-archive fallback |
+| 2 | **Binary/image read poisons entire session** | `get_file_contents` on `.png/.jpg/.pdf/.bin` etc. | 🔴 Critical — image embeds into context, API returns HTTP 400 on every subsequent request until `/compact`; session is bricked with no recovery |
+| 3 | **`search_code` silently empty on small repos** | Any `search_code` on low-activity repo | 🟠 High — no error, just 0 results; LLM reports "not found" falsely (pre-existing, already hinted) |
+| 4 | **Non-default branch reads return wrong content without `ref`** | `get_file_contents` on file that only exists on feature branch, no `ref` param | 🟠 High — silently returns main's version or 404; easy to miss |
+| 5 | **Fine-grained PAT blocks all write tools with 403** | `issue_write`, `create_branch`, `create_or_update_file`, `create_pull_request` with git-protocol-only PAT | 🟠 High — env-setup issue, user sees opaque "Resource not accessible" |
+| 6 | **`list_issues` response bloat** | Each issue carries full user + repository objects (~3KB/issue) | 🟡 Medium — 20 issues ≈ 60KB |
+| 7 | **Directory listing returns 6 redundant URL fields per entry** | Any `get_file_contents` on a directory path | 🟡 Medium — ~10× bloat vs. name/path/size/sha only |
+| 8 | **Unscoped repo search returns 60k+ results** | `search_repositories(query="operator")` without `user:` / `org:` scope | 🟡 Medium — LLM may pick wrong repo when user says "my repo" |
 
 ### Hints (draft)
 
-*Known hint already in system prompt: avoid `search_code` on small repos; use `get_file_contents` to browse instead.*
-*Remaining hints to be derived from testing.*
+```
+GitHub hints:
+- Never call get_file_contents on files larger than ~30KB. Check size first via a directory listing (parent path) — each entry includes a `size` field. Large files will blow the context window.
+- Never call get_file_contents on binary/image files (.png .jpg .jpeg .gif .webp .pdf .zip .tar .gz .onnx .bin etc.). Inline image returns poison the conversation and cause HTTP 400 on all subsequent API calls until the session is compacted.
+- When reading a file on a non-default branch, always pass ref=<branch>. Without ref, the API returns main's copy (or 404) silently.
+- Avoid search_code on small/new repos — it returns 0 results without error. Use get_file_contents to browse the tree instead.
+- When the user refers to "my repo" or "our repo", scope search_repositories with user:<login> (from get_me) or org:<org>. Unscoped queries return tens of thousands of unrelated results.
+- Prefer search_issues / search_pull_requests with tight queries over list_issues / list_pull_requests — the list_* tools return verbose user+repository objects per entry (~3KB each).
+- Set minimal_output=true on search_* tools whenever full API objects aren't needed.
+- For directory navigation, a single-level listing is fine but verbose (~6 redundant URL fields per entry). Don't traverse recursively.
+- For write tools (issue_write, create_branch, create_or_update_file, create_pull_request, merge_pull_request): if you get HTTP 403 "Resource not accessible by personal access token", the PAT is missing Contents/Issues/Pull Requests permissions. This is an env-setup issue — tell the user rather than retrying.
+- Owner injection at startup (from get_me) is already handled; LLM should use the resolved login, not guess from display name.
+```
 
 ---
 
