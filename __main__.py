@@ -84,6 +84,47 @@ def _kill_orphaned_children():
             pass
 
 
+def _check_mcp() -> int:
+    """Validate MCP config: start each server, list tools, print summary, exit.
+
+    Exit code 0 if every configured server loaded, 1 otherwise. Intended for
+    local debugging and CI — avoids having to join a real meeting to test DIY
+    MCP server configs.
+    """
+    import logging
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+
+    import config
+    from pipeline.mcp_client import MCPClient
+
+    if not config.MCP_SERVERS:
+        print("No mcp_servers configured in config.yaml.")
+        return 0
+
+    print(f"Starting {len(config.MCP_SERVERS)} MCP server(s)...")
+    client = MCPClient()
+    try:
+        tool_names = client.connect_all()
+    finally:
+        pass
+
+    print()
+    for name in config.MCP_SERVERS:
+        if name in client.failed_servers:
+            print(f"  ✗ {name}")
+            print(f"        {client.failed_servers[name]}")
+        else:
+            count = sum(1 for t in tool_names if t.startswith(f"{name}__"))
+            print(f"  ✓ {name}  ({count} tools)")
+
+    print()
+    loaded = len(config.MCP_SERVERS) - len(client.failed_servers)
+    print(f"Summary: {loaded} of {len(config.MCP_SERVERS)} servers loaded, {len(tool_names)} tools available.")
+
+    client.shutdown()
+    return 0 if not client.failed_servers else 1
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="operator",
@@ -112,7 +153,15 @@ def main():
         action="store_true",
         help="Run in chat-only mode (no voice pipeline)",
     )
+    parser.add_argument(
+        "--check-mcp",
+        action="store_true",
+        help="Validate MCP server config: start each server, list tools, then exit. No meeting join.",
+    )
     args = parser.parse_args()
+
+    if args.check_mcp:
+        sys.exit(_check_mcp())
 
     if sys.platform == "darwin":
         _run_macos_terminal(args.meeting_url, force=args.force, chat_mode=args.chat)
@@ -201,6 +250,8 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
             mcp = _mcp_result["client"]
             if mcp:
                 llm.inject_mcp_hints(config.MCP_SERVERS)
+                loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
+                llm.inject_mcp_status(loaded, mcp.failed_servers)
                 gh_login = mcp.resolve_github_user()
                 if gh_login:
                     llm.inject_github_user(gh_login)
@@ -372,6 +423,8 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
                 tool_names = mcp.connect_all()
                 log.info(f"MCP tools discovered: {tool_names}")
                 llm.inject_mcp_hints(config.MCP_SERVERS)
+                loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
+                llm.inject_mcp_status(loaded, mcp.failed_servers)
                 gh_login = mcp.resolve_github_user()
                 if gh_login:
                     llm.inject_github_user(gh_login)

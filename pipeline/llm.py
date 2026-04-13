@@ -49,6 +49,27 @@ class LLMClient:
             self._system_prompt += "\n" + "\n".join(sections)
             log.info(f"LLM injected MCP hints for: {', '.join(s for s, srv in servers.items() if srv.get('hints', '').strip())}")
 
+    def inject_mcp_status(self, loaded: list[str], failed: dict[str, str]):
+        """Tell the LLM which MCP servers are actually available this session.
+
+        Without this, if a user-configured server fails to start, the LLM has no
+        way to know — it may claim it "doesn't have" a tool the user configured,
+        or stay silent. This lets it answer accurately and blame config, not Operator.
+        """
+        parts = []
+        if loaded:
+            parts.append(f"MCP servers loaded this session: {', '.join(loaded)}.")
+        if failed:
+            names = ", ".join(failed.keys())
+            parts.append(
+                f"MCP servers that FAILED to load: {names}. "
+                f"If the user asks about tools from a failed server, tell them it failed "
+                f"to load and to check /tmp/operator.log — do not pretend the tool exists."
+            )
+        if parts:
+            self._system_prompt += "\n" + " ".join(parts)
+            log.info(f"LLM injected MCP status — loaded={loaded} failed={list(failed.keys())}")
+
     def inject_github_user(self, login: str):
         """Add the authenticated GitHub login to the system prompt.
 

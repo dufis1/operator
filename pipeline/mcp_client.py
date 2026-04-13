@@ -27,6 +27,42 @@ class MCPToolError(Exception):
     pass
 
 
+def _classify_startup_failure(exc: Exception, srv_config: dict) -> str:
+    """Turn a startup exception into a plain-English user-facing reason.
+
+    Tailored for the common DIY MCP config mistakes: missing binary,
+    unresponsive server, silent crash. Unwraps anyio ExceptionGroups to
+    reach the real cause. Falls back to the raw error text.
+    """
+    cmd = srv_config.get("command", "?")
+    # Unwrap anyio/asyncio ExceptionGroups — stdio_client wraps subprocess
+    # failures in a TaskGroup, so the first-layer exception is useless noise.
+    inner = exc
+    while isinstance(inner, BaseExceptionGroup) and inner.exceptions:
+        inner = inner.exceptions[0]
+
+    if isinstance(inner, FileNotFoundError):
+        return (
+            f"the command '{cmd}' was not found — "
+            f"check the 'command' field in config.yaml, or ensure the binary is on PATH"
+        )
+    if isinstance(inner, TimeoutError):
+        return (
+            f"'{cmd}' did not respond within the startup timeout — "
+            f"the binary may have crashed or is waiting for input; try running it manually"
+        )
+    # Subprocess exited before MCP handshake completed (e.g. `echo` or a server
+    # that crashes on startup). anyio raises this from inside stdio_client.
+    msg = str(inner).lower()
+    if "process exited" in msg or "broken pipe" in msg or "eof" in msg or "connection closed" in msg:
+        return (
+            f"'{cmd}' exited before the MCP handshake completed — "
+            f"the binary likely crashed or is not an MCP server; "
+            f"try running the command manually to see its output"
+        )
+    return f"{type(inner).__name__}: {inner}"
+
+
 class MCPClient:
     """Manages connections to one or more MCP servers (stdio transport).
 
@@ -43,6 +79,8 @@ class MCPClient:
         self._servers: dict[str, _ServerHandle] = {}
         # namespaced_tool_name -> { server_name, mcp_tool }
         self._tools: dict[str, dict] = {}
+        # server_name -> human-readable failure reason (populated by connect_all)
+        self.failed_servers: dict[str, str] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
 
@@ -50,7 +88,7 @@ class MCPClient:
         """Start all configured MCP servers and discover their tools.
 
         Returns list of discovered tool names. Logs and skips servers
-        that fail to start.
+        that fail to start; failure reasons are stored in self.failed_servers.
         """
         self._start_loop()
         tool_names = []
@@ -60,7 +98,9 @@ class MCPClient:
                 tool_names.extend(tools)
                 log.info(f"MCP server '{name}' connected — {len(tools)} tools")
             except Exception as e:
-                log.error(f"MCP server '{name}' failed to start: {e}")
+                reason = _classify_startup_failure(e, srv_config)
+                self.failed_servers[name] = reason
+                log.error(f"MCP USER CONFIG: server '{name}' failed to start — {reason}")
         return tool_names
 
     def get_openai_tools(self) -> list[dict]:

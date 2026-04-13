@@ -58,12 +58,26 @@ LATENCY_PROBE_ENABLED = _diagnostics.get("latency_probe", True)
 DEBUG_AUDIO           = _diagnostics.get("debug_audio", False)
 
 # MCP Servers
-def _resolve_env_vars(env_dict):
-    """Replace ${VAR} references with os.environ values."""
+import logging as _logging
+_mcp_log = _logging.getLogger("config.mcp")
+
+def _resolve_env_vars(env_dict, server_name):
+    """Replace ${VAR} references with os.environ values.
+
+    Logs a warning for any ${VAR} that resolves to an empty or missing value,
+    tagged with the server name so user-configured MCP issues are easy to spot.
+    """
     resolved = {}
     for k, v in env_dict.items():
         if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
-            resolved[k] = os.environ.get(v[2:-1], "")
+            var_name = v[2:-1]
+            value = os.environ.get(var_name, "")
+            if not value:
+                _mcp_log.warning(
+                    f"MCP USER CONFIG: server '{server_name}' env var {var_name} "
+                    f"is empty or missing from .env — tool calls may fail at auth time"
+                )
+            resolved[k] = value
         else:
             resolved[k] = v
     return resolved
@@ -73,7 +87,7 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
     MCP_SERVERS[_name] = {
         "command": _srv["command"],
         "args": _srv.get("args", []),
-        "env": _resolve_env_vars(_srv.get("env", {})),
+        "env": _resolve_env_vars(_srv.get("env", {}), _name),
         "hints": _srv.get("hints", "").strip(),
         "confirm_tools": set(_srv.get("confirm_tools", [])),
     }
