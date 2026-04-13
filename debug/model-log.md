@@ -576,7 +576,17 @@ ChatRunner: participant count changed 0 → 2       # initial count detection
 TIMING mcp_connect=2.1s (32 tools)               # runs in parallel with browser join
 MCP server 'linear': 32 tools discovered
 MCP server 'linear' connected — 32 tools
+LLM injected MCP hints for: linear, github                        # per-server hints appended to system prompt
+LLM injected MCP status — loaded=['linear','github'] failed=[]    # 10.3: LLM told which servers are available
 ```
+
+**MCP config failure — user-side issue (10.3):**
+```
+WARNING config.mcp: MCP USER CONFIG: server 'notion' env var NOTION_API_KEY is empty or missing from .env — tool calls may fail at auth time
+ERROR pipeline.mcp_client: MCP USER CONFIG: server 'weather' failed to start — the command 'weather-mcp' was not found — check the 'command' field in config.yaml, or ensure the binary is on PATH
+LLM injected MCP status — loaded=['linear','github'] failed=['weather']
+```
+All MCP-USER-CONFIG-tagged log lines indicate a *user's DIY MCP config problem*, not an Operator bug. Ask user to run `python __main__.py --check-mcp` for a self-contained diagnostic.
 
 **1-on-1 mode (≤2 participants — no wake phrase required):**
 ```

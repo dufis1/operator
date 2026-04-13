@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 12, 2026 (session 86)*
+*Last updated: April 12, 2026 (session 87)*
 
-> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~38h of work against ~50–55h available. All deferred items preserved in Post-MVP section. Session 86 added alone-exit auto-leave (chat path tested live; voice path implemented, untested). Phase 10 is still next — Linear and GitHub pressure tests already complete (pre-work from sessions 73–74). Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
+> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~38h of work against ~50–55h available. All deferred items preserved in Post-MVP section. Session 87 shipped step 10.3 (user-defined MCP scaffolding + `--check-mcp` CLI) — live-validated end-to-end with a deliberately broken server. 10.5 (startup health check) satisfied by `--check-mcp`. Session 86 added alone-exit auto-leave (chat path tested live; voice path untested). Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
 
 ---
 
@@ -98,8 +98,8 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 10.7 | Per-server hints content — Linear + GitHub hints filled, validated via 12-test suite, then audited and trimmed. Removed over-directing hints (list_issues filter mandate, preemptive size check, search_issues preference, project summary follow-up). Added status-recovery hint (project vs team confusion). Revised search_code hint. Confirmation handler rewritten: word-boundary matching for affirmatives only, all non-affirmative responses pass user's message to LLM for interpretation. | ✅ | ~4h |
 | 10.4 | BYOMCP guard rails — execution timeouts, result size caps with truncation + guidance message ("Result was too large — add a hint to use more targeted queries"), binary/non-text content detection and rejection (prevents the image-poisoning session-brick from GitHub G7), `confirm-all` default for untested servers, verbose MCP debug logging to `/tmp/operator.log` (full request/response/rejection reason so users can self-diagnose and write hints). Covers 3 critical code-change findings: G7 binary poison, G6 large file context blow, L4 unfiltered list_issues | ✅ | ~4h |
 | 10.2 | Tool confirmation — auto-approve reads, confirm writes. Hardcoded `READ_TOOLS` allowlist, per-server `confirm_tools` override in config, centralized `_dispatch_result` routing | ✅ | ~2h |
-| 10.3 | User-defined MCP servers — users add custom servers in config with command, args, env, hints | ⬜ | ~1h |
-| 10.5 | Startup health check — on launch, start each configured MCP server, call `list_tools()`, report failures before joining a meeting. No CI job, no dry-run tool calls — just "can we connect?" | ⬜ | ~1h |
+| 10.3 | User-defined MCP servers — users add custom servers in config with command, args, env, hints. Config-load env var warnings, categorized startup failure messages, LLM-aware loaded/failed server status, `--check-mcp` validation CLI | ✅ | ~2h |
+| 10.5 | Startup health check — on launch, start each configured MCP server, call `list_tools()`, report failures before joining a meeting. No CI job, no dry-run tool calls — just "can we connect?" | ✅ (via 10.3 `--check-mcp`) | ~1h |
 | 10.6 | Runtime failure backoff — simple per-server consecutive error counter; after N failures, back off and tell user in chat ("Linear server seems to be having issues, skipping for now"). No dashboards, no rate tracking | ⬜ | ~1h |
 
 **Phase total: ~12h**
