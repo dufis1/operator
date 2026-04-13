@@ -101,6 +101,8 @@ class ChatRunner:
         """Main polling loop."""
         last_participant_check = 0
         participant_count = 0
+        saw_others = False
+        alone_since = None
         while not self._stop_event.is_set():
             # Detect unexpected browser session death (crash, page loss, etc.)
             if not self._connector.is_connected():
@@ -125,6 +127,21 @@ class ChatRunner:
                     participant_count = new_count
                 except Exception as e:
                     log.warning(f"ChatRunner: get_participant_count failed: {e}")
+
+                if participant_count > 1:
+                    saw_others = True
+                    alone_since = None
+                elif saw_others and participant_count == 1:
+                    if alone_since is None:
+                        alone_since = now
+                        log.info("ChatRunner: alone in meeting — grace timer started")
+                    elif now - alone_since >= config.ALONE_EXIT_GRACE_SECONDS:
+                        log.info(
+                            f"ChatRunner: alone for {int(now - alone_since)}s — auto-leaving"
+                        )
+                        print("\n👋 Operator: everyone left — dropping from the meeting.")
+                        self._connector.leave()
+                        return
 
             one_on_one = participant_count <= ONE_ON_ONE_THRESHOLD
 

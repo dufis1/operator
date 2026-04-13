@@ -295,6 +295,8 @@ class CaptionsAdapter(MeetingConnector):
         self._last_caption_time = None  # set on first caption; inactivity timer arms from here
         self._browser_thread = None    # saved so leave() can join it
         self.meeting_end_dt = None     # UTC end time — set by runner for auto-leave logic
+        self._saw_others = False       # flipped true once a second participant has been observed
+        self._alone_since = None       # timestamp when Operator first became alone after saw_others
 
     # ── Public API for caption consumers ─────────────────────────────
 
@@ -602,20 +604,44 @@ class CaptionsAdapter(MeetingConnector):
 
                         now = time.time()
 
-                        # Auto-leave: past end time + user not in meeting
-                        if (self.meeting_end_dt and config.USER_DISPLAY_NAME
-                                and now - last_presence_check >= 30):
+                        # Throttled presence checks: end-time auto-leave + alone-exit
+                        if now - last_presence_check >= 30:
                             last_presence_check = now
-                            utc_now = datetime.datetime.now(datetime.timezone.utc)
-                            if utc_now > self.meeting_end_dt:
-                                if not self._is_user_in_meeting(page):
-                                    log.info(
-                                        "CaptionsAdapter: past end time and user has left — auto-leaving"
-                                    )
-                                    self._leave_event.set()
-                                    break
-                                else:
-                                    log.debug("CaptionsAdapter: past end time but user still present")
+
+                            # Auto-leave: past end time + user not in meeting
+                            if self.meeting_end_dt and config.USER_DISPLAY_NAME:
+                                utc_now = datetime.datetime.now(datetime.timezone.utc)
+                                if utc_now > self.meeting_end_dt:
+                                    if not self._is_user_in_meeting(page):
+                                        log.info(
+                                            "CaptionsAdapter: past end time and user has left — auto-leaving"
+                                        )
+                                        self._leave_event.set()
+                                        break
+                                    else:
+                                        log.debug("CaptionsAdapter: past end time but user still present")
+
+                            # Auto-leave: Operator alone after others were present
+                            try:
+                                count = page.locator('[data-requested-participant-id]').count()
+                            except Exception as e:
+                                log.warning(f"CaptionsAdapter: participant count failed: {e}")
+                                count = None
+
+                            if count is not None:
+                                if count > 1:
+                                    self._saw_others = True
+                                    self._alone_since = None
+                                elif self._saw_others and count == 1:
+                                    if self._alone_since is None:
+                                        self._alone_since = now
+                                        log.info("CaptionsAdapter: alone in meeting — grace timer started")
+                                    elif now - self._alone_since >= config.ALONE_EXIT_GRACE_SECONDS:
+                                        log.info(
+                                            f"CaptionsAdapter: alone for {int(now - self._alone_since)}s — auto-leaving"
+                                        )
+                                        self._leave_event.set()
+                                        break
 
                         if now - last_health >= 300:
                             last_health = now

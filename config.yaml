@@ -19,6 +19,7 @@ agent:
   interaction_mode: "voice"      # voice | chat | both
   conversation_timeout: 20       # seconds in listening mode after a response
   echo_guard_seconds: 0.6        # delay after TTS before resuming caption capture (absorbs echo)
+  alone_exit_grace_seconds: 60   # after others have been present, if Operator is alone for this long, auto-leave
 
 llm:
   provider: "openai"

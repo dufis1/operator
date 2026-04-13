@@ -16,6 +16,7 @@ INTERACTION_MODE     = _config["agent"]["interaction_mode"]
 CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
 ECHO_GUARD_SECONDS   = _config["agent"].get("echo_guard_seconds", 1.0)
 USER_DISPLAY_NAME    = _config["agent"].get("user_display_name", "")
+ALONE_EXIT_GRACE_SECONDS = _config["agent"].get("alone_exit_grace_seconds", 60)
 
 # LLM
 LLM_PROVIDER         = _config["llm"]["provider"]
