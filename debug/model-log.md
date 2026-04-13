@@ -588,6 +588,13 @@ LLM injected MCP status — loaded=['linear','github'] failed=['weather']
 ```
 All MCP-USER-CONFIG-tagged log lines indicate a *user's DIY MCP config problem*, not an Operator bug. Ask user to run `python __main__.py --check-mcp` for a self-contained diagnostic.
 
+**Stderr banner (10.3) — appears right before browser join in the terminal, not in /tmp/operator.log:**
+```
+MCP: 2/2 servers loaded (linear ✓, github ✓)
+MCP: 2/3 servers loaded (linear ✓, github ✓, weather ✗) — run --check-mcp for details
+```
+Prints to stderr only, non-blocking. If a user pastes a terminal log with this line but no `/tmp/operator.log` tail, they're showing launch output.
+
 **1-on-1 mode (≤2 participants — no wake phrase required):**
 ```
 MacOSAdapter: observer drained 1 new messages                     # MutationObserver caught message instantly
