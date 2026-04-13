@@ -24,7 +24,6 @@ import threading
 import time
 
 from dotenv import load_dotenv
-from openai import OpenAI
 
 # Entrypoint lives at /app/docker/entrypoint.py — one level up is the repo root.
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,7 +33,7 @@ from connectors.docker_adapter import DockerAdapter
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
-from pipeline.providers import OpenAIProvider
+from pipeline.providers import build_provider
 from pipeline.tts import TTSClient
 from pipeline.wake import detect_wake_phrase
 
@@ -48,7 +47,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 # Silence noisy HTTP debug logs from API clients
-for noisy in ("httpcore", "httpx", "openai", "elevenlabs"):
+for noisy in ("httpcore", "httpx", "openai", "anthropic", "elevenlabs"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 PULSE_OUTPUT_DEVICE = "pulse/MeetingOutput"
@@ -93,8 +92,7 @@ class DockerOperator:
         self.audio = AudioProcessor()
 
         log.info("DockerOperator: connecting to APIs...")
-        openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        self.llm = LLMClient(OpenAIProvider(openai_client))
+        self.llm = LLMClient(build_provider())
         self.tts = TTSClient(PULSE_OUTPUT_DEVICE)
 
         auth_state_file = os.environ.get("AUTH_STATE_FILE")

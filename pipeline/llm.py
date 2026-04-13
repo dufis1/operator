@@ -5,7 +5,6 @@ Wraps a provider-agnostic chat interface with a system prompt and per-session
 conversation history. The actual API transport lives in pipeline/providers/.
 No macOS imports.
 """
-import json
 import logging
 import config
 from pipeline.guardrails import validate_tool_result, log_rejection
@@ -124,7 +123,6 @@ class LLMClient:
         Call record_exchange() later if you decide to use the result.
         """
         messages = [
-            {"role": "system", "content": self._system_prompt},
             *self._history,
             {"role": "user", "content": utterance},
         ]
@@ -132,7 +130,8 @@ class LLMClient:
         log.debug(f"LLM utterance: {utterance}")
 
         try:
-            message = self._provider.complete(
+            response = self._provider.complete(
+                system=self._system_prompt,
                 messages=messages,
                 model=config.LLM_MODEL,
                 max_tokens=self._max_tokens,
@@ -148,7 +147,7 @@ class LLMClient:
 
         # No tools provided (voice path) — return plain string for backward compat
         if not tools:
-            reply = message.content
+            reply = response.text
             log.info(f"LLM reply=\"{reply[:80]}\"")
             if record:
                 self._history.append({"role": "user", "content": utterance})
@@ -157,21 +156,25 @@ class LLMClient:
             return reply
 
         # Tools provided — check if model wants to call one
-        if message.tool_calls:
-            tc = message.tool_calls[0]
-            log.info(f"LLM tool_call name={tc.function.name}")
+        if response.tool_calls:
+            tc = response.tool_calls[0]
+            log.info(f"LLM tool_call name={tc.name}")
             if record:
                 self._history.append({"role": "user", "content": utterance})
-                self._history.append(message.to_dict())
+                self._history.append({
+                    "role": "assistant",
+                    "content": response.text,
+                    "tool_calls": response.tool_calls,
+                })
                 self._trim_history()
             return {
                 "type": "tool_call",
                 "id": tc.id,
-                "name": tc.function.name,
-                "arguments": json.loads(tc.function.arguments),
+                "name": tc.name,
+                "arguments": tc.args,
             }
         else:
-            reply = message.content
+            reply = response.text
             log.info(f"LLM reply=\"{reply[:80]}\"")
             if record:
                 self._history.append({"role": "user", "content": utterance})
@@ -185,7 +188,6 @@ class LLMClient:
         Does NOT record to history — call record_exchange() if you use the result.
         """
         messages = [
-            {"role": "system", "content": self._system_prompt},
             *self._history,
             {"role": "user", "content": utterance},
         ]
@@ -193,6 +195,7 @@ class LLMClient:
         log.debug(f"LLM utterance: {utterance}")
         try:
             yield from self._provider.complete_stream(
+                system=self._system_prompt,
                 messages=messages,
                 model=config.LLM_MODEL,
                 max_tokens=self._max_tokens,
@@ -254,19 +257,16 @@ class LLMClient:
                 f"Try requesting a text file or a different resource.]"
             )
         self._history.append({
-            "role": "tool",
+            "role": "tool_result",
             "tool_call_id": tool_call_id,
             "content": result_content,
         })
-        messages = [
-            {"role": "system", "content": self._system_prompt},
-            *self._history,
-        ]
         log.info(f"LLM send_tool_result tool={tool_name} result_len={len(result_content)}")
 
         try:
-            message = self._provider.complete(
-                messages=messages,
+            response = self._provider.complete(
+                system=self._system_prompt,
+                messages=list(self._history),
                 model=config.LLM_MODEL,
                 max_tokens=self._max_tokens,
                 tools=tools,
@@ -280,19 +280,23 @@ class LLMClient:
             raise
 
         # Check for follow-up tool call
-        if tools and message.tool_calls:
-            tc = message.tool_calls[0]
-            log.info(f"LLM follow-up tool_call name={tc.function.name}")
-            self._history.append(message.to_dict())
+        if tools and response.tool_calls:
+            tc = response.tool_calls[0]
+            log.info(f"LLM follow-up tool_call name={tc.name}")
+            self._history.append({
+                "role": "assistant",
+                "content": response.text,
+                "tool_calls": response.tool_calls,
+            })
             self._trim_history()
             return {
                 "type": "tool_call",
                 "id": tc.id,
-                "name": tc.function.name,
-                "arguments": json.loads(tc.function.arguments),
+                "name": tc.name,
+                "arguments": tc.args,
             }
 
-        reply = message.content
+        reply = response.text
         log.info(f"LLM tool summary=\"{reply[:80]}\"")
         self._history.append({"role": "assistant", "content": reply})
         self._collapse_tool_exchange()
@@ -304,8 +308,8 @@ class LLMClient:
     def _collapse_tool_exchange(self):
         """Strip intermediate tool messages after a tool exchange completes.
 
-        Collapses [user, asst[tool_calls], tool, ..., asst[summary]] down to
-        [user, asst[summary]]. The summary is already visible in chat; the raw
+        Collapses [user, asst[tool_calls], tool_result, ..., asst[summary]] down
+        to [user, asst[summary]]. The summary is already visible in chat; the raw
         tool results and tool_call assistant messages are bulk that serves no
         purpose in future context. If the LLM needs the data again, it re-calls
         the tool.
@@ -323,7 +327,7 @@ class LLMClient:
         removed = 0
         while i >= 0:
             msg = self._history[i]
-            if msg["role"] == "tool" or (msg["role"] == "assistant" and msg.get("tool_calls")):
+            if msg["role"] == "tool_result" or (msg["role"] == "assistant" and msg.get("tool_calls")):
                 self._history.pop(i)
                 removed += 1
                 i -= 1

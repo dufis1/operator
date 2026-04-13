@@ -29,11 +29,9 @@ def make_llm(mode="chat"):
 
 
 def make_text_message(text):
-    """Return a mock LLM message object yielding a plain text reply."""
-    msg = MagicMock()
-    msg.content = text
-    msg.tool_calls = None
-    return msg
+    """Return a ProviderResponse yielding a plain text reply."""
+    from pipeline.providers import ProviderResponse
+    return ProviderResponse(text=text, tool_calls=[], stop_reason="end")
 
 
 def make_bad_request_error(code):
@@ -54,16 +52,13 @@ def test_tool_result_size_guard():
 
     # Seed a fake assistant + tool_call message in history so send_tool_result
     # has a valid history state to build on.
+    from pipeline.providers import ToolCall
     llm._history = [
         {"role": "user", "content": "check something"},
         {
             "role": "assistant",
             "content": None,
-            "tool_calls": [{
-                "id": "call_abc",
-                "type": "function",
-                "function": {"name": "dummy_tool", "arguments": "{}"},
-            }],
+            "tool_calls": [ToolCall(id="call_abc", name="dummy_tool", args={})],
         },
     ]
 
@@ -74,11 +69,11 @@ def test_tool_result_size_guard():
 
     llm.send_tool_result("call_abc", "dummy_tool", oversized)
 
-    # _collapse_tool_exchange removes the tool message from history after the
-    # summary, so check what was sent to the provider instead.
+    # _collapse_tool_exchange removes the tool_result message from history after
+    # the summary, so check what was sent to the provider instead.
     call_args = llm._provider.complete.call_args
     messages = call_args.kwargs["messages"]
-    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    tool_msg = next(m for m in messages if m.get("role") == "tool_result")
     assert "archived" in tool_msg["content"], f"Expected archive placeholder, got: {tool_msg['content'][:100]}"
     assert oversized not in tool_msg["content"], "Raw oversized content leaked into API call"
     print("PASS  test_tool_result_size_guard")

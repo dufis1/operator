@@ -3,6 +3,7 @@
 
 python-dotenv          # loads API keys from the .env file into the app
 openai                 # GPT-4.1-mini for LLM responses and completeness checks
+anthropic              # Claude (Sonnet/Opus) as an alternate LLM backend
 elevenlabs             # ElevenLabs TTS for voice responses
 faster-whisper         # local Whisper model for speech-to-text and wake phrase detection
 numpy                  # audio buffer math (used by faster-whisper and audio processing)

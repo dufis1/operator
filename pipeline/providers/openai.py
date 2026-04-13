@@ -1,23 +1,72 @@
 """
 OpenAI LLM provider.
 
-Wraps an openai.OpenAI client. Translates OpenAI's context_length_exceeded
-BadRequestError into the provider-agnostic ContextOverflowError.
+Wraps an openai.OpenAI client. Translates the app's neutral conversation
+shape (see pipeline/providers/base.py) to and from OpenAI's chat
+completion format, and maps OpenAI's context_length_exceeded error into
+the provider-agnostic ContextOverflowError.
 """
+import json
+
 import openai
 
-from pipeline.providers.base import LLMProvider, ContextOverflowError
+from pipeline.providers.base import (
+    LLMProvider,
+    ContextOverflowError,
+    ToolCall,
+    ProviderResponse,
+)
+
+
+def _neutral_to_openai_messages(system, messages):
+    """Translate (system, neutral messages) into OpenAI's messages list."""
+    out = []
+    if system:
+        out.append({"role": "system", "content": system})
+    for m in messages:
+        role = m["role"]
+        if role == "user":
+            out.append({"role": "user", "content": m["content"]})
+        elif role == "assistant":
+            tool_calls = m.get("tool_calls") or []
+            if tool_calls:
+                out.append({
+                    "role": "assistant",
+                    "content": m.get("content"),
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": json.dumps(tc.args),
+                            },
+                        }
+                        for tc in tool_calls
+                    ],
+                })
+            else:
+                out.append({"role": "assistant", "content": m.get("content")})
+        elif role == "tool_result":
+            out.append({
+                "role": "tool",
+                "tool_call_id": m["tool_call_id"],
+                "content": m["content"],
+            })
+        else:
+            raise ValueError(f"unknown neutral message role: {role!r}")
+    return out
 
 
 class OpenAIProvider(LLMProvider):
     def __init__(self, client):
         self._client = client
 
-    def complete(self, messages, model, max_tokens, tools=None):
+    def complete(self, system, messages, model, max_tokens, tools=None):
         kwargs = {
             "model": model,
             "max_tokens": max_tokens,
-            "messages": messages,
+            "messages": _neutral_to_openai_messages(system, messages),
         }
         if tools:
             kwargs["tools"] = tools
@@ -28,13 +77,39 @@ class OpenAIProvider(LLMProvider):
             if getattr(e, "code", None) == "context_length_exceeded":
                 raise ContextOverflowError() from e
             raise
-        return response.choices[0].message
 
-    def complete_stream(self, messages, model, max_tokens):
+        choice = response.choices[0]
+        message = choice.message
+
+        tool_calls = []
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                tool_calls.append(ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    args=json.loads(tc.function.arguments),
+                ))
+
+        if tool_calls:
+            stop_reason = "tool_use"
+        elif choice.finish_reason == "length":
+            stop_reason = "length"
+        elif choice.finish_reason == "stop":
+            stop_reason = "end"
+        else:
+            stop_reason = "other"
+
+        return ProviderResponse(
+            text=message.content,
+            tool_calls=tool_calls,
+            stop_reason=stop_reason,
+        )
+
+    def complete_stream(self, system, messages, model, max_tokens):
         response = self._client.chat.completions.create(
             model=model,
             max_tokens=max_tokens,
-            messages=messages,
+            messages=_neutral_to_openai_messages(system, messages),
             stream=True,
         )
         for chunk in response:

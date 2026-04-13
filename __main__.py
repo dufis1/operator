@@ -222,6 +222,7 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
     logging.getLogger("elevenlabs").setLevel(logging.WARNING)
 
     log = logging.getLogger("operator")
@@ -239,13 +240,12 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         import time as _time
         import threading as _threading
         t_chat_start = _time.monotonic()
-        from openai import OpenAI
         from connectors.macos_adapter import MacOSAdapter
         from pipeline.chat_runner import ChatRunner
         from pipeline.llm import LLMClient
-        from pipeline.providers import OpenAIProvider
+        from pipeline.providers import build_provider
         connector = MacOSAdapter(force=force)
-        llm = LLMClient(OpenAIProvider(OpenAI(api_key=config.OPENAI_API_KEY)), mode="chat")
+        llm = LLMClient(build_provider(), mode="chat")
 
         # Start MCP connection in background while browser joins
         _mcp_result = {"client": None}
@@ -437,11 +437,10 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
     mcp = None  # only used in chat mode
 
     if use_chat:
-        from openai import OpenAI
         from pipeline.chat_runner import ChatRunner
         from pipeline.llm import LLMClient
-        from pipeline.providers import OpenAIProvider
-        llm = LLMClient(OpenAIProvider(OpenAI(api_key=config.OPENAI_API_KEY)), mode="chat")
+        from pipeline.providers import build_provider
+        llm = LLMClient(build_provider(), mode="chat")
 
         if config.MCP_SERVERS:
             from pipeline.mcp_client import MCPClient

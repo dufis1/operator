@@ -1,4 +1,40 @@
-from pipeline.providers.base import LLMProvider, ContextOverflowError
+from pipeline.providers.base import (
+    LLMProvider,
+    ContextOverflowError,
+    ToolCall,
+    ProviderResponse,
+)
 from pipeline.providers.openai import OpenAIProvider
+from pipeline.providers.anthropic import AnthropicProvider
 
-__all__ = ["LLMProvider", "ContextOverflowError", "OpenAIProvider"]
+
+def build_provider():
+    """Build the LLMProvider selected by config.LLM_PROVIDER.
+
+    Called by the app-level entry points (__main__, runner, docker entrypoint)
+    so the choice of backend lives in one place.
+    """
+    import config
+    name = config.LLM_PROVIDER
+    if name == "openai":
+        from openai import OpenAI
+        return OpenAIProvider(OpenAI(api_key=config.OPENAI_API_KEY))
+    if name == "anthropic":
+        from anthropic import Anthropic
+        if not config.ANTHROPIC_API_KEY:
+            raise RuntimeError(
+                "llm.provider is 'anthropic' but ANTHROPIC_API_KEY is not set in .env"
+            )
+        return AnthropicProvider(Anthropic(api_key=config.ANTHROPIC_API_KEY))
+    raise ValueError(f"unknown llm.provider: {name!r} (expected 'openai' or 'anthropic')")
+
+
+__all__ = [
+    "LLMProvider",
+    "ContextOverflowError",
+    "ToolCall",
+    "ProviderResponse",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "build_provider",
+]

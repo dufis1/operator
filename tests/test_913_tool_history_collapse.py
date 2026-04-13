@@ -28,10 +28,8 @@ def make_llm():
 
 
 def make_text_message(text):
-    msg = MagicMock()
-    msg.content = text
-    msg.tool_calls = None
-    return msg
+    from pipeline.providers import ProviderResponse
+    return ProviderResponse(text=text, tool_calls=[], stop_reason="end")
 
 
 # ---------------------------------------------------------------------------
@@ -42,11 +40,11 @@ def test_single_tool_call_collapses():
     llm = make_llm()
 
     # Simulate history after user asked + LLM requested a tool
+    from pipeline.providers import ToolCall
     llm._history = [
         {"role": "user", "content": "create a ticket"},
         {"role": "assistant", "content": None, "tool_calls": [
-            {"id": "call_1", "type": "function",
-             "function": {"name": "linear__create_issue", "arguments": "{}"}}
+            ToolCall(id="call_1", name="linear__create_issue", args={}),
         ]},
     ]
 
@@ -72,16 +70,15 @@ def test_chained_tool_calls_collapse():
     # Simulate: user asked → LLM called tool A → tool A result fed back →
     # LLM called tool B (send_tool_result returned tool_call, not text) →
     # now resolving tool B with final summary
+    from pipeline.providers import ToolCall
     llm._history = [
         {"role": "user", "content": "list issues then create one"},
         {"role": "assistant", "content": None, "tool_calls": [
-            {"id": "call_A", "type": "function",
-             "function": {"name": "linear__list_issues", "arguments": "{}"}}
+            ToolCall(id="call_A", name="linear__list_issues", args={}),
         ]},
-        {"role": "tool", "tool_call_id": "call_A", "content": "x" * 5000},
+        {"role": "tool_result", "tool_call_id": "call_A", "content": "x" * 5000},
         {"role": "assistant", "content": None, "tool_calls": [
-            {"id": "call_B", "type": "function",
-             "function": {"name": "linear__create_issue", "arguments": "{}"}}
+            ToolCall(id="call_B", name="linear__create_issue", args={}),
         ]},
     ]
 

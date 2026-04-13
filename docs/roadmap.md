@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 12, 2026 (session 89)*
+*Last updated: April 12, 2026 (session 90)*
 
-> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~37h of work against ~50–55h available. All deferred items preserved in Post-MVP section. **Phase 10 complete; Phase 11 in progress.** Session 89 shipped step 11.1 (abstract LLM provider interface) — pure refactor extracting OpenAI transport into `pipeline/providers/`, LLMClient now takes a provider; live-validated in chat-mode Meet with a Linear tool call. Session 88 shipped 10.6 (MCP runtime failure backoff). Session 87 shipped 10.3 + MCP startup banner. Session 86 alone-exit auto-leave now live-validated on both chat and voice paths. Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
+> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~37h of work against ~50–55h available. All deferred items preserved in Post-MVP section. **Phase 10 complete; Phase 11 in progress.** Session 90 shipped step 11.2 (Anthropic backend) — provider-neutral conversation shape (rejected translator-shim approach), `AnthropicProvider` with prompt caching on system+tool schemas, `disable_parallel_tool_use=True` mirrors OpenAI's `parallel_tool_calls=False`, explicit 429 diagnostic with tier-upgrade guidance, config-driven provider selection via `llm.provider`. Live-validated end-to-end in chat-mode Meet with Claude Sonnet 4.5 across a 4-turn conversation (Linear + GitHub tool calls, multi-step fan-out). Session 89 shipped step 11.1 (abstract LLM provider interface). Session 88 shipped 10.6 (MCP runtime failure backoff). Session 87 shipped 10.3 + MCP startup banner. Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
 
 ---
 
@@ -113,7 +113,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
 | 11.1 | Abstract LLM provider interface — swap between OpenAI and Anthropic without code changes | ✅ | ~3h |
-| 11.2 | Anthropic API backend — Claude as alternative LLM provider | ⬜ | ~3h |
+| 11.2 | Anthropic API backend — Claude as alternative LLM provider | ✅ | ~3h |
 | 11.3 | Meeting transcript as context — feed full meeting chat history (not just current message) to LLM during tool calls, so requests like "create a ticket for the auth bug Alice just described" actually work | ⬜ | ~2h |
 | 11.4 | Skill file loading — users drop markdown files in a `skills/` directory (path configurable); contents appended to the system prompt at runtime so the bot reflects user identity, team conventions, ticket formats, etc. Delivers the "your AI, not Gemini" customization layer promised in `docs/mvp-bar.md` | ⬜ | ~2h |
 
@@ -220,6 +220,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | MCP server CI health check | 10.8 (original) | CI job that starts servers + dry-run tool calls, alert on failure |
 | Runtime failure monitoring dashboard | 10.9 (original) | Per-server failure rate tracking, threshold alerts, diagnostics surface |
 | Idempotency guards | 10.10 | Detect duplicate tool actions from repeated requests; dedup logic beyond write confirmation |
+| Parallel tool calls | 11.2 | Currently disabled on both providers (`parallel_tool_calls=False` on OpenAI, `disable_parallel_tool_use=True` on Anthropic) so the one-tool-at-a-time loop in `LLMClient.ask()` stays safe. Re-enable for skills that fan out across MCP servers (e.g. "what's on my plate across Linear + GitHub?"). Requires `LLMClient` to execute N tool_calls per turn and feed back N tool_results before the next LLM turn. |
 
 ### Multi-Modal & Voice
 | Item | Origin | Description |

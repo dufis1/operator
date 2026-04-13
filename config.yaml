@@ -22,8 +22,8 @@ agent:
   alone_exit_grace_seconds: 60   # after others have been present, if Operator is alone for this long, auto-leave
 
 llm:
-  provider: "openai"
-  model: "gpt-4.1-mini"
+  provider: "anthropic"            # openai | anthropic
+  model: "claude-sonnet-4-5"         # openai: gpt-4.1-mini, gpt-4o, ...  |  anthropic: claude-sonnet-4-5, claude-opus-4-6, ...
   chat_history_turns: 20       # max user/assistant pairs kept in chat context
   chat_max_tokens: 150         # max tokens for chat responses (voice uses 60); ~600 chars target for meeting chat side panel
   tool_result_max_chars: 50000 # incoming tool result truncation threshold — results over this are archived with a recovery hint
@@ -34,6 +34,7 @@ llm:
     Meeting chat is a side panel — participants are glancing, not reading.
     Lead with the answer. No preamble, no filler, no narrating your process, no trailing offers or follow-up questions.
     Keep every response to 1–3 sentences.
+    Render links as bare URLs, not markdown. No [label](url) syntax — just the URL.
     If a required parameter is ambiguous or unclear, ask the user to clarify rather than guessing. Do not invent values for owner, repo, team, or assignee that the user did not explicitly state.
     After any action that creates or modifies an external resource (issue, PR, document, etc.), include the link from the tool result so the user can verify.
     Use a person's name only when greeting them for the first time. Do not repeat their name in subsequent replies.

@@ -232,34 +232,30 @@ def test_llm_blocks_binary_result():
     llm = LLMClient(provider, mode="chat")
 
     # Seed history with a tool_call assistant message
+    from pipeline.providers import ProviderResponse, ToolCall
     llm._history = [
         {"role": "user", "content": "read that file"},
         {
             "role": "assistant",
             "content": None,
-            "tool_calls": [{
-                "id": "call_abc",
-                "type": "function",
-                "function": {"name": "some__tool", "arguments": "{}"},
-            }],
+            "tool_calls": [ToolCall(id="call_abc", name="some__tool", args={})],
         },
     ]
 
     # Mock the provider to return a text summary message
-    msg = MagicMock()
-    msg.content = "I couldn't read that."
-    msg.tool_calls = None
-    provider.complete.return_value = msg
+    provider.complete.return_value = ProviderResponse(
+        text="I couldn't read that.", tool_calls=[], stop_reason="end",
+    )
 
     # Send a result with null bytes (simulating binary content)
     llm.send_tool_result("call_abc", "some__tool", "binary\x00content\x00here")
 
     # Verify the blocked content was sent to the provider, not the binary.
-    # (_collapse_tool_exchange removes the tool message from history after
-    # the summary, so we check what was sent to the provider instead.)
+    # (_collapse_tool_exchange removes the tool_result message from history
+    # after the summary, so we check what was sent to the provider instead.)
     call_args = provider.complete.call_args
     messages = call_args.kwargs["messages"]
-    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    tool_msg = next(m for m in messages if m.get("role") == "tool_result")
     assert "blocked" in tool_msg["content"], f"Expected block message, got: {tool_msg['content'][:100]}"
     assert "\x00" not in tool_msg["content"], "Binary content leaked into API call"
     print("PASS  test_llm_blocks_binary_result")
@@ -275,31 +271,27 @@ def test_llm_passes_clean_result():
     provider = MagicMock()
     llm = LLMClient(provider, mode="chat")
 
+    from pipeline.providers import ProviderResponse, ToolCall
     llm._history = [
         {"role": "user", "content": "read file"},
         {
             "role": "assistant",
             "content": None,
-            "tool_calls": [{
-                "id": "call_xyz",
-                "type": "function",
-                "function": {"name": "some__tool", "arguments": "{}"},
-            }],
+            "tool_calls": [ToolCall(id="call_xyz", name="some__tool", args={})],
         },
     ]
 
-    msg = MagicMock()
-    msg.content = "Here's the file."
-    msg.tool_calls = None
-    provider.complete.return_value = msg
+    provider.complete.return_value = ProviderResponse(
+        text="Here's the file.", tool_calls=[], stop_reason="end",
+    )
 
     clean_content = "def hello():\n    return 'world'\n"
     llm.send_tool_result("call_xyz", "some__tool", clean_content)
 
-    # Check what was sent to the provider (collapse removes tool msg from history)
+    # Check what was sent to the provider (collapse removes tool_result from history)
     call_args = provider.complete.call_args
     messages = call_args.kwargs["messages"]
-    tool_msg = next(m for m in messages if m.get("role") == "tool")
+    tool_msg = next(m for m in messages if m.get("role") == "tool_result")
     assert tool_msg["content"] == clean_content, f"Clean content should pass through unchanged"
     print("PASS  test_llm_passes_clean_result")
 
