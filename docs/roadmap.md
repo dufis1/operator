@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 12, 2026 (session 88)*
+*Last updated: April 12, 2026 (session 89)*
 
-> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~37h of work against ~50–55h available. All deferred items preserved in Post-MVP section. **Phase 10 (MCP Finalization & Hardening) is now complete.** Session 88 shipped step 10.6 (runtime failure backoff) — per-server consecutive error counter, 3-strike trip, one-shot chat announcement, idempotent MCP-status re-inject; live-validated in chat-mode Meet with `debug/flaky_mcp_server.py`. Session 87 shipped 10.3 + MCP startup banner. Session 86 alone-exit auto-leave now live-validated on both chat and voice paths. Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
+> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~37h of work against ~50–55h available. All deferred items preserved in Post-MVP section. **Phase 10 complete; Phase 11 in progress.** Session 89 shipped step 11.1 (abstract LLM provider interface) — pure refactor extracting OpenAI transport into `pipeline/providers/`, LLMClient now takes a provider; live-validated in chat-mode Meet with a Linear tool call. Session 88 shipped 10.6 (MCP runtime failure backoff). Session 87 shipped 10.3 + MCP startup banner. Session 86 alone-exit auto-leave now live-validated on both chat and voice paths. Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
 
 ---
 
@@ -112,7 +112,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 11.1 | Abstract LLM provider interface — swap between OpenAI and Anthropic without code changes | ⬜ | ~3h |
+| 11.1 | Abstract LLM provider interface — swap between OpenAI and Anthropic without code changes | ✅ | ~3h |
 | 11.2 | Anthropic API backend — Claude as alternative LLM provider | ⬜ | ~3h |
 | 11.3 | Meeting transcript as context — feed full meeting chat history (not just current message) to LLM during tool calls, so requests like "create a ticket for the auth bug Alice just described" actually work | ⬜ | ~2h |
 | 11.4 | Skill file loading — users drop markdown files in a `skills/` directory (path configurable); contents appended to the system prompt at runtime so the bot reflects user identity, team conventions, ticket formats, etc. Delivers the "your AI, not Gemini" customization layer promised in `docs/mvp-bar.md` | ⬜ | ~2h |
