@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 12, 2026 (session 87)*
+*Last updated: April 12, 2026 (session 88)*
 
-> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~38h of work against ~50–55h available. All deferred items preserved in Post-MVP section. Session 87 shipped step 10.3 (user-defined MCP scaffolding + `--check-mcp` CLI) — live-validated end-to-end with a deliberately broken server. 10.5 (startup health check) satisfied by `--check-mcp`. Session 86 added alone-exit auto-leave (chat path tested live; voice path untested). Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
+> **Current status: Roadmap trimmed for 7-day MVP (ship by April 19, 2026).** Phases 10–16 restructured against `docs/mvp-bar.md`. ~37h of work against ~50–55h available. All deferred items preserved in Post-MVP section. **Phase 10 (MCP Finalization & Hardening) is now complete.** Session 88 shipped step 10.6 (runtime failure backoff) — per-server consecutive error counter, 3-strike trip, one-shot chat announcement, idempotent MCP-status re-inject; live-validated in chat-mode Meet with `debug/flaky_mcp_server.py`. Session 87 shipped 10.3 + MCP startup banner. Session 86 alone-exit auto-leave now live-validated on both chat and voice paths. Notion/Slack/Brave pressure testing dropped from MVP scope (only Linear + GitHub ship tested).
 
 ---
 
@@ -100,7 +100,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | 10.2 | Tool confirmation — auto-approve reads, confirm writes. Hardcoded `READ_TOOLS` allowlist, per-server `confirm_tools` override in config, centralized `_dispatch_result` routing | ✅ | ~2h |
 | 10.3 | User-defined MCP servers — users add custom servers in config with command, args, env, hints. Config-load env var warnings, categorized startup failure messages, LLM-aware loaded/failed server status, `--check-mcp` validation CLI | ✅ | ~2h |
 | 10.5 | Startup health check — on launch, start each configured MCP server, call `list_tools()`, report failures before joining a meeting. No CI job, no dry-run tool calls — just "can we connect?" | ✅ (via 10.3 `--check-mcp`) | ~1h |
-| 10.6 | Runtime failure backoff — simple per-server consecutive error counter; after N failures, back off and tell user in chat ("Linear server seems to be having issues, skipping for now"). No dashboards, no rate tracking | ⬜ | ~1h |
+| 10.6 | Runtime failure backoff — per-server consecutive error counter on MCPClient; after 3 failures a server is disabled (tools filtered from `get_openai_tools`, `execute_tool` short-circuits with LLM-facing steering text). One-shot chat announcement + idempotent `inject_mcp_status` re-inject with a new `disabled_runtime` bucket. Timeouts count as failures via `_record_mcp_outcome` in chat_runner. Unit-tested + live-validated with `debug/flaky_mcp_server.py` | ✅ | ~1h |
 
 **Phase total: ~12h**
 

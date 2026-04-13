@@ -576,16 +576,27 @@ ChatRunner: participant count changed 0 → 2       # initial count detection
 TIMING mcp_connect=2.1s (32 tools)               # runs in parallel with browser join
 MCP server 'linear': 32 tools discovered
 MCP server 'linear' connected — 32 tools
-LLM injected MCP hints for: linear, github                        # per-server hints appended to system prompt
-LLM injected MCP status — loaded=['linear','github'] failed=[]    # 10.3: LLM told which servers are available
+LLM injected MCP hints for: linear, github                                                   # per-server hints appended to system prompt
+LLM injected MCP status — loaded=['linear','github'] failed_to_load=[] disabled_runtime=[]   # 10.3 + 10.6: three-bucket status
 ```
 
 **MCP config failure — user-side issue (10.3):**
 ```
 WARNING config.mcp: MCP USER CONFIG: server 'notion' env var NOTION_API_KEY is empty or missing from .env — tool calls may fail at auth time
 ERROR pipeline.mcp_client: MCP USER CONFIG: server 'weather' failed to start — the command 'weather-mcp' was not found — check the 'command' field in config.yaml, or ensure the binary is on PATH
-LLM injected MCP status — loaded=['linear','github'] failed=['weather']
+LLM injected MCP status — loaded=['linear','github'] failed_to_load=['weather'] disabled_runtime=[]
 ```
+
+**MCP runtime failure backoff (10.6) — server trips after 3 consecutive tool-call failures:**
+```
+WARNING pipeline.mcp_client: MCP server 'flaky' failure 1/3        # each failed tool call bumps the counter
+WARNING pipeline.mcp_client: MCP server 'flaky' failure 2/3
+ERROR pipeline.mcp_client: MCP server 'flaky' disabled — 3 consecutive tool-call failures this session   # 3rd failure trips it
+MacOSAdapter: chat sent: 'The flaky server seems to be having issues — skipping it for the rest of this session.'  # one-shot announcement
+LLM injected MCP status — loaded=['linear','github'] failed_to_load=[] disabled_runtime=['flaky']        # status re-injected (idempotent)
+LLM ask model=gpt-4.1-mini mode=chat max_tokens=150 history_msgs=6 prompt_chars=30 tools=72              # tools count dropped (flaky's tool hidden from LLM)
+```
+A success call at any point before the trip resets that server's counter to 0. After disable, any subsequent call to one of its tools raises a synthetic `MCPToolError` ("Server 'X' has been disabled for this session after repeated failures. This tool is unavailable. Do not retry; tell the user.") without hitting the server — the wording is intentional LLM-steering.
 All MCP-USER-CONFIG-tagged log lines indicate a *user's DIY MCP config problem*, not an Operator bug. Ask user to run `python __main__.py --check-mcp` for a self-contained diagnostic.
 
 **Stderr banner (10.3) — appears right before browser join in the terminal, not in /tmp/operator.log:**
