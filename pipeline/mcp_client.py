@@ -27,6 +27,10 @@ class MCPToolError(Exception):
     pass
 
 
+# Consecutive tool-call failures per server before we disable it for the session.
+RUNTIME_FAILURE_THRESHOLD = 3
+
+
 def _classify_startup_failure(exc: Exception, srv_config: dict) -> str:
     """Turn a startup exception into a plain-English user-facing reason.
 
@@ -81,6 +85,10 @@ class MCPClient:
         self._tools: dict[str, dict] = {}
         # server_name -> human-readable failure reason (populated by connect_all)
         self.failed_servers: dict[str, str] = {}
+        # server_name -> consecutive tool-call failures since last success
+        self._consecutive_errors: dict[str, int] = {}
+        # server_name -> reason (populated when a server trips the runtime threshold)
+        self.disabled_servers: dict[str, str] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
 
@@ -104,9 +112,15 @@ class MCPClient:
         return tool_names
 
     def get_openai_tools(self) -> list[dict]:
-        """Return all discovered tools in OpenAI function-calling format."""
+        """Return all discovered tools in OpenAI function-calling format.
+
+        Tools from servers in disabled_servers are omitted so the LLM stops
+        trying them once a server has been tripped mid-session.
+        """
         result = []
         for tool_name, info in self._tools.items():
+            if info["server_name"] in self.disabled_servers:
+                continue
             mcp_tool = info["mcp_tool"]
             result.append({
                 "type": "function",
@@ -117,6 +131,29 @@ class MCPClient:
                 },
             })
         return result
+
+    def record_tool_result(self, server_name: str, success: bool) -> bool:
+        """Track per-server tool-call outcomes; trip the server at N failures.
+
+        Called from execute_tool (both branches) and from chat_runner's timeout
+        path (which never re-enters execute_tool). Returns True iff *this call*
+        just tripped the server into the disabled state — the caller uses that
+        signal to announce once in chat and reinject MCP status.
+        """
+        if success:
+            self._consecutive_errors[server_name] = 0
+            return False
+        if server_name in self.disabled_servers:
+            return False  # already disabled, don't re-announce
+        count = self._consecutive_errors.get(server_name, 0) + 1
+        self._consecutive_errors[server_name] = count
+        if count >= RUNTIME_FAILURE_THRESHOLD:
+            reason = f"{count} consecutive tool-call failures this session"
+            self.disabled_servers[server_name] = reason
+            log.error(f"MCP server '{server_name}' disabled — {reason}")
+            return True
+        log.warning(f"MCP server '{server_name}' failure {count}/{RUNTIME_FAILURE_THRESHOLD}")
+        return False
 
     def execute_tool(self, tool_name: str, arguments: dict) -> str:
         """Execute a tool call and return the result as a string.
@@ -129,6 +166,13 @@ class MCPClient:
 
         info = self._tools[tool_name]
         server_name = info["server_name"]
+
+        if server_name in self.disabled_servers:
+            raise MCPToolError(
+                f"Server '{server_name}' has been disabled for this session after repeated failures. "
+                f"This tool is unavailable. Do not retry; tell the user."
+            )
+
         original_name = tool_name.split("__", 1)[1] if "__" in tool_name else tool_name
         handle = self._servers[server_name]
 
@@ -158,6 +202,11 @@ class MCPClient:
             raise MCPToolError(f"Tool '{tool_name}' failed: {e}") from e
 
         return result
+
+    def server_for_tool(self, tool_name: str) -> str | None:
+        """Resolve a namespaced tool name to its server name, or None if unknown."""
+        info = self._tools.get(tool_name)
+        return info["server_name"] if info else None
 
     def resolve_github_user(self) -> str | None:
         """Call github__get_me to resolve the authenticated GitHub login.

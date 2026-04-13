@@ -33,6 +33,10 @@ class LLMClient:
         else:
             self._system_prompt = config.SYSTEM_PROMPT
             self._max_tokens = 60
+        # Cached text of the current MCP-status block so inject_mcp_status can
+        # be called more than once per session (e.g. after a runtime trip)
+        # without stacking duplicate blocks in the system prompt.
+        self._mcp_status_text: str = ""
 
     def inject_mcp_hints(self, servers: dict):
         """Append per-server hints from config to the system prompt.
@@ -49,26 +53,52 @@ class LLMClient:
             self._system_prompt += "\n" + "\n".join(sections)
             log.info(f"LLM injected MCP hints for: {', '.join(s for s, srv in servers.items() if srv.get('hints', '').strip())}")
 
-    def inject_mcp_status(self, loaded: list[str], failed: dict[str, str]):
+    def inject_mcp_status(
+        self,
+        loaded: list[str],
+        failed_to_load: dict[str, str],
+        disabled_runtime: dict[str, str] | None = None,
+    ):
         """Tell the LLM which MCP servers are actually available this session.
 
-        Without this, if a user-configured server fails to start, the LLM has no
-        way to know — it may claim it "doesn't have" a tool the user configured,
-        or stay silent. This lets it answer accurately and blame config, not Operator.
+        Three buckets:
+          - loaded: started and still healthy
+          - failed_to_load: never started (startup-time config/binary failure)
+          - disabled_runtime: started fine, then tripped the failure threshold mid-session
+
+        Safe to call more than once — replaces any previously-injected block
+        rather than stacking, so a mid-session re-inject after a runtime trip
+        leaves exactly one status block in the prompt.
         """
+        disabled_runtime = disabled_runtime or {}
         parts = []
         if loaded:
             parts.append(f"MCP servers loaded this session: {', '.join(loaded)}.")
-        if failed:
-            names = ", ".join(failed.keys())
+        if failed_to_load:
+            names = ", ".join(failed_to_load.keys())
             parts.append(
                 f"MCP servers that FAILED to load: {names}. "
                 f"If the user asks about tools from a failed server, tell them it failed "
                 f"to load and to check /tmp/operator.log — do not pretend the tool exists."
             )
-        if parts:
-            self._system_prompt += "\n" + " ".join(parts)
-            log.info(f"LLM injected MCP status — loaded={loaded} failed={list(failed.keys())}")
+        if disabled_runtime:
+            names = ", ".join(disabled_runtime.keys())
+            parts.append(
+                f"MCP servers DISABLED this session after repeated tool-call failures: {names}. "
+                f"Do not attempt these tools. If the user asks, tell them the server was "
+                f"disabled due to repeated failures and to check /tmp/operator.log."
+            )
+
+        if self._mcp_status_text and self._mcp_status_text in self._system_prompt:
+            self._system_prompt = self._system_prompt.replace(self._mcp_status_text, "")
+        self._mcp_status_text = ("\n" + " ".join(parts)) if parts else ""
+        if self._mcp_status_text:
+            self._system_prompt += self._mcp_status_text
+        log.info(
+            f"LLM injected MCP status — loaded={loaded} "
+            f"failed_to_load={list(failed_to_load.keys())} "
+            f"disabled_runtime={list(disabled_runtime.keys())}"
+        )
 
     def inject_github_user(self, login: str):
         """Add the authenticated GitHub login to the system prompt.

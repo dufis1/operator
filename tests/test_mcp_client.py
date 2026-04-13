@@ -160,8 +160,56 @@ except MCPToolError as e:
     check("says unknown", "unknown" in str(e).lower(), str(e))
 
 
-# ── Test 6: Shutdown ──────────────────────────────────────────────────
-print("\n6. Shutdown")
+# ── Test 6: Runtime failure backoff ───────────────────────────────────
+print("\n6. Runtime failure backoff")
+from pipeline.mcp_client import RUNTIME_FAILURE_THRESHOLD
+
+# Reset counter state so prior failing tests don't pollute this one.
+client._consecutive_errors.clear()
+client.disabled_servers.clear()
+
+# Below threshold: failures don't disable.
+for i in range(RUNTIME_FAILURE_THRESHOLD - 1):
+    tripped = client.record_tool_result("test", False)
+    check(f"failure {i+1} below threshold does not trip", not tripped)
+check("server not yet disabled",
+      "test" not in client.disabled_servers)
+
+# Success resets the counter.
+client.record_tool_result("test", True)
+check("success resets counter", client._consecutive_errors["test"] == 0)
+
+# Now trip it deliberately.
+for i in range(RUNTIME_FAILURE_THRESHOLD - 1):
+    client.record_tool_result("test", False)
+tripped = client.record_tool_result("test", False)
+check("Nth consecutive failure trips server", tripped)
+check("server in disabled_servers", "test" in client.disabled_servers)
+
+# Re-reporting after trip does not re-announce.
+tripped_again = client.record_tool_result("test", False)
+check("subsequent failure does not re-trip", not tripped_again)
+
+# Filter removes disabled-server tools from the LLM-facing list.
+tools_after = client.get_openai_tools()
+check("disabled server's tools hidden from get_openai_tools",
+      all(t["function"]["name"].split("__", 1)[0] != "test" for t in tools_after),
+      f"got {[t['function']['name'] for t in tools_after]}")
+
+# execute_tool short-circuits with firm LLM-facing text.
+try:
+    client.execute_tool("test__echo", {"message": "hi"})
+    check("execute_tool short-circuits on disabled server", False, "no exception")
+except MCPToolError as e:
+    check("execute_tool short-circuits on disabled server", True)
+    msg = str(e).lower()
+    check("short-circuit message steers LLM",
+          "disabled" in msg and "do not retry" in msg,
+          str(e))
+
+
+# ── Test 7: Shutdown ──────────────────────────────────────────────────
+print("\n7. Shutdown")
 try:
     client.shutdown()
     check("shutdown completes", True)
