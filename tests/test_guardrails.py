@@ -228,8 +228,8 @@ def test_mcp_allows_extensionless():
 def test_llm_blocks_binary_result():
     from pipeline.llm import LLMClient
 
-    client = MagicMock()
-    llm = LLMClient(client, mode="chat")
+    provider = MagicMock()
+    llm = LLMClient(provider, mode="chat")
 
     # Seed history with a tool_call assistant message
     llm._history = [
@@ -245,23 +245,19 @@ def test_llm_blocks_binary_result():
         },
     ]
 
-    # Mock the API to return a text summary
+    # Mock the provider to return a text summary message
     msg = MagicMock()
     msg.content = "I couldn't read that."
     msg.tool_calls = None
-    choice = MagicMock()
-    choice.message = msg
-    resp = MagicMock()
-    resp.choices = [choice]
-    client.chat.completions.create.return_value = resp
+    provider.complete.return_value = msg
 
     # Send a result with null bytes (simulating binary content)
     llm.send_tool_result("call_abc", "some__tool", "binary\x00content\x00here")
 
-    # Verify the blocked content was sent to the API, not the binary.
+    # Verify the blocked content was sent to the provider, not the binary.
     # (_collapse_tool_exchange removes the tool message from history after
-    # the summary, so we check what was sent to the API instead.)
-    call_args = client.chat.completions.create.call_args
+    # the summary, so we check what was sent to the provider instead.)
+    call_args = provider.complete.call_args
     messages = call_args.kwargs["messages"]
     tool_msg = next(m for m in messages if m.get("role") == "tool")
     assert "blocked" in tool_msg["content"], f"Expected block message, got: {tool_msg['content'][:100]}"
@@ -276,8 +272,8 @@ def test_llm_blocks_binary_result():
 def test_llm_passes_clean_result():
     from pipeline.llm import LLMClient
 
-    client = MagicMock()
-    llm = LLMClient(client, mode="chat")
+    provider = MagicMock()
+    llm = LLMClient(provider, mode="chat")
 
     llm._history = [
         {"role": "user", "content": "read file"},
@@ -295,17 +291,13 @@ def test_llm_passes_clean_result():
     msg = MagicMock()
     msg.content = "Here's the file."
     msg.tool_calls = None
-    choice = MagicMock()
-    choice.message = msg
-    resp = MagicMock()
-    resp.choices = [choice]
-    client.chat.completions.create.return_value = resp
+    provider.complete.return_value = msg
 
     clean_content = "def hello():\n    return 'world'\n"
     llm.send_tool_result("call_xyz", "some__tool", clean_content)
 
-    # Check what was sent to the API (collapse removes tool msg from history)
-    call_args = client.chat.completions.create.call_args
+    # Check what was sent to the provider (collapse removes tool msg from history)
+    call_args = provider.complete.call_args
     messages = call_args.kwargs["messages"]
     tool_msg = next(m for m in messages if m.get("role") == "tool")
     assert tool_msg["content"] == clean_content, f"Clean content should pass through unchanged"

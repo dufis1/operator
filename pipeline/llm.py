@@ -1,29 +1,31 @@
 """
 LLM integration for Operator.
 
-Wraps OpenAI chat completions with a system prompt and per-session
-conversation history. No macOS imports.
+Wraps a provider-agnostic chat interface with a system prompt and per-session
+conversation history. The actual API transport lives in pipeline/providers/.
+No macOS imports.
 """
 import json
 import logging
-import openai
 import config
 from pipeline.guardrails import validate_tool_result, log_rejection
+from pipeline.providers import ContextOverflowError
 
 log = logging.getLogger(__name__)
 
 MAX_TRANSCRIPT_LINES = 100  # rolling transcript history limit
 
 class LLMClient:
-    """Sends prompts to GPT and maintains per-session conversation history.
+    """Sends prompts to an LLM provider and maintains per-session conversation history.
 
-    Pass an OpenAI client at construction time:
-        client = LLMClient(openai_client)
+    Pass an LLMProvider at construction time:
+        provider = OpenAIProvider(openai_client)
+        client = LLMClient(provider)
         reply = client.ask("What's the plan?")
     """
 
-    def __init__(self, openai_client, mode="voice"):
-        self._client = openai_client
+    def __init__(self, provider, mode="voice"):
+        self._provider = provider
         self._history = []
         self._mode = mode
         self._max_pairs = config.CHAT_HISTORY_TURNS  # user+assistant pairs to keep
@@ -111,7 +113,7 @@ class LLMClient:
         log.info(f"LLM injected GitHub user: {login}")
 
     def ask(self, utterance, record=True, tools=None):
-        """Send an utterance to GPT and return the reply.
+        """Send an utterance to the LLM and return the reply.
 
         When tools is None (voice path, backward compat): returns a plain string.
         When tools is provided (chat + MCP): returns a dict with either:
@@ -129,28 +131,20 @@ class LLMClient:
         log.info(f"LLM ask model={config.LLM_MODEL} mode={self._mode} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(utterance)} tools={len(tools) if tools else 0}")
         log.debug(f"LLM utterance: {utterance}")
 
-        kwargs = {
-            "model": config.LLM_MODEL,
-            "max_tokens": self._max_tokens,
-            "messages": messages,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["parallel_tool_calls"] = False
-
         try:
-            response = self._client.chat.completions.create(**kwargs)
-        except openai.BadRequestError as e:
-            if getattr(e, "code", None) == "context_length_exceeded":
-                log.warning(f"LLM context length exceeded — clearing history")
-                self._history = []
-                return {"type": "context_overflow"}
-            raise
+            message = self._provider.complete(
+                messages=messages,
+                model=config.LLM_MODEL,
+                max_tokens=self._max_tokens,
+                tools=tools,
+            )
+        except ContextOverflowError:
+            log.warning(f"LLM context length exceeded — clearing history")
+            self._history = []
+            return {"type": "context_overflow"}
         except Exception as e:
             log.error(f"LLM API call failed: {e}", exc_info=True)
             raise
-
-        message = response.choices[0].message
 
         # No tools provided (voice path) — return plain string for backward compat
         if not tools:
@@ -186,7 +180,7 @@ class LLMClient:
             return {"type": "text", "content": reply}
 
     def ask_stream(self, utterance):
-        """Stream tokens from GPT. Yields token strings as they arrive.
+        """Stream tokens from the LLM. Yields token strings as they arrive.
 
         Does NOT record to history — call record_exchange() if you use the result.
         """
@@ -198,19 +192,14 @@ class LLMClient:
         log.info(f"LLM ask_stream model={config.LLM_MODEL} mode={self._mode} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
         log.debug(f"LLM utterance: {utterance}")
         try:
-            response = self._client.chat.completions.create(
+            yield from self._provider.complete_stream(
+                messages=messages,
                 model=config.LLM_MODEL,
                 max_tokens=self._max_tokens,
-                messages=messages,
-                stream=True,
             )
         except Exception as e:
             log.error(f"LLM API stream failed: {e}", exc_info=True)
             raise
-        for chunk in response:
-            delta = chunk.choices[0].delta
-            if delta.content:
-                yield delta.content
 
     def warmup(self):
         """Fire a 1-token request to establish the TCP/TLS connection pool.
@@ -218,11 +207,7 @@ class LLMClient:
         Not recorded to history. Call once at startup in a background thread.
         """
         try:
-            self._client.chat.completions.create(
-                model=config.LLM_MODEL,
-                max_tokens=1,
-                messages=[{"role": "user", "content": "hi"}],
-            )
+            self._provider.warmup(config.LLM_MODEL)
             log.info("LLM warmup complete")
         except Exception as e:
             log.warning(f"LLM warmup failed (non-fatal): {e}")
@@ -279,28 +264,20 @@ class LLMClient:
         ]
         log.info(f"LLM send_tool_result tool={tool_name} result_len={len(result_content)}")
 
-        kwargs = {
-            "model": config.LLM_MODEL,
-            "max_tokens": self._max_tokens,
-            "messages": messages,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["parallel_tool_calls"] = False
-
         try:
-            response = self._client.chat.completions.create(**kwargs)
-        except openai.BadRequestError as e:
-            if getattr(e, "code", None) == "context_length_exceeded":
-                log.warning(f"LLM context length exceeded in tool result — clearing history")
-                self._history = []
-                return {"type": "context_overflow"}
-            raise
+            message = self._provider.complete(
+                messages=messages,
+                model=config.LLM_MODEL,
+                max_tokens=self._max_tokens,
+                tools=tools,
+            )
+        except ContextOverflowError:
+            log.warning(f"LLM context length exceeded in tool result — clearing history")
+            self._history = []
+            return {"type": "context_overflow"}
         except Exception as e:
             log.error(f"LLM tool result call failed: {e}", exc_info=True)
             raise
-
-        message = response.choices[0].message
 
         # Check for follow-up tool call
         if tools and message.tool_calls:

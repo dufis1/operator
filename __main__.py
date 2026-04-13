@@ -243,8 +243,9 @@ def _run_macos_terminal(meeting_url=None, force=False, chat_mode=False):
         from connectors.macos_adapter import MacOSAdapter
         from pipeline.chat_runner import ChatRunner
         from pipeline.llm import LLMClient
+        from pipeline.providers import OpenAIProvider
         connector = MacOSAdapter(force=force)
-        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY), mode="chat")
+        llm = LLMClient(OpenAIProvider(OpenAI(api_key=config.OPENAI_API_KEY)), mode="chat")
 
         # Start MCP connection in background while browser joins
         _mcp_result = {"client": None}
@@ -439,7 +440,8 @@ def _run_linux(meeting_url, force=False, chat_mode=False):
         from openai import OpenAI
         from pipeline.chat_runner import ChatRunner
         from pipeline.llm import LLMClient
-        llm = LLMClient(OpenAI(api_key=config.OPENAI_API_KEY), mode="chat")
+        from pipeline.providers import OpenAIProvider
+        llm = LLMClient(OpenAIProvider(OpenAI(api_key=config.OPENAI_API_KEY)), mode="chat")
 
         if config.MCP_SERVERS:
             from pipeline.mcp_client import MCPClient

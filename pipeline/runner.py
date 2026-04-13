@@ -31,6 +31,7 @@ from pipeline.captions import CaptionProcessor
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline import fillers
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
+from pipeline.providers import OpenAIProvider
 from pipeline.tts import TTSClient
 from pipeline.latency_probe import LatencyProbe
 from pipeline.sanitize import sanitize_for_speech
@@ -196,7 +197,7 @@ class AgentRunner:
 
         log.info("STARTUP connecting to APIs...")
         openai_client = OpenAI(api_key=config.OPENAI_API_KEY)
-        self.llm = LLMClient(openai_client)
+        self.llm = LLMClient(OpenAIProvider(openai_client))
 
         # Start TTS init in background — Kokoro model load (~5s) overlaps with
         # browser launch + page navigation. TTS isn't needed until first response.

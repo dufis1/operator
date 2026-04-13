@@ -24,24 +24,20 @@ import openai
 
 def make_llm(mode="chat"):
     from pipeline.llm import LLMClient
-    client = MagicMock()
-    return LLMClient(client, mode=mode)
+    provider = MagicMock()
+    return LLMClient(provider, mode=mode)
 
 
-def make_text_response(text):
-    """Return a mock OpenAI chat completion that yields a text message."""
+def make_text_message(text):
+    """Return a mock LLM message object yielding a plain text reply."""
     msg = MagicMock()
     msg.content = text
     msg.tool_calls = None
-    choice = MagicMock()
-    choice.message = msg
-    resp = MagicMock()
-    resp.choices = [choice]
-    return resp
+    return msg
 
 
 def make_bad_request_error(code):
-    """Return an openai.BadRequestError with a given code."""
+    """Return an openai.BadRequestError with a given code (used for non-overflow path)."""
     err = openai.BadRequestError.__new__(openai.BadRequestError)
     err.code = code
     err.message = f"error code: {code}"
@@ -73,14 +69,14 @@ def test_tool_result_size_guard():
 
     oversized = "x" * (config.TOOL_RESULT_MAX_CHARS + 1)
 
-    # Mock the API call to return a plain text response
-    llm._client.chat.completions.create.return_value = make_text_response("summary")
+    # Mock the provider to return a plain text message
+    llm._provider.complete.return_value = make_text_message("summary")
 
     llm.send_tool_result("call_abc", "dummy_tool", oversized)
 
     # _collapse_tool_exchange removes the tool message from history after the
-    # summary, so check what was sent to the API instead.
-    call_args = llm._client.chat.completions.create.call_args
+    # summary, so check what was sent to the provider instead.
+    call_args = llm._provider.complete.call_args
     messages = call_args.kwargs["messages"]
     tool_msg = next(m for m in messages if m.get("role") == "tool")
     assert "archived" in tool_msg["content"], f"Expected archive placeholder, got: {tool_msg['content'][:100]}"
@@ -99,8 +95,8 @@ def test_ask_context_overflow():
         {"role": "assistant", "content": "old reply"},
     ]
 
-    err = make_bad_request_error("context_length_exceeded")
-    llm._client.chat.completions.create.side_effect = err
+    from pipeline.providers import ContextOverflowError
+    llm._provider.complete.side_effect = ContextOverflowError()
 
     result = llm.ask("new message", tools=[{"type": "function", "function": {"name": "t", "parameters": {}}}])
 
@@ -120,8 +116,8 @@ def test_send_tool_result_context_overflow():
         {"role": "assistant", "content": "old reply"},
     ]
 
-    err = make_bad_request_error("context_length_exceeded")
-    llm._client.chat.completions.create.side_effect = err
+    from pipeline.providers import ContextOverflowError
+    llm._provider.complete.side_effect = ContextOverflowError()
 
     result = llm.send_tool_result("call_xyz", "some_tool", "result content")
 
@@ -137,7 +133,7 @@ def test_send_tool_result_context_overflow():
 def test_other_bad_request_still_raises():
     llm = make_llm()
     err = make_bad_request_error("invalid_api_key")
-    llm._client.chat.completions.create.side_effect = err
+    llm._provider.complete.side_effect = err
 
     try:
         llm.ask("something", tools=[{"type": "function", "function": {"name": "t", "parameters": {}}}])

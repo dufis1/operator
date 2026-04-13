@@ -23,19 +23,15 @@ from unittest.mock import MagicMock
 
 def make_llm():
     from pipeline.llm import LLMClient
-    client = MagicMock()
-    return LLMClient(client, mode="chat")
+    provider = MagicMock()
+    return LLMClient(provider, mode="chat")
 
 
-def make_text_response(text):
+def make_text_message(text):
     msg = MagicMock()
     msg.content = text
     msg.tool_calls = None
-    choice = MagicMock()
-    choice.message = msg
-    resp = MagicMock()
-    resp.choices = [choice]
-    return resp
+    return msg
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +50,7 @@ def test_single_tool_call_collapses():
         ]},
     ]
 
-    llm._client.chat.completions.create.return_value = make_text_response("Done — ticket LIN-42 created.")
+    llm._provider.complete.return_value = make_text_message("Done — ticket LIN-42 created.")
 
     llm.send_tool_result("call_1", "linear__create_issue", "x" * 10000)
 
@@ -89,7 +85,7 @@ def test_chained_tool_calls_collapse():
         ]},
     ]
 
-    llm._client.chat.completions.create.return_value = make_text_response("Listed and created LIN-43.")
+    llm._provider.complete.return_value = make_text_message("Listed and created LIN-43.")
 
     llm.send_tool_result("call_B", "linear__create_issue", "y" * 5000)
 
@@ -107,8 +103,8 @@ def test_chained_tool_calls_collapse():
 
 def test_plain_text_exchange_unchanged():
     from pipeline.llm import LLMClient
-    client = MagicMock()
-    llm = LLMClient(client, mode="chat")
+    provider = MagicMock()
+    llm = LLMClient(provider, mode="chat")
 
     llm._history = [
         {"role": "user", "content": "what time is it"},

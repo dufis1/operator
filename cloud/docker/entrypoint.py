@@ -34,6 +34,7 @@ from connectors.docker_adapter import DockerAdapter
 from pipeline.audio import AudioProcessor, SAMPLE_RATE, WHISPER_HALLUCINATIONS
 from pipeline.conversation import ConversationState, CONVERSATION_TIMEOUT
 from pipeline.llm import LLMClient, MAX_TRANSCRIPT_LINES
+from pipeline.providers import OpenAIProvider
 from pipeline.tts import TTSClient
 from pipeline.wake import detect_wake_phrase
 
@@ -93,7 +94,7 @@ class DockerOperator:
 
         log.info("DockerOperator: connecting to APIs...")
         openai_client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        self.llm = LLMClient(openai_client)
+        self.llm = LLMClient(OpenAIProvider(openai_client))
         self.tts = TTSClient(PULSE_OUTPUT_DEVICE)
 
         auth_state_file = os.environ.get("AUTH_STATE_FILE")
