@@ -17,7 +17,7 @@
 
 ## Current Status
 
-**Phase:** Voice/chat decoupling COMPLETE as of session 94. Phase 11 resumes at step 11.3 (meeting transcript as context) next session.
+**Phase:** Voice/chat decoupling COMPLETE as of session 94. Phase 11 resumes at step **11.3a (meeting record as single source of truth)** — 11.3 was split at the start of session 95 into 11.3a (chat record + file persistence, absorbs 11.6) and 11.3b (captions ported from voice-preserved).
 
 **What just happened (session 94, April 13, 2026):** Finished Stages 3–6 of the voice/chat decoupling. All six stages are now on `main`; `voice-preserved` branch holds the pre-decoupling state.
 
@@ -28,7 +28,19 @@
 
 Live-Meet smoke test passed at end of each of Stages 3, 4, 5, and 6 (`total_join ≈ 3–4s`, MCP 2/2 = 72 tools, Claude Sonnet 4.5 replied correctly, clean shutdown).
 
-**Next action:** Resume **Phase 11.3 — meeting transcript as context**. Load Google Meet's live-captions DOM into a rolling transcript buffer and pass it to the LLM alongside chat messages so the bot can answer "what did she just say?" and similar questions. Scope notes from session 92 OSS audit still apply; revisit the fast-follow items bucketed as pre-MVP-if-time after 11.3 lands.
+**Next action:** Implement **Phase 11.3a — meeting record as single source of truth** (~4h). Plan locked in at the top of session 95 after design discussion:
+
+- **One buffer, not two.** A per-meeting JSONL file at `~/.operator/history/<meeting_id>.jsonl` is the authoritative record. Every chat-panel message observed — addressed (`@operator …`), non-addressed (ambient chat from other participants), and Operator's own replies — appends one line with fields `{timestamp, sender, text, kind: "chat"}`.
+- **`LLMClient.ask()` reads the tail of the file** and replays it as context on each call. No parallel in-memory pair buffer competing with the file. Eliminates the redundancy tension where the same exchange would live in both `_history` and a separate transcript.
+- **`history_turns` renamed to `history_messages`** — counts individual entries, not pairs. The meeting record doesn't have clean pair semantics (one user line might get 0 or many replies; captions in 11.3b are individual speaker turns). Config rename is part of this step; update `config.yaml`, `config.py`, `pipeline/llm.py`, and any tests that reference `HISTORY_TURNS` / `_max_pairs`.
+- **Tool-loop state stays in memory.** Tool calls and tool results are protocol-level and not chat-panel content, so they don't belong in the meeting record. Keep a small in-memory scratchpad that lives only for the duration of an in-flight tool loop (user turn → tool calls → final reply), then clears. Preserves the file as single-purpose (chat record).
+- **Absorbs what was 11.6.** The file IS the persistence layer. On startup, if `<meeting_id>.jsonl` already exists for the same meeting, load is automatic (we just read the tail as usual). No separate persistence step.
+- **Meeting ID derivation** — use the Meet URL slug (e.g. `pgy-qauk-frn` from `https://meet.google.com/pgy-qauk-frn`). Stable per meeting, works across restarts, no UUID bookkeeping. `calendar_poller.py` auto-joins already expose the URL.
+- **File format** — JSONL, one message per line. Append-only. No mid-file rewrites. Clean to tail, cheap to write, user-readable with `tail -f`.
+- **Cap behavior** — when reading the tail for context, take the last `history_messages` entries. The file itself keeps growing within the meeting (bounded by meeting length); long-term disk management is post-MVP.
+- **Privacy note for README** — local-only, zero telemetry intact; users can delete `~/.operator/history/` freely.
+
+Scope notes from session 92 OSS audit still apply. 11.3b (captions) comes after 11.3a and appends to the same file with `kind: caption`. Revisit fast-follow audit items bucketed as pre-MVP-if-time after 11.3a+11.3b land.
 
 **What happened before that (session 93, April 13, 2026):** User decided to ship chat as MVP with voice held back as v2 "secret." Paused the roadmap to do a full voice/chat decoupling so anyone poking around the repo sees zero voice/audio traces. Strategy: voice-preserved branch + delete everything voice-only from main + refactor shared files to chat-only. Plan lives in `docs/decoupling_plan.md` (gitignored). Stages 0–2 of 6 completed in session 93:
 

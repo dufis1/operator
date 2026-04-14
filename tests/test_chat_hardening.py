@@ -1,5 +1,5 @@
 """
-Tests for chat hardening: history cap, wake phrase gating, sender filtering.
+Tests for chat hardening: history cap, trigger phrase gating, sender filtering.
 Run: python tests/test_chat_hardening.py
 """
 import sys, os
@@ -80,45 +80,45 @@ def test_history_cap_with_context():
     print("  history cap with context: PASS")
 
 
-def test_wake_phrase_gating():
-    """Only messages containing the wake phrase should trigger a response."""
-    wake = config.TRIGGER_PHRASE.lower()
+def test_trigger_phrase_gating():
+    """Only messages containing the trigger phrase should trigger a response."""
+    trigger = config.TRIGGER_PHRASE.lower()
 
     # These should match
     match_cases = [
-        "/operator what time is it",
-        "hey /operator, summarize",
-        "/Operator tell me a joke",
+        f"{trigger} what time is it",
+        f"hey {trigger}, summarize",
+        f"{trigger.capitalize()} tell me a joke",
     ]
     for text in match_cases:
-        assert wake in text.lower(), f"Should match: {text!r}"
+        assert trigger in text.lower(), f"Should match: {text!r}"
 
     # These should NOT match
     no_match = [
         "what time is it",
-        "let's discuss the operator role",  # only matches if wake is literally "operator"
+        "let's discuss the operator role",  # bare word shouldn't match "@operator"
     ]
     for text in no_match:
-        assert wake not in text.lower(), f"Should not match: {text!r}"
+        assert trigger not in text.lower(), f"Should not match: {text!r}"
 
-    print("  wake phrase detection: PASS")
+    print("  trigger phrase detection: PASS")
 
 
-def test_wake_phrase_stripping():
-    """Wake phrase should be stripped from the prompt sent to LLM."""
-    wake = config.TRIGGER_PHRASE
-    pattern = re.escape(wake) + r'[,:]?\s*'
+def test_trigger_phrase_stripping():
+    """Trigger phrase should be stripped from the prompt sent to LLM."""
+    trigger = config.TRIGGER_PHRASE
+    pattern = re.escape(trigger) + r'[,:]?\s*'
 
     cases = [
-        (f"{wake} what time is it", "what time is it"),
-        (f"{wake}, summarize the discussion", "summarize the discussion"),
-        (f"hey {wake}: what was said", "hey what was said"),
+        (f"{trigger} what time is it", "what time is it"),
+        (f"{trigger}, summarize the discussion", "summarize the discussion"),
+        (f"hey {trigger}: what was said", "hey what was said"),
     ]
     for text, expected in cases:
         result = re.sub(pattern, '', text, count=1, flags=re.IGNORECASE).strip()
         assert result == expected, f"Strip {text!r} -> {result!r}, expected {expected!r}"
 
-    print("  wake phrase stripping: PASS")
+    print("  trigger phrase stripping: PASS")
 
 
 def test_sender_filtering():
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     test_history_cap()
     test_add_context()
     test_history_cap_with_context()
-    test_wake_phrase_gating()
-    test_wake_phrase_stripping()
+    test_trigger_phrase_gating()
+    test_trigger_phrase_stripping()
     test_sender_filtering()
     print("\nAll tests passed.")
