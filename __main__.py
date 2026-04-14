@@ -198,7 +198,7 @@ def _run_macos(meeting_url=None, force=False):
 
     t_start = _time.monotonic()
     connector = MacOSAdapter(force=force)
-    llm = LLMClient(build_provider(), mode="chat")
+    llm = LLMClient(build_provider())
 
     # Start MCP connection in background while browser joins
     _mcp_result = {"client": None}
@@ -327,7 +327,7 @@ def _run_linux(meeting_url, force=False):
 
     log.info(f"Starting Operator (Linux) — joining {meeting_url}")
     connector = LinuxAdapter()
-    llm = LLMClient(build_provider(), mode="chat")
+    llm = LLMClient(build_provider())
 
     mcp = None
     if config.MCP_SERVERS:

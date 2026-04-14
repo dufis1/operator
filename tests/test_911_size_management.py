@@ -22,10 +22,10 @@ import openai
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_llm(mode="chat"):
+def make_llm():
     from pipeline.llm import LLMClient
     provider = MagicMock()
-    return LLMClient(provider, mode=mode)
+    return LLMClient(provider)
 
 
 def make_text_message(text):

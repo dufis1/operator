@@ -23,10 +23,9 @@ class LLMClient:
         reply = client.ask("What's the plan?")
     """
 
-    def __init__(self, provider, mode="chat"):
+    def __init__(self, provider):
         self._provider = provider
         self._history = []
-        self._mode = mode
         self._max_pairs = config.HISTORY_TURNS  # user+assistant pairs to keep
         self._system_prompt = config.SYSTEM_PROMPT
         self._max_tokens = config.MAX_TOKENS
@@ -107,10 +106,10 @@ class LLMClient:
         self._system_prompt += hint
         log.info(f"LLM injected GitHub user: {login}")
 
-    def ask(self, utterance, record=True, tools=None):
-        """Send an utterance to the LLM and return the reply.
+    def ask(self, message, record=True, tools=None):
+        """Send a message to the LLM and return the reply.
 
-        When tools is None (voice path, backward compat): returns a plain string.
+        When tools is None: returns a plain string.
         When tools is provided (chat + MCP): returns a dict with either:
           {"type": "text", "content": "..."}
           {"type": "tool_call", "id": "...", "name": "...", "arguments": {...}}
@@ -120,10 +119,10 @@ class LLMClient:
         """
         messages = [
             *self._history,
-            {"role": "user", "content": utterance},
+            {"role": "user", "content": message},
         ]
-        log.info(f"LLM ask model={config.LLM_MODEL} mode={self._mode} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(utterance)} tools={len(tools) if tools else 0}")
-        log.debug(f"LLM utterance: {utterance}")
+        log.info(f"LLM ask model={config.LLM_MODEL} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(message)} tools={len(tools) if tools else 0}")
+        log.debug(f"LLM message: {message}")
 
         try:
             response = self._provider.complete(
@@ -141,12 +140,12 @@ class LLMClient:
             log.error(f"LLM API call failed: {e}", exc_info=True)
             raise
 
-        # No tools provided (voice path) — return plain string for backward compat
+        # No tools provided — return plain string
         if not tools:
             reply = response.text
             log.info(f"LLM reply=\"{reply[:80]}\"")
             if record:
-                self._history.append({"role": "user", "content": utterance})
+                self._history.append({"role": "user", "content": message})
                 self._history.append({"role": "assistant", "content": reply})
                 self._trim_history()
             return reply
@@ -156,7 +155,7 @@ class LLMClient:
             tc = response.tool_calls[0]
             log.info(f"LLM tool_call name={tc.name}")
             if record:
-                self._history.append({"role": "user", "content": utterance})
+                self._history.append({"role": "user", "content": message})
                 self._history.append({
                     "role": "assistant",
                     "content": response.text,
@@ -173,22 +172,22 @@ class LLMClient:
             reply = response.text
             log.info(f"LLM reply=\"{reply[:80]}\"")
             if record:
-                self._history.append({"role": "user", "content": utterance})
+                self._history.append({"role": "user", "content": message})
                 self._history.append({"role": "assistant", "content": reply})
                 self._trim_history()
             return {"type": "text", "content": reply}
 
-    def ask_stream(self, utterance):
+    def ask_stream(self, message):
         """Stream tokens from the LLM. Yields token strings as they arrive.
 
         Does NOT record to history — call record_exchange() if you use the result.
         """
         messages = [
             *self._history,
-            {"role": "user", "content": utterance},
+            {"role": "user", "content": message},
         ]
-        log.info(f"LLM ask_stream model={config.LLM_MODEL} mode={self._mode} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(utterance)}")
-        log.debug(f"LLM utterance: {utterance}")
+        log.info(f"LLM ask_stream model={config.LLM_MODEL} max_tokens={self._max_tokens} history_msgs={len(self._history)} prompt_chars={len(message)}")
+        log.debug(f"LLM message: {message}")
         try:
             yield from self._provider.complete_stream(
                 system=self._system_prompt,
@@ -211,12 +210,9 @@ class LLMClient:
         except Exception as e:
             log.warning(f"LLM warmup failed (non-fatal): {e}")
 
-    def record_exchange(self, utterance: str, reply: str):
-        """Commit a user/assistant exchange to history without an API call.
-
-        Used when a speculative LLM result is accepted.
-        """
-        self._history.append({"role": "user", "content": utterance})
+    def record_exchange(self, message: str, reply: str):
+        """Commit a user/assistant exchange to history without an API call."""
+        self._history.append({"role": "user", "content": message})
         self._history.append({"role": "assistant", "content": reply})
         self._trim_history()
 
@@ -231,7 +227,7 @@ class LLMClient:
         Call this after executing a tool call. The LLM will either summarize
         the result into a user-facing message, or request another tool call.
 
-        Returns a plain string (backward compat) when tools is None,
+        Returns a plain string when tools is None,
         or a dict like ask() when tools is provided:
           {"type": "text", "content": "..."}
           {"type": "tool_call", "id": "...", "name": "...", "arguments": {...}}

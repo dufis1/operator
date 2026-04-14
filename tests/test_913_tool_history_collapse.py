@@ -24,7 +24,7 @@ from unittest.mock import MagicMock
 def make_llm():
     from pipeline.llm import LLMClient
     provider = MagicMock()
-    return LLMClient(provider, mode="chat")
+    return LLMClient(provider)
 
 
 def make_text_message(text):
@@ -101,7 +101,7 @@ def test_chained_tool_calls_collapse():
 def test_plain_text_exchange_unchanged():
     from pipeline.llm import LLMClient
     provider = MagicMock()
-    llm = LLMClient(provider, mode="chat")
+    llm = LLMClient(provider)
 
     llm._history = [
         {"role": "user", "content": "what time is it"},

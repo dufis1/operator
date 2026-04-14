@@ -81,8 +81,7 @@ class LLMProvider:
     def complete_stream(self, system, messages, model, max_tokens):
         """Stream a plain-text completion. Yields text chunks (str) as they arrive.
 
-        Tool-call streaming is not part of this interface (the voice path
-        that uses streaming does not use tools).
+        Tool-call streaming is not part of this interface.
         """
         raise NotImplementedError
 

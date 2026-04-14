@@ -229,7 +229,7 @@ def test_llm_blocks_binary_result():
     from pipeline.llm import LLMClient
 
     provider = MagicMock()
-    llm = LLMClient(provider, mode="chat")
+    llm = LLMClient(provider)
 
     # Seed history with a tool_call assistant message
     from pipeline.providers import ProviderResponse, ToolCall
@@ -269,7 +269,7 @@ def test_llm_passes_clean_result():
     from pipeline.llm import LLMClient
 
     provider = MagicMock()
-    llm = LLMClient(provider, mode="chat")
+    llm = LLMClient(provider)
 
     from pipeline.providers import ProviderResponse, ToolCall
     llm._history = [
