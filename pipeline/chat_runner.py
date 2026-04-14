@@ -39,7 +39,7 @@ READ_TOOLS = {
 
 POLL_INTERVAL = 0.5  # seconds between read_chat() calls
 PARTICIPANT_CHECK_INTERVAL = 3  # seconds between participant count checks
-ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip wake phrase)
+ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip trigger phrase)
 
 
 class ChatRunner:
@@ -66,7 +66,7 @@ class ChatRunner:
         if not self._connector.join_status:
             self._connector.join(meeting_url)
 
-        # Wait for browser to actually join (same logic as AgentRunner)
+        # Wait for browser to actually join
         join_status = self._connector.join_status
         if join_status:
             join_timeout = config.IDLE_TIMEOUT_SECONDS + 60
@@ -206,7 +206,7 @@ class ChatRunner:
                     first_name = sender.split()[0] if sender else ""
                     context = f"{first_name}: {text}" if first_name else text
                     self._llm.add_context(context)
-                    log.debug(f"ChatRunner: stored as context (no wake phrase)")
+                    log.debug(f"ChatRunner: stored as context (no trigger phrase)")
 
             self._own_messages -= own_matched
 

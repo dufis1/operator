@@ -23,7 +23,7 @@ BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 
 
 class MacOSAdapter(MeetingConnector):
-    """MeetingConnector for macOS using ScreenCaptureKit + real Chrome."""
+    """MeetingConnector for macOS using Playwright + real Chrome."""
 
     def __init__(self, auth_state_file=None, force=False):
         super().__init__()

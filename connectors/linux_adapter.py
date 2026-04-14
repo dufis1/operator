@@ -36,7 +36,7 @@ Object.defineProperty(navigator, 'webdriver', {
 
 
 class LinuxAdapter(MeetingConnector):
-    """MeetingConnector for headless local Linux using PulseAudio + Playwright Chromium."""
+    """MeetingConnector for headless local Linux using Playwright Chromium."""
 
     def __init__(self, user_data_dir=None, auth_state_file=None):
         super().__init__()

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-Operator is an AI meeting participant bot. It joins Google Meet, listens for the wake phrase "operator", transcribes the prompt via Whisper, queries GPT-4.1-mini, and plays the TTS response through a virtual audio device so all meeting participants hear it.
+Operator is a chat-based AI meeting participant. It joins Google Meet, opens the chat panel, watches for messages addressed to it (via the `@operator` trigger phrase, or any message in a 1-on-1), queries an LLM with tool access via MCP (Linear, GitHub), and posts the reply back into meeting chat.
 
 ## Commands
 
@@ -12,27 +12,9 @@ Operator is an AI meeting participant bot. It joins Google Meet, listens for the
 
 ```bash
 source venv/bin/activate
-
-# macOS menu bar app
-python __main__.py
-
-# Linux / headless with a meeting URL
 python __main__.py https://meet.google.com/xxx-yyyy-zzz
 # or
 MEETING_URL=https://meet.google.com/xxx-yyyy-zzz python __main__.py
-```
-
-### Build macOS app bundle
-
-```bash
-# Recompile Swift audio helper (only needed after editing audio_capture.swift)
-swiftc -O -o audio_capture audio_capture.swift \
-  -framework ScreenCaptureKit -framework CoreMedia -framework AVFoundation
-codesign --force --sign - --identifier "com.operator.audio-capture" audio_capture
-
-# Build alias bundle (fast, references venv in-place)
-python setup.py py2app -A
-open dist/Operator.app
 ```
 
 ### Logs & Diagnostics
@@ -40,7 +22,7 @@ open dist/Operator.app
 ```bash
 tail -f /tmp/operator.log
 grep "TIMING" /tmp/operator.log          # latency markers
-grep "wake_\|Pipeline\|prompt_finalized" /tmp/operator.log
+grep "LLM\|MCP\|ChatRunner" /tmp/operator.log
 ```
 
 ### Tests
@@ -49,12 +31,15 @@ Tests are standalone scripts — no pytest runner. Run them individually:
 
 ```bash
 source venv/bin/activate
-python tests/test_apis.py          # validate API keys
-python tests/test_whisper.py       # 5s mic recording → Whisper
-python tests/test_tts.py           # TTS streaming
-python tests/test_pipeline.py      # full pipeline + wake phrase
-python tests/test_audio_processor.py
-python tests/test_smoke_docker.py  # end-to-end Docker smoke test
+python tests/test_chat_hardening.py         # history cap, trigger gating, sender filter
+python tests/test_911_size_management.py    # tool-result size + context overflow
+python tests/test_912_tool_timeout.py       # tool heartbeat + hard timeout
+python tests/test_913_tool_history_collapse.py
+python tests/test_915_reconnection.py       # disconnect + grace-period exit
+python tests/test_guardrails.py             # binary/null-byte blocking
+python tests/test_anthropic_provider.py
+python tests/test_mcp_client.py
+python tests/test_mcp_shutdown.py
 ```
 
 ## Architecture
@@ -62,62 +47,55 @@ python tests/test_smoke_docker.py  # end-to-end Docker smoke test
 ### Layer Overview
 
 ```
-App layer (platform UI)
-  app.py               — macOS rumps menu bar shell
-  __main__.py          — entry point; selects connector, runs preflight, starts AgentRunner
+Entry
+  __main__.py                 — CLI entry; preflights, builds connector + LLM + MCP, runs ChatRunner
 
-Connectors (platform-specific — implement MeetingConnector interface)
-  connectors/base.py          — abstract: join(), get_audio_stream(), send_audio(), leave()
-  connectors/macos_adapter.py — ScreenCaptureKit + Playwright + mpv → BlackHole
-  connectors/linux_adapter.py — PulseAudio parec + headless Chromium + mpv
-  connectors/docker_adapter.py
+Connectors (platform-specific — implement MeetingConnector)
+  connectors/base.py          — abstract: join(), send_chat(), read_chat(),
+                                 get_participant_count(), is_connected(), leave()
+  connectors/macos_adapter.py — Playwright + persistent Chrome profile
+  connectors/linux_adapter.py — Playwright + headless Chromium
+  connectors/session.py       — JoinStatus state + browser session bookkeeping
 
-Pipeline (platform-agnostic — all LLM/audio logic lives here)
-  pipeline/runner.py       — AgentRunner: orchestrates the full audio → STT → LLM → TTS loop
-  pipeline/audio.py        — AudioProcessor: RMS silence detection, utterance capture, Whisper
-  pipeline/wake.py         — detects "operator" (inline or wake-only mode)
-  pipeline/conversation.py — state machine: idle → listening → thinking → speaking
-  pipeline/llm.py          — LLMClient wrapping gpt-4.1-mini (≤60 tokens, spoken-word prompt)
-  pipeline/tts.py          — TTSClient: 3-tier (local Kokoro / openai / elevenlabs), lazy init
+Pipeline (platform-agnostic)
+  pipeline/chat_runner.py     — polling loop; trigger detection, 1-on-1 mode,
+                                 tool-confirmation flow, participant-based auto-leave
+  pipeline/llm.py             — LLMClient: system prompt, history, MCP status/hints injection
+  pipeline/providers/         — neutral LLMProvider interface + OpenAI + Anthropic backends
+  pipeline/mcp_client.py      — stdio MCP transport, tool discovery, failure backoff
+  pipeline/guardrails.py      — validate tool results (binary/null-byte rejection)
+  pipeline/calendar_poller.py — auto-join upcoming meetings from Google Calendar
 ```
 
 ### Key Data Flow
 
-1. Connector captures raw PCM audio from the meeting
-2. `AudioProcessor` buffers it, detects silence boundaries, produces utterance chunks
-3. faster-whisper transcribes each chunk (16 kHz mono, base model)
-4. `wake.py` checks for "operator" in the transcript
-5. `LLMClient` sends prompt + conversation history → GPT-4.1-mini streams response
-6. `TTSClient` streams audio back → connector routes to virtual audio device → meeting participants hear it
+1. `MeetingConnector.join()` launches Chrome, signs in via saved session, enters the meeting, opens the chat panel and installs a MutationObserver over the chat DOM.
+2. `ChatRunner._loop()` polls `read_chat()` every 500 ms, drops already-seen/own messages, and checks for the trigger phrase (or treats any message as addressed in a 1-on-1).
+3. `LLMClient.ask()` sends the message + rolling history to the configured provider with MCP tool schemas attached.
+4. If the model returns a `tool_call`, `ChatRunner` either auto-executes (read-only tools in the allowlist) or requests user confirmation in chat. Tool result is fed back via `send_tool_result`; the model summarizes or chains.
+5. The final text reply goes back through `connector.send_chat()`.
 
 ### Configuration
 
-All runtime settings live in `config.yaml` (loaded by `config.py` into module-level constants). Key knobs:
-- `tts_provider`: `local` | `openai` | `elevenlabs`
-- `stt_model`: `tiny` | `base` | `small` | `medium`
-- `interaction_mode`: `inline` | `wake-only`
-- `connector`: `auto` | `macos` | `linux` | `docker`
+All runtime settings live in `config.yaml` (loaded by `config.py` into module-level constants). Top-level blocks:
+- `agent` — `name`, `trigger_phrase`, `system_prompt`, `history_turns`, `max_tokens`, timeouts
+- `llm` — `provider` (`openai` | `anthropic`), `model`
+- `connector` — `type` (`auto` | `macos` | `linux`)
+- `mcp_servers` — per-server command, env, hints, and confirm-tool overrides
 
-API keys go in `.env` (never commit).
+API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) go in `.env`. Never commit `.env`, `browser_profile/`, or `auth_state.json`.
 
-### Virtual Audio Routing
+### Tool Confirmation
 
-- **macOS**: ScreenCaptureKit → Swift binary → Python float32 PCM. TTS output via `mpv` → BlackHole virtual device → meeting mic input.
-- **Linux**: `parec` from PulseAudio monitor source. TTS output via `mpv` → PulseAudio `MeetingOutput` sink.
+`chat_runner.py` defines `READ_TOOLS` — a set of known read-only MCP tools that auto-execute without confirmation. Any tool not in that set prompts the user in chat before running. Per-server overrides (`confirm_tools`) in `config.yaml` can force confirmation on specific tools.
 
-### Assets
+### Participant-based Auto-leave
 
-`assets/` holds pre-generated MP3 clips for immediate acknowledgment (played before LLM responds):
-- `ack_*.mp3` — wake-only acknowledgments ("yeah?", "mm-hm?")
-- `backchannel_*.mp3` — incomplete-thought signals
-
-### Conversation Timeout
-
-After responding, the bot stays in "conversation mode" for 20 seconds — follow-up questions don't require repeating "operator". Configurable via `CONVERSATION_TIMEOUT_SECONDS` in `config.yaml`.
+When the bot has seen at least one other participant and is then alone for `ALONE_EXIT_GRACE_SECONDS`, it leaves automatically. 1-on-1 mode (participant count ≤ `ONE_ON_ONE_THRESHOLD`) skips the trigger-phrase requirement.
 
 ## Development Notes
 
 - `docs/agent-context.md` tracks current dev phase, hard-won debugging knowledge, and working context — read it before making structural changes.
 - `docs/roadmap.md` has the phase checklist and strategic direction.
-- The GitHub Actions daily smoke test (`.github/workflows/smoke-test.yml`) runs `tests/test_smoke_docker.py` against Docker.
+- The voice pipeline was decoupled in session 93 (April 2026) and preserved on the `voice-preserved` branch. `main` is chat-only.
 - `browser_profile/` and `auth_state.json` hold logged-in Google session state — never commit them.

@@ -3,7 +3,7 @@ CalendarPoller — browser-based meeting detection for Operator.
 
 Polls Google Calendar every 30 seconds using a headless Playwright browser.
 When an event with a Google Meet link is starting within JOIN_WINDOW_MINUTES,
-puts the meet_url onto a shared queue for AgentRunner to consume.
+puts the meet_url onto a shared queue for the runner to consume.
 
 Auth: uses a copy of the main browser_profile so it shares the same Google
 session — no app passwords, no keychain, no extra setup beyond the initial
