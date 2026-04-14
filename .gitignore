@@ -37,6 +37,11 @@ docs/agent-context.md
 docs/roadmap.md
 docs/product-strategy.md
 docs/handoff.md
+docs/decoupling_plan.md
 
 # Debug reference logs
 debug/model-log.md
+
+# Runtime debug artifacts from MacOSAdapter session logging
+debug/pre_camera_toggle.html
+debug/pre_camera_toggle.png
