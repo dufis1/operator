@@ -231,16 +231,13 @@ def test_llm_blocks_binary_result():
     provider = MagicMock()
     llm = LLMClient(provider)
 
-    # Seed history with a tool_call assistant message
+    # Seed an in-flight tool call in the scratchpad
     from pipeline.providers import ProviderResponse, ToolCall
-    llm._history = [
-        {"role": "user", "content": "read that file"},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [ToolCall(id="call_abc", name="some__tool", args={})],
-        },
-    ]
+    llm._scratch = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [ToolCall(id="call_abc", name="some__tool", args={})],
+    }]
 
     # Mock the provider to return a text summary message
     provider.complete.return_value = ProviderResponse(
@@ -272,14 +269,11 @@ def test_llm_passes_clean_result():
     llm = LLMClient(provider)
 
     from pipeline.providers import ProviderResponse, ToolCall
-    llm._history = [
-        {"role": "user", "content": "read file"},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [ToolCall(id="call_xyz", name="some__tool", args={})],
-        },
-    ]
+    llm._scratch = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [ToolCall(id="call_xyz", name="some__tool", args={})],
+    }]
 
     provider.complete.return_value = ProviderResponse(
         text="Here's the file.", tool_calls=[], stop_reason="end",

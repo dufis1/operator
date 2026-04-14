@@ -1,14 +1,11 @@
 """
-Unit tests for step 9.13 — tool exchange history collapse.
+Unit tests for the 11.3a tool-loop scratchpad.
 
-After a tool call completes, the intermediate messages (asst[tool_calls] and
-role=tool) should be stripped from history, leaving only [user, asst[summary]].
-This prevents raw tool results from accumulating in context across a session.
-
-Three cases:
-  1. Single tool call: 4 messages collapse to 2
-  2. Chained tool calls (A → B → summary): 6 messages collapse to 2
-  3. Plain text exchange: no collapse (nothing to strip)
+Previous behavior (pre-11.3a) kept tool_call/tool_result messages in history
+and collapsed them after the summary via `_collapse_tool_exchange`. The new
+design keeps them in an in-memory `_scratch` that clears automatically when
+the tool loop closes with a final text reply — no collapse needed, and the
+meeting record never sees those protocol messages.
 
 Run:
     source venv/bin/activate
@@ -32,101 +29,80 @@ def make_text_message(text):
     return ProviderResponse(text=text, tool_calls=[], stop_reason="end")
 
 
-# ---------------------------------------------------------------------------
-# Test 1: single tool call collapses to [user, asst[summary]]
-# ---------------------------------------------------------------------------
+def make_tool_call_message(tool_id, name):
+    from pipeline.providers import ProviderResponse, ToolCall
+    return ProviderResponse(
+        text=None,
+        tool_calls=[ToolCall(id=tool_id, name=name, args={})],
+        stop_reason="tool_use",
+    )
 
-def test_single_tool_call_collapses():
-    llm = make_llm()
 
-    # Simulate history after user asked + LLM requested a tool
+def test_single_tool_call_clears_scratch():
+    """After send_tool_result returns a text summary, _scratch is empty."""
     from pipeline.providers import ToolCall
-    llm._history = [
-        {"role": "user", "content": "create a ticket"},
+    llm = make_llm()
+    llm._scratch = [
         {"role": "assistant", "content": None, "tool_calls": [
             ToolCall(id="call_1", name="linear__create_issue", args={}),
         ]},
     ]
-
     llm._provider.complete.return_value = make_text_message("Done — ticket LIN-42 created.")
 
-    llm.send_tool_result("call_1", "linear__create_issue", "x" * 10000)
+    result = llm.send_tool_result("call_1", "linear__create_issue", "x" * 10000)
 
-    assert len(llm._history) == 2, f"Expected 2 messages, got {len(llm._history)}: {[m['role'] for m in llm._history]}"
-    assert llm._history[0]["role"] == "user"
-    assert llm._history[1]["role"] == "assistant"
-    assert llm._history[1].get("tool_calls") is None
-    assert llm._history[1]["content"] == "Done — ticket LIN-42 created."
-    print("PASS  test_single_tool_call_collapses")
+    assert result == "Done — ticket LIN-42 created."
+    assert llm._scratch == [], f"scratch should be empty, got {llm._scratch!r}"
+    print("PASS  test_single_tool_call_clears_scratch")
 
 
-# ---------------------------------------------------------------------------
-# Test 2: chained tool calls (A → B → summary) collapse to [user, asst[summary]]
-# ---------------------------------------------------------------------------
-
-def test_chained_tool_calls_collapse():
-    llm = make_llm()
-
-    # Simulate: user asked → LLM called tool A → tool A result fed back →
-    # LLM called tool B (send_tool_result returned tool_call, not text) →
-    # now resolving tool B with final summary
+def test_chained_tool_calls_accumulate_then_clear():
+    """Mid-chain send_tool_result keeps scratch; final text clears it."""
     from pipeline.providers import ToolCall
-    llm._history = [
-        {"role": "user", "content": "list issues then create one"},
+    llm = make_llm()
+    llm._scratch = [
         {"role": "assistant", "content": None, "tool_calls": [
             ToolCall(id="call_A", name="linear__list_issues", args={}),
         ]},
-        {"role": "tool_result", "tool_call_id": "call_A", "content": "x" * 5000},
+    ]
+
+    # First tool_result → model requests tool B
+    llm._provider.complete.return_value = make_tool_call_message("call_B", "linear__create_issue")
+    result = llm.send_tool_result("call_A", "linear__list_issues", "x" * 5000, tools=[{"function": {"name": "t"}}])
+    assert result["type"] == "tool_call"
+    assert len(llm._scratch) == 3  # [asst A, tool_result A, asst B]
+
+    # Second tool_result → final text summary
+    llm._provider.complete.return_value = make_text_message("Listed and created LIN-43.")
+    result = llm.send_tool_result("call_B", "linear__create_issue", "y" * 5000, tools=[{"function": {"name": "t"}}])
+    assert result == {"type": "text", "content": "Listed and created LIN-43."}
+    assert llm._scratch == [], f"scratch should be empty after final text, got {llm._scratch!r}"
+    print("PASS  test_chained_tool_calls_accumulate_then_clear")
+
+
+def test_new_ask_clears_stale_scratch():
+    """Starting a new user turn drops any leftover tool-loop scratch."""
+    from pipeline.providers import ToolCall
+    llm = make_llm()
+    llm._scratch = [
         {"role": "assistant", "content": None, "tool_calls": [
-            ToolCall(id="call_B", name="linear__create_issue", args={}),
+            ToolCall(id="stale", name="some__tool", args={}),
         ]},
     ]
+    llm._provider.complete.return_value = make_text_message("fresh reply")
 
-    llm._provider.complete.return_value = make_text_message("Listed and created LIN-43.")
+    result = llm.ask("new question")
 
-    llm.send_tool_result("call_B", "linear__create_issue", "y" * 5000)
+    assert result == "fresh reply"
+    assert llm._scratch == [], "scratch should be reset at start of ask()"
+    print("PASS  test_new_ask_clears_stale_scratch")
 
-    assert len(llm._history) == 2, f"Expected 2 messages, got {len(llm._history)}: {[m['role'] for m in llm._history]}"
-    assert llm._history[0]["role"] == "user"
-    assert llm._history[1]["role"] == "assistant"
-    assert llm._history[1].get("tool_calls") is None
-    assert llm._history[1]["content"] == "Listed and created LIN-43."
-    print("PASS  test_chained_tool_calls_collapse")
-
-
-# ---------------------------------------------------------------------------
-# Test 3: plain text exchange is untouched
-# ---------------------------------------------------------------------------
-
-def test_plain_text_exchange_unchanged():
-    from pipeline.llm import LLMClient
-    provider = MagicMock()
-    llm = LLMClient(provider)
-
-    llm._history = [
-        {"role": "user", "content": "what time is it"},
-        {"role": "assistant", "content": "I don't have clock access."},
-    ]
-
-    # Call collapse directly — nothing should change
-    llm._collapse_tool_exchange()
-
-    assert len(llm._history) == 2
-    assert llm._history[0]["role"] == "user"
-    assert llm._history[1]["role"] == "assistant"
-    assert llm._history[1]["content"] == "I don't have clock access."
-    print("PASS  test_plain_text_exchange_unchanged")
-
-
-# ---------------------------------------------------------------------------
-# Run all
-# ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     tests = [
-        test_single_tool_call_collapses,
-        test_chained_tool_calls_collapse,
-        test_plain_text_exchange_unchanged,
+        test_single_tool_call_clears_scratch,
+        test_chained_tool_calls_accumulate_then_clear,
+        test_new_ask_clears_stale_scratch,
     ]
     failures = []
     for t in tests:

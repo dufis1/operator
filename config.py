@@ -13,11 +13,12 @@ TRIGGER_PHRASE       = _config["agent"].get("trigger_phrase", "@operator")
 USER_DISPLAY_NAME    = _config["agent"].get("user_display_name", "")
 CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
 ALONE_EXIT_GRACE_SECONDS = _config["agent"].get("alone_exit_grace_seconds", 60)
+FIRST_CONTACT_HINT   = _config["agent"].get("first_contact_hint", "")
 
 # LLM
 LLM_PROVIDER           = _config["llm"]["provider"]
 LLM_MODEL              = _config["llm"]["model"]
-HISTORY_TURNS          = _config["llm"].get("history_turns", 20)
+HISTORY_MESSAGES       = _config["llm"].get("history_messages", 40)
 MAX_TOKENS             = _config["llm"].get("max_tokens", 150)
 TOOL_RESULT_MAX_CHARS  = _config["llm"].get("tool_result_max_chars", 50000)
 TOOL_TIMEOUT_SECONDS   = _config["llm"].get("tool_timeout_seconds", 60)

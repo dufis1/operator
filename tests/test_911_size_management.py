@@ -48,29 +48,21 @@ def make_bad_request_error(code):
 
 def test_tool_result_size_guard():
     import config
+    from pipeline.providers import ToolCall
     llm = make_llm()
 
-    # Seed a fake assistant + tool_call message in history so send_tool_result
-    # has a valid history state to build on.
-    from pipeline.providers import ToolCall
-    llm._history = [
-        {"role": "user", "content": "check something"},
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [ToolCall(id="call_abc", name="dummy_tool", args={})],
-        },
-    ]
+    # Seed an in-flight tool call in the scratchpad.
+    llm._scratch = [{
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [ToolCall(id="call_abc", name="dummy_tool", args={})],
+    }]
 
     oversized = "x" * (config.TOOL_RESULT_MAX_CHARS + 1)
-
-    # Mock the provider to return a plain text message
     llm._provider.complete.return_value = make_text_message("summary")
 
     llm.send_tool_result("call_abc", "dummy_tool", oversized)
 
-    # _collapse_tool_exchange removes the tool_result message from history after
-    # the summary, so check what was sent to the provider instead.
     call_args = llm._provider.complete.call_args
     messages = call_args.kwargs["messages"]
     tool_msg = next(m for m in messages if m.get("role") == "tool_result")
@@ -85,10 +77,9 @@ def test_tool_result_size_guard():
 
 def test_ask_context_overflow():
     llm = make_llm()
-    llm._history = [
-        {"role": "user", "content": "old message"},
-        {"role": "assistant", "content": "old reply"},
-    ]
+    llm._record.append("Alice", "old message")
+    llm._record.append("Operator", "old reply")
+    before = llm._max_messages
 
     from pipeline.providers import ContextOverflowError
     llm._provider.complete.side_effect = ContextOverflowError()
@@ -96,7 +87,7 @@ def test_ask_context_overflow():
     result = llm.ask("new message", tools=[{"type": "function", "function": {"name": "t", "parameters": {}}}])
 
     assert result == {"type": "context_overflow"}, f"Expected context_overflow, got: {result}"
-    assert llm._history == [], f"Expected history cleared, got: {llm._history}"
+    assert llm._max_messages < before, f"Expected replay window to shrink, stayed at {llm._max_messages}"
     print("PASS  test_ask_context_overflow")
 
 
@@ -105,19 +96,20 @@ def test_ask_context_overflow():
 # ---------------------------------------------------------------------------
 
 def test_send_tool_result_context_overflow():
+    from pipeline.providers import ContextOverflowError, ToolCall
     llm = make_llm()
-    llm._history = [
-        {"role": "user", "content": "old"},
-        {"role": "assistant", "content": "old reply"},
-    ]
-
-    from pipeline.providers import ContextOverflowError
+    llm._scratch = [{
+        "role": "assistant", "content": None,
+        "tool_calls": [ToolCall(id="call_xyz", name="some_tool", args={})],
+    }]
+    before = llm._max_messages
     llm._provider.complete.side_effect = ContextOverflowError()
 
     result = llm.send_tool_result("call_xyz", "some_tool", "result content")
 
     assert result == {"type": "context_overflow"}, f"Expected context_overflow, got: {result}"
-    assert llm._history == [], f"Expected history cleared, got: {llm._history}"
+    assert llm._scratch == [], f"Expected scratch cleared, got: {llm._scratch}"
+    assert llm._max_messages < before, f"Expected replay window to shrink, stayed at {llm._max_messages}"
     print("PASS  test_send_tool_result_context_overflow")
 
 

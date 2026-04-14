@@ -11,6 +11,7 @@ import threading
 import time
 
 import config
+from pipeline.meeting_record import MeetingRecord, slug_from_url
 
 log = logging.getLogger(__name__)
 
@@ -45,10 +46,11 @@ ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip tr
 class ChatRunner:
     """Polls meeting chat and responds to messages."""
 
-    def __init__(self, connector, llm, mcp_client=None):
+    def __init__(self, connector, llm, mcp_client=None, meeting_record: MeetingRecord | None = None):
         self._connector = connector
         self._llm = llm
         self._mcp = mcp_client
+        self._record = meeting_record
         self._stop_event = threading.Event()
         # Track messages we've sent so we can ignore our own echoes
         self._own_messages: set[str] = set()
@@ -56,12 +58,18 @@ class ChatRunner:
         self._seen_ids: set[str] = set()
         # Pending tool call awaiting user confirmation
         self._pending_tool_call: dict | None = None
-        # Track first names we've already responded to
-        self._greeted: set[str] = set()
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
         log.info(f"ChatRunner: joining {meeting_url}")
+        # Open a meeting record for this URL if one wasn't provided.
+        if self._record is None:
+            slug = slug_from_url(meeting_url)
+            self._record = MeetingRecord(
+                slug=slug,
+                meta={"meet_url": meeting_url},
+            )
+            self._llm.set_record(self._record)
         # Skip join if connector was already started (e.g. for parallel MCP init)
         if not self._connector.join_status:
             self._connector.join(meeting_url)
@@ -177,6 +185,11 @@ class ChatRunner:
 
                 log.info(f"ChatRunner: new message sender={sender!r} id={msg_id!r} text={text!r} one_on_one={one_on_one}")
 
+                # Persist every observed chat message to the meeting record —
+                # this is the single source of truth the LLM replays from.
+                if self._record is not None:
+                    self._record.append(sender=sender, text=text, kind="chat")
+
                 # If we're waiting for tool confirmation, any message is a response
                 if self._pending_tool_call:
                     self._handle_confirmation(text)
@@ -188,25 +201,14 @@ class ChatRunner:
                 has_trigger = trigger in lower
 
                 if has_trigger or one_on_one:
-                    # Strip the trigger phrase if present
                     if has_trigger:
                         prompt = re.sub(re.escape(config.TRIGGER_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
                     else:
                         prompt = text
                     if prompt:
-                        # Include sender context for the LLM (first name only)
-                        first_name = sender.split()[0] if sender else ""
-                        llm_text = f"{first_name}: {prompt}" if first_name else prompt
-                        if first_name and first_name not in self._greeted:
-                            llm_text += f" (First time talking to {first_name})"
-                            self._greeted.add(first_name)
-                        self._handle_message(llm_text)
+                        self._handle_message(prompt)
                 else:
-                    # Not addressed to us — store as context so LLM knows what was said
-                    first_name = sender.split()[0] if sender else ""
-                    context = f"{first_name}: {text}" if first_name else text
-                    self._llm.add_context(context)
-                    log.debug(f"ChatRunner: stored as context (no trigger phrase)")
+                    log.debug("ChatRunner: stored as context (no trigger phrase)")
 
             self._own_messages -= own_matched
 
@@ -387,8 +389,10 @@ class ChatRunner:
         self._dispatch_result(result)
 
     def _send(self, text):
-        """Send a chat message and track it as our own."""
+        """Send a chat message, append it to the meeting record, and track it as our own."""
         self._own_messages.add(text)
+        if self._record is not None:
+            self._record.append(sender=config.AGENT_NAME, text=text, kind="chat")
         try:
             self._connector.send_chat(text)
         except Exception as e:

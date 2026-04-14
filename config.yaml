@@ -7,11 +7,14 @@ agent:
   user_display_name: "Jojo Shapiro"  # your name as it appears on Google Meet pre-join screens
   conversation_timeout: 20       # seconds in listening mode after a response
   alone_exit_grace_seconds: 60   # after others have been present, if Operator is alone for this long, auto-leave
+  # Appended to the first chat message from each new participant this session.
+  # Supports {first_name} as a placeholder. Leave empty to disable greetings.
+  first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
 
 llm:
   provider: "anthropic"            # openai | anthropic
   model: "claude-sonnet-4-5"         # openai: gpt-4.1-mini, gpt-4o, ...  |  anthropic: claude-sonnet-4-5, claude-opus-4-6, ...
-  history_turns: 20            # max user/assistant pairs kept in chat context
+  history_messages: 40         # max chat messages replayed from the meeting record as context
   max_tokens: 150              # max tokens per response; ~600 chars target for meeting chat side panel
   tool_result_max_chars: 50000 # incoming tool result truncation threshold — results over this are archived with a recovery hint
   tool_timeout_seconds: 60    # hard timeout for a single tool call; graceful failure sent to chat if exceeded

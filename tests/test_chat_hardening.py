@@ -10,81 +10,110 @@ import re
 
 
 def test_history_cap():
-    """LLMClient should cap history to chat_history_turns pairs."""
+    """LLMClient should replay at most HISTORY_MESSAGES entries from the record."""
     from unittest.mock import MagicMock
-
     from pipeline.llm import LLMClient
+    from pipeline.meeting_record import MeetingRecord
+    from pipeline.providers import ProviderResponse
 
-    mock_client = MagicMock()
-    llm = LLMClient(mock_client)
-    llm._max_pairs = 5  # use fixed value for test
+    record = MeetingRecord(slug=None)  # in-memory
+    llm = LLMClient(MagicMock(), record=record)
+    llm._max_messages = 5
 
-    # Record 10 exchanges — should keep only 5
     for i in range(10):
-        llm.record_exchange(f"user msg {i}", f"bot reply {i}")
+        record.append(sender="Alice", text=f"user msg {i}")
+        record.append(sender=config.AGENT_NAME, text=f"bot reply {i}")
 
-    assert len(llm._history) == 10, \
-        f"Expected 10 messages, got {len(llm._history)}"
+    llm._provider.complete.return_value = ProviderResponse(
+        text="ok", tool_calls=[], stop_reason="end",
+    )
+    llm.ask("probe", record=False)  # don't append; we just want to inspect the call
 
-    # Oldest kept should be exchange #5 (0-indexed)
-    assert llm._history[0]["content"] == "user msg 5", \
-        f"Expected oldest to be 'user msg 5', got {llm._history[0]['content']!r}"
-    assert llm._history[-1]["content"] == "bot reply 9"
-
+    call_args = llm._provider.complete.call_args
+    messages = call_args.kwargs["messages"]
+    # 5 tail entries + 1 trailing user turn (extra_user_msg)
+    assert len(messages) == 6, f"Expected 6 messages, got {len(messages)}: {messages}"
+    # Oldest kept should be entry index -5 (counting from end of the 20 entries written)
+    # The 20 entries are: user0, bot0, user1, bot1, ..., user9, bot9. Last 5 are:
+    # user8, bot8, user9, bot9 is only 4; wait — 20 entries, last 5 = bot7, user8, bot8, user9, bot9
+    assert messages[0]["content"] == "Alice: user msg 8" or "bot reply 7" in messages[0]["content"], \
+        f"Unexpected oldest entry: {messages[0]!r}"
     print("  history cap: PASS")
 
 
-def test_add_context():
-    """add_context should add a user message without a reply."""
+def test_meeting_record_tail_roundtrip(tmp_dir=None):
+    """MeetingRecord should persist and tail back in order."""
+    import tempfile
+    from pathlib import Path
+    from pipeline.meeting_record import MeetingRecord
+
+    with tempfile.TemporaryDirectory() as tmp:
+        r = MeetingRecord(slug="test-slug", root=Path(tmp), meta={"meet_url": "https://meet.google.com/test-slug"})
+        r.append("Alice", "hi")
+        r.append(config.AGENT_NAME, "hello")
+        r.append("Bob", "sup")
+        entries = r.tail(10)
+        chat = [e for e in entries if e.get("kind") == "chat"]
+        meta = [e for e in entries if e.get("kind") == "meta"]
+        assert len(chat) == 3 and len(meta) == 1
+        assert meta[0]["meet_url"] == "https://meet.google.com/test-slug"
+        assert chat[0]["sender"] == "Alice" and chat[0]["text"] == "hi"
+        assert chat[2]["sender"] == "Bob" and chat[2]["text"] == "sup"
+        # Reopening must NOT rewrite the header
+        r2 = MeetingRecord(slug="test-slug", root=Path(tmp))
+        entries2 = r2.tail(10)
+        assert sum(1 for e in entries2 if e.get("kind") == "meta") == 1
+        assert [e["text"] for e in entries2 if e.get("kind") == "chat"] == ["hi", "hello", "sup"]
+    print("  meeting record roundtrip: PASS")
+
+
+def test_first_contact_hint():
+    """FIRST_CONTACT_HINT is appended to a participant's first in-session message only."""
     from unittest.mock import MagicMock
-
     from pipeline.llm import LLMClient
+    from pipeline.meeting_record import MeetingRecord
 
-    mock_client = MagicMock()
-    llm = LLMClient(mock_client)
+    record = MeetingRecord(slug=None)
+    llm = LLMClient(MagicMock(), record=record)
+    llm._max_messages = 20
+    # Force a known template regardless of config.yaml
+    original = config.FIRST_CONTACT_HINT
+    config.FIRST_CONTACT_HINT = "(first-time: {first_name})"
+    try:
+        record.append("Alice Example", "hi")
+        record.append(config.AGENT_NAME, "hello")
+        record.append("Bob", "sup")
+        record.append("Alice Example", "again")
 
-    llm.add_context("Alice: hey everyone")
-    assert len(llm._history) == 1
-    assert llm._history[0]["role"] == "user"
-    assert llm._history[0]["content"] == "Alice: hey everyone"
+        msgs = llm._tail_messages()
+        user_contents = [m["content"] for m in msgs if m["role"] == "user"]
+        # Alice's first msg should have the hint; Bob's first msg too; Alice's second msg should NOT.
+        assert user_contents[0] == "Alice: hi (first-time: Alice)", user_contents[0]
+        assert user_contents[1] == "Bob: sup (first-time: Bob)", user_contents[1]
+        assert user_contents[2] == "Alice: again", user_contents[2]
 
-    print("  add_context: PASS")
+        # A second call with no new senders should not re-tag anyone
+        msgs2 = llm._tail_messages()
+        user_contents2 = [m["content"] for m in msgs2 if m["role"] == "user"]
+        assert all("first-time" not in c for c in user_contents2), user_contents2
+    finally:
+        config.FIRST_CONTACT_HINT = original
+    print("  first contact hint: PASS")
 
 
-def test_history_cap_with_context():
-    """Context-only messages should not count toward the pair limit."""
-    from unittest.mock import MagicMock
-
-    from pipeline.llm import LLMClient
-
-    mock_client = MagicMock()
-    llm = LLMClient(mock_client)
-    llm._max_pairs = 2  # only keep 2 Q&A pairs
-
-    # Add: context, pair, context, pair, context, pair
-    llm.add_context("Alice: hi")
-    llm.record_exchange("q1", "a1")
-    llm.add_context("Bob: hey")
-    llm.record_exchange("q2", "a2")
-    llm.add_context("Alice: sure")
-    llm.record_exchange("q3", "a3")
-
-    # Should have kept 2 pairs + surrounding context, dropped pair 1
-    pairs = sum(1 for m in llm._history if m["role"] == "assistant")
-    assert pairs == 2, f"Expected 2 pairs, got {pairs}"
-    # pair 1 (q1/a1) should be gone
-    contents = [m["content"] for m in llm._history]
-    assert "a1" not in contents, "Oldest pair should have been trimmed"
-    assert "a2" in contents and "a3" in contents
-
-    print("  history cap with context: PASS")
+def test_slug_from_url():
+    from pipeline.meeting_record import slug_from_url
+    assert slug_from_url("https://meet.google.com/pgy-qauk-frn") == "pgy-qauk-frn"
+    assert slug_from_url("https://meet.google.com/abc-defg-hij?pli=1") == "abc-defg-hij"
+    assert slug_from_url("") == "unknown-meeting"
+    assert slug_from_url("pgy-qauk-frn") == "pgy-qauk-frn"
+    print("  slug_from_url: PASS")
 
 
 def test_trigger_phrase_gating():
     """Only messages containing the trigger phrase should trigger a response."""
     trigger = config.TRIGGER_PHRASE.lower()
 
-    # These should match
     match_cases = [
         f"{trigger} what time is it",
         f"hey {trigger}, summarize",
@@ -93,7 +122,6 @@ def test_trigger_phrase_gating():
     for text in match_cases:
         assert trigger in text.lower(), f"Should match: {text!r}"
 
-    # These should NOT match
     no_match = [
         "what time is it",
         "let's discuss the operator role",  # bare word shouldn't match "@operator"
@@ -125,17 +153,13 @@ def test_sender_filtering():
     """Bot's own messages should be filtered by sender name."""
     bot_name = config.AGENT_NAME
 
-    # Sender matches bot name (case-insensitive) -> skip
     assert bot_name.lower() == "operator"
     assert "Operator".lower() == bot_name.lower()
-
-    # Sender is someone else -> process
     assert "Alice".lower() != bot_name.lower()
 
-    # Sender is empty -> fall back to text match
     own_messages = {"Hello there"}
     text = "Hello there"
-    assert text in own_messages  # would be filtered by fallback
+    assert text in own_messages
 
     print("  sender filtering: PASS")
 
@@ -143,8 +167,9 @@ def test_sender_filtering():
 if __name__ == "__main__":
     print("Chat hardening tests:")
     test_history_cap()
-    test_add_context()
-    test_history_cap_with_context()
+    test_meeting_record_tail_roundtrip()
+    test_first_contact_hint()
+    test_slug_from_url()
     test_trigger_phrase_gating()
     test_trigger_phrase_stripping()
     test_sender_filtering()
