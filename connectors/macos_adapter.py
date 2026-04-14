@@ -1,15 +1,11 @@
 """
 macOS connector for Operator.
 
-Wraps ScreenCaptureKit audio capture (Swift helper) and Playwright/Chrome
-meeting join into the MeetingConnector interface.
-
-macOS-only: imports Playwright, subprocess for audio_capture binary.
+Wraps Playwright/Chrome meeting join into the MeetingConnector interface.
 """
 import os
 import logging
 import queue
-import subprocess
 import threading
 import time
 
@@ -23,8 +19,6 @@ log = logging.getLogger(__name__)
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-AUDIO_CAPTURE_HELPER = os.path.join(_BASE, "audio_capture")
-BLACKHOLE_DEVICE = "coreaudio/BlackHole2ch_UID"
 BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 
 
@@ -40,8 +34,6 @@ class MacOSAdapter(MeetingConnector):
         self._leave_event = threading.Event()
         self._browser_closed = threading.Event()
         self._browser_thread = None
-        self._capture_proc = None
-        self._blackhole_rec_proc = None
         self._page = None
         self._seen_message_ids = set()
         self._chat_queue = queue.Queue()  # (command, args, result_queue)
@@ -65,30 +57,6 @@ class MacOSAdapter(MeetingConnector):
         )
         self._browser_thread.start()
         log.info(f"MacOSAdapter: joining {meeting_url}")
-
-    def get_audio_stream(self):
-        """Launch the Swift ScreenCaptureKit helper and return the subprocess.
-        Caller reads PCM float32 audio from proc.stdout and logs proc.stderr."""
-        if not os.path.exists(AUDIO_CAPTURE_HELPER):
-            raise FileNotFoundError(f"Audio capture helper not found: {AUDIO_CAPTURE_HELPER}")
-        self._capture_proc = subprocess.Popen(
-            [AUDIO_CAPTURE_HELPER],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            stdin=subprocess.PIPE,
-        )
-        log.info("MacOSAdapter: Swift helper launched")
-        return self._capture_proc
-
-    def send_audio(self, audio_data):
-        """Play raw audio bytes through BlackHole via mpv."""
-        proc = subprocess.Popen(
-            ["mpv", "--no-terminal", f"--audio-device={BLACKHOLE_DEVICE}", "--", "-"],
-            stdin=subprocess.PIPE,
-        )
-        proc.stdin.write(audio_data)
-        proc.stdin.close()
-        proc.wait()
 
     def send_chat(self, message):
         """Post a message to the Google Meet chat panel.
@@ -369,53 +337,20 @@ class MacOSAdapter(MeetingConnector):
             return "timeout"
 
     def leave(self):
-        """Signal the browser session to close and stop audio capture.
+        """Signal the browser session to close.
         Safe to call multiple times — only the first call does work."""
         if self._leave_event.is_set():
             return
         self._leave_event.set()
-        # Wait for browser.close() to finish (same pattern as CaptionsAdapter)
         if self._browser_thread and self._browser_thread.is_alive():
             log.info("MacOSAdapter: waiting for browser to close...")
             if not self._browser_closed.wait(timeout=10):
                 log.warning("MacOSAdapter: browser close timed out (10s)")
-        if self._blackhole_rec_proc:
-            self._blackhole_rec_proc.terminate()
-            try:
-                self._blackhole_rec_proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self._blackhole_rec_proc.kill()
-            self._blackhole_rec_proc = None
-        if self._capture_proc:
-            try:
-                self._capture_proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                self._capture_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._capture_proc.terminate()
-            self._capture_proc = None
         log.info("MacOSAdapter: left meeting")
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
-
-    def _start_blackhole_recording(self):
-        import datetime
-        os.makedirs(os.path.join(_BASE, "debug"), exist_ok=True)
-        ts = datetime.datetime.now().strftime("%H%M%S")
-        out_path = os.path.join(_BASE, f"debug/blackhole_{ts}.wav")
-        try:
-            self._blackhole_rec_proc = subprocess.Popen(
-                ["sox", "-t", "coreaudio", "BlackHole 2ch", out_path],
-                stderr=subprocess.DEVNULL,
-            )
-            log.info(f"MacOSAdapter: BlackHole recording → {out_path}")
-        except FileNotFoundError:
-            log.warning("MacOSAdapter: sox not found — BlackHole recording skipped (brew install sox)")
-            self._blackhole_rec_proc = None
 
     def _browser_session(self, meeting_url):
         """Run Playwright browser session. Blocks until leave() is called."""
@@ -582,21 +517,6 @@ class MacOSAdapter(MeetingConnector):
                     except Exception:
                         log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
                     log.info(f"TIMING in_meeting_wait={time.monotonic() - t_in_meeting:.1f}s")
-
-                    # Race both mic states — resolves instantly when mic is already on
-                    t_mic = time.monotonic()
-                    mic_on_btn = page.get_by_role("button", name="Turn on microphone")
-                    mic_off_btn = page.get_by_role("button", name="Turn off microphone")
-                    try:
-                        mic_on_btn.or_(mic_off_btn).wait_for(timeout=3000)
-                        if mic_on_btn.is_visible():
-                            mic_on_btn.click()
-                            log.debug("MacOSAdapter: microphone unmuted")
-                        else:
-                            log.debug("MacOSAdapter: mic already on")
-                    except Exception:
-                        log.debug("MacOSAdapter: mic button not found")
-                    log.info(f"TIMING mic_check={time.monotonic() - t_mic:.1f}s")
 
                     log.info("MacOSAdapter: in meeting — holding browser open")
                     log.info(f"TIMING total_join={time.monotonic() - t_start:.1f}s")

@@ -1,17 +1,13 @@
 """
 Linux local connector for Operator.
 
-Wraps PulseAudio virtual audio routing and headless Playwright/Chromium
-meeting join into the MeetingConnector interface.
-
-Linux-only: requires PulseAudio (MeetingOutput + MeetingInput sinks set up
-by scripts/linux_setup.sh) and Playwright's Chromium browser installed via
+Wraps headless Playwright/Chromium meeting join into the MeetingConnector
+interface. Requires Playwright's Chromium browser installed via
 `python3 -m playwright install chromium`.
 """
 import logging
 import os
 import queue
-import subprocess
 import threading
 import time
 
@@ -22,10 +18,6 @@ from .base import MeetingConnector
 from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug
 
 log = logging.getLogger(__name__)
-
-# PulseAudio virtual device names — must match scripts/linux_setup.sh
-PULSE_OUTPUT_SINK = "MeetingOutput"
-PULSE_INPUT_SOURCE = "MeetingInput.monitor"
 
 # Stealth config — validated in tests/probe_a2_stealth_meet.py (PASSES)
 # Removes the two main bot-detection signals from headless Chrome:
@@ -57,7 +49,6 @@ class LinuxAdapter(MeetingConnector):
         self._leave_event = threading.Event()
         self._browser_closed = threading.Event()
         self._browser_thread = None
-        self._capture_proc = None
         self._page = None  # kept for send_chat/read_chat; set/cleared by browser thread
         self._seen_message_ids = set()
         self._chat_queue = queue.Queue()
@@ -80,41 +71,6 @@ class LinuxAdapter(MeetingConnector):
         )
         self._browser_thread.start()
         log.info(f"LinuxAdapter: joining {meeting_url}")
-
-    def get_audio_stream(self):
-        """Start parec reading from MeetingInput.monitor and return the subprocess.
-        Caller reads raw float32-le PCM (16 kHz, mono) from proc.stdout —
-        same wire format as the macOS Swift helper."""
-        cmd = [
-            "parec",
-            f"--device={PULSE_INPUT_SOURCE}",
-            "--format=float32le",
-            "--rate=16000",
-            "--channels=1",
-        ]
-        self._capture_proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        log.info("LinuxAdapter: parec capture started from MeetingInput.monitor")
-        return self._capture_proc
-
-    def send_audio(self, audio_data):
-        """Play raw audio bytes to MeetingOutput PulseAudio sink via mpv."""
-        proc = subprocess.Popen(
-            [
-                "mpv",
-                "--no-terminal",
-                f"--audio-device=pulse/{PULSE_OUTPUT_SINK}",
-                "--",
-                "-",
-            ],
-            stdin=subprocess.PIPE,
-        )
-        proc.stdin.write(audio_data)
-        proc.stdin.close()
-        proc.wait()
 
     def send_chat(self, message):
         """Post a message to the Google Meet chat panel.
@@ -301,26 +257,15 @@ class LinuxAdapter(MeetingConnector):
         return not self._browser_closed.is_set()
 
     def leave(self):
-        """Signal the browser session to close and stop audio capture.
+        """Signal the browser session to close.
         Safe to call multiple times — only the first call does work."""
         if self._leave_event.is_set():
             return
         self._leave_event.set()
-        # Wait for browser.close() to finish (same pattern as MacOSAdapter)
         if self._browser_thread and self._browser_thread.is_alive():
             log.info("LinuxAdapter: waiting for browser to close...")
             if not self._browser_closed.wait(timeout=10):
                 log.warning("LinuxAdapter: browser close timed out (10s)")
-        if self._capture_proc:
-            try:
-                self._capture_proc.terminate()
-            except Exception:
-                pass
-            try:
-                self._capture_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._capture_proc.kill()
-            self._capture_proc = None
         log.info("LinuxAdapter: left meeting")
 
     # ------------------------------------------------------------------
@@ -446,19 +391,6 @@ class LinuxAdapter(MeetingConnector):
                         log.warning("LinuxAdapter: 'Turn off camera' button not found — camera may be on")
                         save_debug(page, "camera_btn_missing")
 
-                    # Ensure microphone is on before joining.
-                    # On the pre-join screen, a muted mic means Chrome won't call
-                    # getUserMedia and will never appear as a PulseAudio source-output —
-                    # meeting participants won't hear Operator at all.
-                    try:
-                        mic_btn = page.get_by_role("button", name="Turn on microphone")
-                        mic_btn.wait_for(timeout=3000)
-                        mic_btn.click()
-                        page.wait_for_timeout(300)
-                        log.debug("LinuxAdapter: microphone enabled on pre-join screen")
-                    except Exception:
-                        log.debug("LinuxAdapter: mic already on (pre-join) or button not found")
-
                     # Fill in guest name if present (unauthenticated join shows a name field)
                     try:
                         name_input = page.get_by_placeholder("Your name")
@@ -499,23 +431,6 @@ class LinuxAdapter(MeetingConnector):
 
                     log.info("LinuxAdapter: joined meeting successfully")
                     js.signal_success(recovered=recovered)
-
-                    # Unmute mic if needed after joining (fallback — primary unmute is pre-join above)
-                    page.wait_for_timeout(5000)
-                    try:
-                        mic_btn = page.get_by_role("button", name="Turn on microphone")
-                        mic_btn.wait_for(timeout=5000)
-                        mic_btn.click()
-                        log.debug("LinuxAdapter: microphone unmuted (post-join)")
-                    except Exception:
-                        log.debug("LinuxAdapter: mic already on or button not found (post-join)")
-
-                    # Diagnostic screenshot
-                    try:
-                        page.screenshot(path="/tmp/meet_after_join.png")
-                        log.debug("LinuxAdapter: screenshot saved to /tmp/meet_after_join.png")
-                    except Exception as e:
-                        log.warning(f"LinuxAdapter: screenshot failed: {e}")
 
                     log.info("LinuxAdapter: in meeting — holding browser open")
 

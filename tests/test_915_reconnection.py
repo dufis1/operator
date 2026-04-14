@@ -30,12 +30,6 @@ class StubConnector(MeetingConnector):
     def join(self, meeting_url):
         pass
 
-    def get_audio_stream(self):
-        pass
-
-    def send_audio(self, audio_data):
-        pass
-
     def send_chat(self, message):
         self._sent.append(message)
 
