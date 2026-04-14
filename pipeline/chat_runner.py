@@ -183,14 +183,14 @@ class ChatRunner:
                     continue
 
                 # In 1-on-1 mode, every message is treated as addressed to us
-                wake = config.CHAT_WAKE_PHRASE.lower()
+                trigger = config.TRIGGER_PHRASE.lower()
                 lower = text.lower()
-                has_wake = wake in lower
+                has_trigger = trigger in lower
 
-                if has_wake or one_on_one:
-                    # Strip the wake phrase if present
-                    if has_wake:
-                        prompt = re.sub(re.escape(config.CHAT_WAKE_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
+                if has_trigger or one_on_one:
+                    # Strip the trigger phrase if present
+                    if has_trigger:
+                        prompt = re.sub(re.escape(config.TRIGGER_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
                     else:
                         prompt = text
                     if prompt:

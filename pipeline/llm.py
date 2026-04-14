@@ -23,17 +23,13 @@ class LLMClient:
         reply = client.ask("What's the plan?")
     """
 
-    def __init__(self, provider, mode="voice"):
+    def __init__(self, provider, mode="chat"):
         self._provider = provider
         self._history = []
         self._mode = mode
-        self._max_pairs = config.CHAT_HISTORY_TURNS  # user+assistant pairs to keep
-        if mode == "chat":
-            self._system_prompt = config.CHAT_SYSTEM_PROMPT
-            self._max_tokens = config.CHAT_MAX_TOKENS
-        else:
-            self._system_prompt = config.SYSTEM_PROMPT
-            self._max_tokens = 60
+        self._max_pairs = config.HISTORY_TURNS  # user+assistant pairs to keep
+        self._system_prompt = config.SYSTEM_PROMPT
+        self._max_tokens = config.MAX_TOKENS
         # Cached text of the current MCP-status block so inject_mcp_status can
         # be called more than once per session (e.g. after a runtime trip)
         # without stacking duplicate blocks in the system prompt.

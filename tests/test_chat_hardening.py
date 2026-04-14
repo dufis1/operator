@@ -82,7 +82,7 @@ def test_history_cap_with_context():
 
 def test_wake_phrase_gating():
     """Only messages containing the wake phrase should trigger a response."""
-    wake = config.CHAT_WAKE_PHRASE.lower()
+    wake = config.TRIGGER_PHRASE.lower()
 
     # These should match
     match_cases = [
@@ -106,7 +106,7 @@ def test_wake_phrase_gating():
 
 def test_wake_phrase_stripping():
     """Wake phrase should be stripped from the prompt sent to LLM."""
-    wake = config.CHAT_WAKE_PHRASE
+    wake = config.TRIGGER_PHRASE
     pattern = re.escape(wake) + r'[,:]?\s*'
 
     cases = [

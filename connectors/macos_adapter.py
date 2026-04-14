@@ -57,8 +57,6 @@ class MacOSAdapter(MeetingConnector):
         self._leave_event.clear()
         self._browser_closed.clear()
         self.join_status = JoinStatus()
-        if config.DEBUG_AUDIO:
-            self._start_blackhole_recording()
         self._browser_thread = threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
@@ -473,9 +471,6 @@ class MacOSAdapter(MeetingConnector):
                         log.warning("MacOSAdapter: no pre-join element detected — proceeding anyway")
                     log.info(f"TIMING pre_join_ready={time.monotonic() - t_nav:.1f}s")
 
-                    if config.DEBUG_AUDIO:
-                        save_debug(page, "initial_load")
-
                     # --- Session recovery ladder ---
                     t_state = time.monotonic()
                     state = detect_page_state(page)
@@ -541,9 +536,6 @@ class MacOSAdapter(MeetingConnector):
                         log.warning("MacOSAdapter: 'Turn off camera' button not found — camera may be on")
                         save_debug(page, "camera_btn_missing")
                     log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
-
-                    if config.DEBUG_AUDIO:
-                        save_debug(page, "pre_join")
 
                     # Race all join buttons — avoids 5s timeout per missing button
                     t_join = time.monotonic()

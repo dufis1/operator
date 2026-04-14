@@ -3,33 +3,20 @@
 
 agent:
   name: "Operator"
-  wake_phrase: "hey operator"
-  system_prompt: >
-    You are Operator, an AI thought partner participating in a meeting.
-    Your responses will be spoken aloud via text-to-speech, so:
-    keep responses to 1-2 SHORT sentences, under 30 words total.
-    Never use markdown, bullet points, or formatting.
-    Speak in plain, natural sentences only.
-    Be direct — no preamble, no filler, no caveats.
-    User input comes from speech-to-text and may contain transcription
-    errors (e.g. "shop advice" instead of "Shopify's"). Use surrounding
-    context to infer the intended words.
-  chat_wake_phrase: "@operator"    # word that must appear in chat to trigger a response
+  trigger_phrase: "@operator"    # word that must appear in chat to trigger a response
   user_display_name: "Jojo Shapiro"  # your name as it appears on Google Meet pre-join screens
-  interaction_mode: "voice"      # voice | chat | both
   conversation_timeout: 20       # seconds in listening mode after a response
-  echo_guard_seconds: 0.6        # delay after TTS before resuming caption capture (absorbs echo)
   alone_exit_grace_seconds: 60   # after others have been present, if Operator is alone for this long, auto-leave
 
 llm:
   provider: "anthropic"            # openai | anthropic
   model: "claude-sonnet-4-5"         # openai: gpt-4.1-mini, gpt-4o, ...  |  anthropic: claude-sonnet-4-5, claude-opus-4-6, ...
-  chat_history_turns: 20       # max user/assistant pairs kept in chat context
-  chat_max_tokens: 150         # max tokens for chat responses (voice uses 60); ~600 chars target for meeting chat side panel
+  history_turns: 20            # max user/assistant pairs kept in chat context
+  max_tokens: 150              # max tokens per response; ~600 chars target for meeting chat side panel
   tool_result_max_chars: 50000 # incoming tool result truncation threshold — results over this are archived with a recovery hint
   tool_timeout_seconds: 60    # hard timeout for a single tool call; graceful failure sent to chat if exceeded
   tool_heartbeat_seconds: 8   # how often to send "still working..." while a tool call is in flight
-  chat_system_prompt: >
+  system_prompt: >
     You are Operator, an AI assistant participating in a meeting via chat.
     Meeting chat is a side panel — participants are glancing, not reading.
     Lead with the answer. No preamble, no filler, no narrating your process, no trailing offers or follow-up questions.
@@ -39,35 +26,10 @@ llm:
     After any action that creates or modifies an external resource (issue, PR, document, etc.), include the link from the tool result so the user can verify.
     Use a person's name only when greeting them for the first time. Do not repeat their name in subsequent replies.
 
-tts:
-  provider: "local"             # local | openai | elevenlabs
-  # local provider settings
-  local_voice: "kokoro_heart"   # kokoro_heart | kokoro_sky | kokoro_isabella | kokoro_emma | macos_say | piper_lessac | piper_amy
-  # openai provider settings
-  openai_model: "gpt-4o-mini-tts"
-  openai_voice: "nova"
-  # elevenlabs provider settings
-  voice_id: "JBFqnCBsd6RMkjVDRZzb"
-  model: "eleven_flash_v2_5"
-
-stt:
-  provider: "mlx"               # mlx | faster-whisper
-  model: "base"                  # model size: tiny | base | small | medium
-  device: "cpu"                  # faster-whisper only
-  compute_type: "int8"           # faster-whisper only
-
 connector:
-  type: "auto"                   # auto | audio | linux | docker | meet-captions
   browser_profile_dir: "./browser_profile"
   auth_state_file: "./auth_state.json"  # path to auth_state.json for session recovery
   idle_timeout_seconds: 600      # how long to wait with no activity before giving up (lobby + in-meeting inactivity)
-
-captions:
-  silence_seconds: 0.7           # seconds of no DOM updates before text is considered final
-
-diagnostics:
-  latency_probe: true            # set false to disable mic monitoring (suppresses PortAudio input monitoring feedback)
-  debug_audio: false             # set true to save TTS WAV + BlackHole recording to debug/ for dropout diagnosis
 
 # MCP tool servers — Operator connects to these at startup and offers their tools to the LLM.
 # Each server runs as a subprocess (stdio transport). Env values like ${VAR} resolve from .env.
