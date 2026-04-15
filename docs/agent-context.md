@@ -277,22 +277,26 @@ Design patterns for working with LLMs in this product. Read before making archit
 
 ---
 
-## Phase 11.5 — Import Claude Code Skills (design notes)
+## Phase 11.4 — Skill Loading (design notes)
 
-Pitch: **"Claude Code in Google Meet."** Users bring their existing Claude Code skills into Operator instead of recreating them. Phase 11.4 (skill file loading) delivers the generic skills layer; 11.5 is the Claude Code interop on top of it.
+**History (session 102).** Originally split as 11.4 (generic flat-`.md`) + 11.5 (Claude Code interop on top). Collapsed into a single phase: adopting `SKILL.md` shape + progressive disclosure + `allowed-tools` filtering up front is simpler than shipping twice. `skills.local.yaml` deferred to post-MVP.
+
+Pitch: **"Claude Code in Google Meet."** Users bring their existing Claude Code skills into Operator instead of recreating them.
 
 **Source of truth.** Claude Code skills live at `~/.claude/skills/<name>/SKILL.md` (user-level) and `.claude/skills/<name>/SKILL.md` (project-level). Each skill is a folder with a `SKILL.md` — YAML frontmatter (`name`, `description`, optional `allowed-tools`) plus a markdown body. Format is designed for progressive disclosure: only `name + description` loads up front; the full body is pulled in when the model decides the skill is relevant.
 
 **Load model: reference, not copy.** `config.yaml` stores paths (`~/.claude/skills/<name>` or absolute paths), not file contents. On startup, Operator reads `SKILL.md` live from the user's machine. Rationale: each user's `~/.claude/skills/` is already their curated, personal set — forcing a copy into the repo would be double-bookkeeping, and the open-source story is "each user makes Operator theirs." Downside acknowledged: paths only exist on that user's machine, so a teammate who clones the repo will hit missing skills. Mitigation: log + skip, don't crash.
 
 **Implementation shape.**
-- `config.yaml` gains a `skills:` list. Entries are paths (absolute or `~`-expanded), each pointing to a skill folder.
-- On startup, resolve each path, parse `SKILL.md` frontmatter (reuse whatever YAML lib is already in requirements — likely `pyyaml`).
-- Inject `name + description` into the system prompt as an available-skills list (progressive disclosure — matches Claude Code's own loading behavior). Full skill body loads on demand when the model asks for it.
+- `config.yaml` gains a `skills:` list. Entries are paths (absolute or `~`-expanded). An entry may be either a single skill folder (contains `SKILL.md`) or a parent directory (scanned one level deep for `*/SKILL.md`). Parent-dir scanning is what makes `~/.claude/skills/` a single-line config entry.
+- On startup, resolve each path, parse `SKILL.md` frontmatter with `pyyaml` (already a dep).
+- **Progressive disclosure.** Inject only `name + description` of each skill into the system prompt as an available-skills list. Register a synthetic `load_skill(name: str)` tool alongside MCP tools. When the model calls it, Operator returns the full body of the named skill as the tool result. Model then re-plans with the body in context. Matches Claude Code's loading behavior; keeps token cost flat as users accumulate skills.
 - Missing path → WARN log + skip. Do not crash startup.
 - Malformed `SKILL.md` (bad YAML, missing `name` / `description`) → WARN log + skip.
-- Startup log line: `SKILLS: N/M loaded (<name> ✓, <name> ✓, <name> ✗ missing)`. Mirrors the MCP startup banner pattern from session 87. Without this, symlink-style setups fail silently and "why isn't my skill firing" becomes the #1 support question.
-- Optional: gitignored `skills.local.yaml` for personal overrides — teams can share a baseline `config.yaml` skill list and still layer personal skills on top.
+- Duplicate skill names across paths → last one wins, WARN on collision.
+- Startup log line: `SKILLS: N/M loaded (<name> ✓, <name> ✓, <name> ✗ missing)`. Mirrors the MCP startup banner pattern from session 87.
+- **Deferred to post-MVP:** optional gitignored `skills.local.yaml` for personal overrides — teams share a baseline `config.yaml` and layer personal skills on top. Not MVP-critical.
+- System prompt ordering: base prompt → skills block → MCP hints → MCP status (most dynamic last, so skills share a stable prefix for prompt caching).
 
 **Tool-surface filtering.** Most interesting Claude Code skills assume tools Operator doesn't have in a meeting context. Split by `allowed-tools`:
 - **Pure-instruction skills** (no `allowed-tools`, or only MCP-backed tools): ship as-is. Tone guides, commit-message style, decision frameworks, interview rubrics.
@@ -300,7 +304,7 @@ Pitch: **"Claude Code in Google Meet."** Users bring their existing Claude Code 
 - **Tool-heavy skills** (`Bash`, `Edit`, `Write`, `Read`): known to misfire. Five common ones that break: `/commit`-style git skills, the `pdf` skill, the office-suite skill (`docx`/`xlsx`/`pptx`), PR-review skills (`/review-pr`, `simplify`), refactor/debug-test-failure skills. Common thread: **anything that assumes a filesystem, a shell, or the Read/Edit/Write triad** breaks in a Meet context.
 - On import, check `allowed-tools`; if it references tools Operator can't honor, log a WARN with the specific unsupported tools. Still load the skill (the model may decline to invoke it in the meeting context) but the user knows why it might misfire.
 
-**Out of scope for 11.5.** Skill *execution* beyond injecting body text — i.e., we are not implementing `Bash`/`Edit`/`Write`/`Read` to make tool-heavy skills actually work. Pitch is honest: "bring your instruction skills."
+**Out of scope for 11.4.** Skill *execution* beyond injecting body text — i.e., we are not implementing `Bash`/`Edit`/`Write`/`Read` to make tool-heavy skills actually work. Pitch is honest: "bring your instruction skills." Also out of scope: hot-reload when a `SKILL.md` changes on disk mid-meeting — load at startup only (restart required for changes).
 
 ---
 
