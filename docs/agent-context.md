@@ -17,30 +17,31 @@
 
 ## Current Status
 
-**Phase:** Voice/chat decoupling COMPLETE as of session 94. Phase 11 resumes at step **11.3a (meeting record as single source of truth)** — 11.3 was split at the start of session 95 into 11.3a (chat record + file persistence, absorbs 11.6) and 11.3b (captions ported from voice-preserved).
+**Phase:** Phase 11.3a COMPLETE as of session 96 (code + unit tests). Live-Meet validation is still the next coding step — test sheet at `docs/11_3_a_testing.md`. Phase 11 remaining: 11.3b (captions), 11.4 (skill loading), 11.5 (Claude Code skill import), 11.7 (provider keys optional). 11.6 absorbed into 11.3a. New Phase 15.5 (Opinionated Quickstart) added in session 97 — agents gallery + minimal setup wizard + second chat-native agent.
 
-**What just happened (session 94, April 13, 2026):** Finished Stages 3–6 of the voice/chat decoupling. All six stages are now on `main`; `voice-preserved` branch holds the pre-decoupling state.
+**What just happened (session 97, April 14, 2026):** Positioning session. No code shipped (one new folder + README scaffolding). Competitive research surfaced [joinly](https://github.com/joinly-ai/joinly) as a near-peer: multi-platform (Meet/Zoom/Teams), BYOLLM (OpenAI/Anthropic/Ollama), MCP-shaped, voice + chat, MIT licensed, hosted cloud option, shipped 6+ months ago. Joinly's framing is platform/middleware-shaped ("expose meetings to agents") — their Reddit posts got meager response, plausibly because the pitch is abstract and they shipped the full surface at once.
 
-- **Stage 3 — config scrub** (`7d99b73`). Deleted voice config keys (`agent.wake_phrase`, `agent.interaction_mode`, `agent.echo_guard_seconds`, whole `tts:`/`stt:`/`captions:` blocks, `diagnostics.debug_audio`, `diagnostics.latency_probe`). Renamed `chat_wake_phrase` → `trigger_phrase`, `chat_max_tokens` → `max_tokens`. Stripped voice language from `chat_system_prompt`. Matching `config.py` constants removed/renamed.
-- **Stage 4 — connector audio strip** (`da9539d`, 4 files, +5/-182). Removed `get_audio_stream()` + `send_audio()` from `MeetingConnector`; deleted ScreenCaptureKit/BlackHole plumbing from `macos_adapter.py` and PulseAudio/parec bits from `linux_adapter.py`. Removed post-join "Turn on microphone" race and pre-join mic unmute block. Stub in `test_915_reconnection.py` updated to match.
-- **Stage 5 — LLMClient scrub** (`7aaa11c`, 6 files, +28/-33). Dropped unused `mode="chat"` param from `LLMClient.__init__` (and the `mode=` log field). Renamed the `utterance` parameter to `message` in `ask()`, `ask_stream()`, `record_exchange()`. Cleared "voice path / backward compat" doc-comments across `pipeline/llm.py` and `pipeline/providers/base.py`. Updated callers in `__main__.py` and 3 test files.
-- **Stage 6 — CLAUDE.md rewrite + final sweep** (`f473c11`, 5 files, +51/-73). Rewrote `CLAUDE.md` from scratch against chat-only architecture (current file layout, current tests, current config shape). Stripped residual "ScreenCaptureKit"/"PulseAudio" language from adapter docstrings, renamed "wake phrase" → "trigger phrase" in `chat_runner.py` comments, removed stale `AgentRunner` reference from `calendar_poller.py` module header. Repo-wide grep confirms no voice/whisper/TTS/BlackHole/ScreenCaptureKit in code anymore (only breadcrumb in CLAUDE.md pointing at the `voice-preserved` branch).
+Response: pick two implicit differentiators rather than feature-match. (1) **"Claude Code in your Google Meet"** as the launch hero framing — Phase 11.5 (skill import) is already on the roadmap and gives Operator a concrete, filmable hook that joinly can't easily copy without adopting Anthropic's skill format. Skills are provider-neutral (markdown + YAML frontmatter), so the framing works with OpenAI too; the "Claude Code" name is the marketing wrapper, not a fork. (2) **Opinionated quickstart** — "choose your fighter → add power-ups → go," delivered via an `agents/` gallery (ready-to-run folders committed to main, contributed via PRs) + a minimal `operator setup` wizard + README reading as Steps 1/2/3. Forks were considered as the community-proof primitive and explicitly rejected: galleries unify, forks fragment (Ollama library, LangChain templates, n8n templates, ComfyUI workflows, Vercel templates as reference patterns).
 
-Live-Meet smoke test passed at end of each of Stages 3, 4, 5, and 6 (`total_join ≈ 3–4s`, MCP 2/2 = 72 tools, Claude Sonnet 4.5 replied correctly, clean shutdown).
+- **New folder: `agents/README.md`** — defines the gallery format (one folder per agent, each self-contained with `config.yaml` + optional `skills/` + `README.md` + `.env.example`), contribution rules (one job per agent; must run on a fresh clone; demo GIF of the artifact; no secrets), and usage instructions. `claude-code` listed as the canonical entry; slot left for a second chat-native agent (user will pick near launch from: standup / triage / incident-commander / interview-notes / research).
+- **`docs/mvp-bar.md` updated** — positioning line adds the "AI power user's meeting bot / Claude Code skills natively / any markdown skill file with any model" framing. Three-part differentiation rewritten: #1 "Action, not access" now names joinly's category explicitly; #2 leads with Claude Code skill import as the sharpest implicit differentiator; #3 renamed to "Opinionated quickstart, not a framework" with the agents gallery + wizard as the delivery mechanism. Added a "3-step setup is obvious in under 30 seconds" entry to What Must Work. Added explicit non-goals for voice parity and Zoom/Teams parity with joinly — don't feature-match, fight on positioning. Added a full **Launch Strategy** section: hero framings by channel (Claude Code angle for r/ClaudeAI; standup bot for r/ExperiencedDevs; role-specific for niches), visual hooks (artifact-appearing-mid-sentence is the Pika-equivalent surprise moment; drag-drop-skills-folder as secondary), distribution levers ranked (direct SF outreach > newsletter/influencer mentions à la Pika > seeded `agents/` PRs > specific-JTBD Reddit posts; never generic "open source X" posts), and `agents/` as distribution primitive.
+- **`docs/roadmap.md` updated** — new Phase 15.5 (Opinionated Quickstart) inserted between 15 and 16 with three steps: 15.5.1 `claude-code` starter agent (~1.5h), 15.5.2 minimal `operator setup` wizard (~2h), 15.5.3 second chat-native agent (~1h). Phase 16.1 README now explicitly requires 3-step structure and agents-gallery entry point. Phase 16.2 demo spec now calls out the mid-sentence-artifact visual hook. New Phase 16.3 Launch campaign prep (~3h) — draft three hero-framing posts, seeded PR plan, direct-outreach shortlist, newsletter mention targets. Post-MVP "Setup wizard" entry rephrased to clarify the minimal version ships in 15.5; full wizard (voice, MCP OAuth, polished UX) is post-MVP. New post-MVP "Agents gallery expansion" entry for ongoing recipe curation. MVP hour total bumped from ~40h to ~53.5h — right at the ceiling; 15.5.3 and 16.3 can slip post-launch if needed.
 
-**Next action:** Implement **Phase 11.3a — meeting record as single source of truth** (~4h). Plan locked in at the top of session 95 after design discussion:
+**Design decisions made this session worth remembering:**
+- **Gallery pattern over forks.** Forks fragment git history and don't make the parent repo look alive. A `agents/` folder with PR contributions keeps everyone on main, makes contributors visible in the commit log, and turns every seeded-persona build into a permanent artifact pinned in the repo. This is the primitive; forks are not.
+- **"Claude Code in your Google Meet" is framing, not product.** The product stays Operator; the campaign is CCiYM. Defaulting the skills path to `~/.claude/skills/` is a convenience for Claude Code users, not a lock-in — any markdown skill file works with any model.
+- **CLI (end-user commands) vs. SDK (library for other devs).** Joinly's MCP server is effectively an SDK play. Operator's defensive lane is CLI-for-end-users — `operator setup`, future `operator skill add`, `operator doctor`, `operator check-mcp`. Don't race on SDK breadth.
+- **Joinly is ahead on surface, not ready on positioning.** Don't chase voice, Zoom, or Teams pre-launch. Win on specificity and seeded community signal instead.
 
-- **One buffer, not two.** A per-meeting JSONL file at `~/.operator/history/<meeting_id>.jsonl` is the authoritative record. Every chat-panel message observed — addressed (`@operator …`), non-addressed (ambient chat from other participants), and Operator's own replies — appends one line with fields `{timestamp, sender, text, kind: "chat"}`.
-- **`LLMClient.ask()` reads the tail of the file** and replays it as context on each call. No parallel in-memory pair buffer competing with the file. Eliminates the redundancy tension where the same exchange would live in both `_history` and a separate transcript.
-- **`history_turns` renamed to `history_messages`** — counts individual entries, not pairs. The meeting record doesn't have clean pair semantics (one user line might get 0 or many replies; captions in 11.3b are individual speaker turns). Config rename is part of this step; update `config.yaml`, `config.py`, `pipeline/llm.py`, and any tests that reference `HISTORY_TURNS` / `_max_pairs`.
-- **Tool-loop state stays in memory.** Tool calls and tool results are protocol-level and not chat-panel content, so they don't belong in the meeting record. Keep a small in-memory scratchpad that lives only for the duration of an in-flight tool loop (user turn → tool calls → final reply), then clears. Preserves the file as single-purpose (chat record).
-- **Absorbs what was 11.6.** The file IS the persistence layer. On startup, if `<meeting_id>.jsonl` already exists for the same meeting, load is automatic (we just read the tail as usual). No separate persistence step.
-- **Meeting ID derivation** — use the Meet URL slug (e.g. `pgy-qauk-frn` from `https://meet.google.com/pgy-qauk-frn`). Stable per meeting, works across restarts, no UUID bookkeeping. `calendar_poller.py` auto-joins already expose the URL.
-- **File format** — JSONL, one message per line. Append-only. No mid-file rewrites. Clean to tail, cheap to write, user-readable with `tail -f`.
-- **Cap behavior** — when reading the tail for context, take the last `history_messages` entries. The file itself keeps growing within the meeting (bounded by meeting length); long-term disk management is post-MVP.
-- **Privacy note for README** — local-only, zero telemetry intact; users can delete `~/.operator/history/` freely.
+**Previous sessions collapsed to one line each below — session 96 and earlier.**
 
-Scope notes from session 92 OSS audit still apply. 11.3b (captions) comes after 11.3a and appends to the same file with `kind: caption`. Revisit fast-follow audit items bucketed as pre-MVP-if-time after 11.3a+11.3b land.
+**Session 96 (April 14, 2026):** Shipped Phase 11.3a — per-meeting JSONL at `~/.operator/history/<slug>.jsonl` is the single source of truth for chat history. `pipeline/meeting_record.py` (new) is append-only with meta header + `tail(n)`. `LLMClient` rewritten around `_record` + in-memory `_scratch`; `history_turns` → `history_messages` (default 40); `agent.first_contact_hint` drives greet-new-participants. Full unit-test suite green; 12-scenario live-test sheet at `docs/11_3_a_testing.md`. Committed as `8ef1ae3`.
+
+**Session 95 (April 13, 2026):** Tied up two loose ends (stale `/operator` vs `@operator` assertions in `tests/test_chat_hardening.py` fixed; audit/doc deletions confirmed intentional) and scoped Phase 11.3. Bulk was a design discussion that produced the 11.3a plan later implemented in session 96 (one JSONL per meeting, `history_turns` → `history_messages`, tool-loop state in-memory, 11.6 absorbed). Committed as `14286f8`.
+
+**Session 94 (April 13, 2026):** Finished Stages 3–6 of the voice/chat decoupling. Config scrub, connector audio strip, LLMClient `mode`/`utterance` rename, CLAUDE.md rewrite. All six decoupling stages on `main`; `voice-preserved` branch holds the pre-decoupling state. Commits `7d99b73`, `da9539d`, `7aaa11c`, `f473c11`. Live-Meet smoke tested after each stage.
+
+**Next action:** Still live-validate Phase 11.3a against a fresh Meet URL per `docs/11_3_a_testing.md` — session 97 didn't touch code, so this remains the next coding step. Focus areas: (a) the meta-header showing up via `head -1`, (b) non-addressed ambient chat landing in the JSONL even without a reply, (c) first-contact greeting firing exactly once per person per session, (d) history replay surviving an Operator restart mid-meeting, (e) tool_use/tool_result never appearing in the JSONL, and (f) the confirmation flow (highest-risk interaction). After 11.3a is green, proceed with Phase 11 (11.3b captions → 11.4 skill loading → 11.5 Claude Code skill import → 11.7 provider keys optional). Phase 11.5 is the prerequisite for Phase 15.5.1 (the `claude-code` starter agent), so don't start 15.5 until 11.5 is done.
 
 **What happened before that (session 93, April 13, 2026):** User decided to ship chat as MVP with voice held back as v2 "secret." Paused the roadmap to do a full voice/chat decoupling so anyone poking around the repo sees zero voice/audio traces. Strategy: voice-preserved branch + delete everything voice-only from main + refactor shared files to chat-only. Plan lives in `docs/decoupling_plan.md` (gitignored). Stages 0–2 of 6 completed in session 93:
 
@@ -104,6 +105,7 @@ Session 81: Reliability fix outside the phase plan — camera-toggle failure on 
 
 ## Hard-Won Knowledge (read before touching relevant code)
 
+- **Competitive landscape and positioning constraints** (session 97). Primary near-peer: [joinly](https://github.com/joinly-ai/joinly) — multi-platform (Meet/Zoom/Teams), MCP-shaped middleware, BYOLLM (OpenAI/Anthropic/Ollama), voice + chat, MIT licensed, hosted cloud option, shipped 6+ months ago. They're ahead on surface (voice, multi-platform, web UI, dashboard) but weak on specificity (their pitch is "make meetings accessible to AI agents" — abstract; Reddit response was meager). Operator's two chosen differentiators: (1) "Claude Code in your Google Meet" framing via Phase 11.5 skill import, (2) opinionated quickstart via `agents/` gallery + `operator setup` wizard. **Don't feature-match joinly** — voice, Zoom, Teams, web UI are deliberately out of the MVP. Fight on positioning and seeded community signal instead. Also note Pika (presentation layer, no tool use) and Recall.ai (infra, no agent). Full strategy in `docs/mvp-bar.md`.
 - **Large blobs in history block GitHub push indefinitely** (session 93). Repo had two `.onnx` voice benchmark files (60MB + 109MB) buried in mid-history commits — `benchmarks/results/piper_models/` AND a duplicate set at `bench_results/piper_models/`. GitHub rejects any push containing a blob >100MB even if the file is deleted at the tip, because `git push` sends the whole object set. Deleting the files at HEAD doesn't help. Fix: `pip install git-filter-repo` then `git-filter-repo --path-glob '<pattern>' --invert-paths --force`, then re-add origin (filter-repo removes remotes as a safety measure), then `git push --force origin main`. `--force-with-lease` rejects after a history rewrite; plain `--force` is needed. Always check for multiple paths — the duplicate `bench_results/` set was found on a second grep pass after the first rewrite.
 - **Whisper drops first word** without 0.5s silence pad prepended to audio. Never remove.
 - **Backchannel echo:** clips play through BlackHole → back into capture. Drain audio buffer after playback.
@@ -254,6 +256,49 @@ Pitch: **"Claude Code in Google Meet."** Users bring their existing Claude Code 
 - On import, check `allowed-tools`; if it references tools Operator can't honor, log a WARN with the specific unsupported tools. Still load the skill (the model may decline to invoke it in the meeting context) but the user knows why it might misfire.
 
 **Out of scope for 11.5.** Skill *execution* beyond injecting body text — i.e., we are not implementing `Bash`/`Edit`/`Write`/`Read` to make tool-heavy skills actually work. Pitch is honest: "bring your instruction skills."
+
+---
+
+## Phase 15.5 — Opinionated Quickstart (design notes)
+
+Pitch: **"Choose your fighter → add power-ups → go."** The agents gallery is the gallery layer; the wizard turns it into a 3-step setup. Implicit differentiator vs. joinly's framework-shaped positioning.
+
+**Why a gallery, not forks.** Forks fragment git history and don't make the parent repo look alive. A `agents/` folder with PR contributions keeps everyone on main, makes contributors visible in the commit log, and turns every seeded-persona build into a permanent artifact. This is the primitive; forks were rejected explicitly. Reference patterns: Ollama model library, LangChain templates, n8n templates, ComfyUI workflows, Vercel templates, Hugging Face Spaces.
+
+**Folder format (already locked in `agents/README.md`).** Each agent is a self-contained folder with a runnable `config.yaml`, optional `skills/` directory, a short `README.md` (what / who / needs / setup / demo), and `.env.example`. The agent must run on a fresh clone after the user fills in keys — no hidden dependencies.
+
+### 15.5.1 — `claude-code` starter agent
+
+Canonical example. Demonstrates the format and is the launch hero. **Depends on Phase 11.5 (Claude Code skill import) being complete** — without skill import, this agent has nothing distinct to show.
+
+- `agents/claude-code/config.yaml` — complete Operator config; either OpenAI or Anthropic as default (decide near build time, lean Anthropic since the framing is "Claude Code"); `mcp_servers` includes Linear + GitHub; `skills:` points at `~/.claude/skills/` by default, with a comment explaining how to swap to a custom path.
+- `agents/claude-code/README.md` — "What it does: brings your existing `~/.claude/skills/` into Google Meet so the agent files Linear tickets, looks up GitHub PRs, and follows your team conventions during a live call." Setup: copy `config.yaml`, fill `.env`, run. Demo: short GIF of an artifact appearing in chat mid-sentence.
+- `agents/claude-code/skills/` — leave empty by default. The whole point is the user's own skills get loaded from `~/.claude/skills/`. Optionally bundle one demo skill that's safe to ship (e.g. `file-linear-ticket.md`) so the agent has at least one skill even if the user has none locally.
+- `.env.example` — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, `LINEAR_API_KEY`, `GITHUB_TOKEN`.
+
+### 15.5.2 — `operator setup` interactive wizard (minimal)
+
+Scope: a one-shot config-writer, not a daemon, not a background service, not a TUI framework.
+
+- Entry point: `python -m operator setup` (add a `setup` subcommand to `__main__.py`'s arg parser, or ship a separate `operator/setup.py` module — pick whatever is shorter).
+- Flow:
+  1. Print the 3-step framing: "Step 1: choose an agent. Step 2: add your keys. Step 3: join a meeting."
+  2. List `agents/*` subdirectories with their one-line pitches (parsed from each agent's `README.md` first heading or a frontmatter field), plus a "blank / custom" option.
+  3. User picks one (numbered prompt). Copy that agent's `config.yaml` to repo root (or `--output PATH`).
+  4. Read the agent's `.env.example`, prompt for each var, write to `.env` (preserving any pre-existing keys not asked about).
+  5. Optionally run `python __main__.py --check-mcp` and report the result.
+  6. Print the next-step command: `python __main__.py <meet-url>`.
+- Re-run safety: if `config.yaml` or `.env` exists, confirm overwrite (or merge for `.env`). Atomic writes via tempfile + rename.
+- ~150 lines of Python, no new dependencies (use `input()` and `pathlib`).
+- **Out of scope:** voice, MCP OAuth flows, model selection UI beyond what the chosen agent's config dictates, polished TUI. Those land in the post-MVP full wizard.
+
+### 15.5.3 — Second chat-native agent
+
+User picks near launch from: `standup`, `triage`, `incident-commander`, `interview-notes`, `research`. Translator was the original sketch but is voice-native and weakens the chat-MVP story. Goal of this slot: the gallery reads as a *set* (≥2 agents), not a one-off.
+
+### Launch interplay
+
+The gallery doubles as launch ammunition (see `docs/mvp-bar.md` Launch Strategy). Each seeded persona contributes one `agents/<name>/` PR, then posts about that build. Real users browsing the repo see contributor activity on `main` — social proof as code. Ship 2 agents at launch (`claude-code` + the 15.5.3 pick), target 5 within week 1 via seeded PRs.
 
 ---
 

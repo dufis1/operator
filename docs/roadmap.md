@@ -1,8 +1,8 @@
 # Operator — Roadmap
 
-*Last updated: April 13, 2026 (session 94)*
+*Last updated: April 14, 2026 (session 97)*
 
-> **Current status: Voice/chat decoupling COMPLETE. MVP ship target still April 19, 2026.** **Sessions 93–94 (April 13)** completed all 6 stages of the voice/chat decoupling. `main` is now chat-only; voice code preserved on `voice-preserved` branch. Stage commits: Stage 0 (history filter + branch cut, `c7a7505`), Stage 1 (delete voice modules, `67b77de`), Stage 2 (`__main__.py` collapse, `d985224`), Stage 3 (config scrub, `7d99b73`), Stage 4 (connector audio strip, `da9539d`), Stage 5 (LLMClient `mode` param + utterance rename, `7aaa11c`), Stage 6 (CLAUDE.md rewrite + final voice-term sweep, `f473c11`). Repo-wide grep confirms no voice/whisper/TTS/BlackHole/ScreenCaptureKit residue in code. Live-Meet smoke tests passed at end of each stage. **Resuming Phase 11 at step 11.3a (meeting record as single source of truth) next session.** Phase 10 complete; Phase 11 in progress (11.1 + 11.2 done). 11.3 split into 11.3a (chat record + file persistence, absorbs 11.6) and 11.3b (captions ported from voice-preserved). Two items promoted to Phase 11 pre-MVP (11.6 history persistence ~1.5h; 11.7 provider keys optional ~15m). Five fast-follow audit items bucketed as pre-MVP-if-time (~10h 45m total) vs. the skill-manifest bundle kept firmly post-MVP (~10-14h). L6-b / L7 / L8-a dropped after scope review. New Post-MVP phase added: **Hosted Operator** (~30-35h). Zero-telemetry commitment verified intact.
+> **Current status: Phase 11.3a COMPLETE, pending live-Meet validation. MVP ship target still April 19, 2026.** **Session 97 (April 14)** — positioning session after competitive research surfaced [joinly](https://github.com/joinly-ai/joinly) as a near-peer (multi-platform, voice, MCP, BYOLLM, MIT, hosted cloud, shipped 6+ months ago). Response: lean into **"Claude Code in your Google Meet"** as the launch framing and **opinionated quickstart** as the implicit differentiator. Added new **Phase 15.5 (Opinionated Quickstart)** — agents gallery + minimal `operator setup` wizard + a second chat-native agent slot. `agents/` directory created with format `README.md`; `claude-code` is the canonical starter. `docs/mvp-bar.md` updated with sharpened 3-part differentiation and a new Launch Strategy section (hero framings, visual hooks, distribution ranking, gallery as distribution primitive). Session 96 shipped 11.3a — per-meeting JSONL at `~/.operator/history/<slug>.jsonl` as the single source of truth for chat history. Phase 11 remaining: 11.3b (captions, ~3h), 11.4 (skill loading, ~2h), 11.5 (Claude Code skill import, ~2h), 11.7 (provider keys optional, ~15m). 11.6 absorbed into 11.3a. After Phase 11: Phase 12 validation, 13 polish, 14 package, 15 cross-platform testing, 15.5 opinionated quickstart (new), 16 launch. Fast-follow audit items remain opportunistic. Post-MVP: Hosted Operator (~30-35h). Zero-telemetry intact.
 
 ---
 
@@ -114,7 +114,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 |------|-------------|--------|------|
 | 11.1 | Abstract LLM provider interface — swap between OpenAI and Anthropic without code changes | ✅ | ~3h |
 | 11.2 | Anthropic API backend — Claude as alternative LLM provider | ✅ | ~3h |
-| 11.3a | Meeting record as single source of truth — every chat-panel message (addressed, non-addressed, Operator's own replies) appends to a per-meeting JSONL file at `~/.operator/history/<meeting_id>.jsonl`. `LLMClient.ask()` reads the tail of that file and replays it as context on each call; no parallel in-memory pair buffer competing with it. Absorbs what was 11.6 (persistence) — the file IS the record. Tool-call/tool-result state stays in a small in-memory scratchpad for the in-flight turn only. `history_turns` renamed to `history_messages` (counts individual entries, not pairs — meeting record doesn't have clean pair semantics). Unblocks "create a ticket for the auth bug Alice just described" — the ambient chat is in context now. | ⬜ | ~4h |
+| 11.3a | Meeting record as single source of truth — every chat-panel message (addressed, non-addressed, Operator's own replies) appends to a per-meeting JSONL file at `~/.operator/history/<meeting_id>.jsonl`. `LLMClient.ask()` reads the tail of that file and replays it as context on each call; no parallel in-memory pair buffer competing with it. Absorbs what was 11.6 (persistence) — the file IS the record. Tool-call/tool-result state stays in a small in-memory scratchpad for the in-flight turn only. `history_turns` renamed to `history_messages`. Meta header line in the JSONL (`kind: meta`, url + slug + timestamp) makes each file self-describing. Config-driven first-contact greeting via `agent.first_contact_hint` with `{first_name}` placeholder. Unit-tested end-to-end; live-test sheet at `docs/11_3_a_testing.md`. | ✅ | ~4h |
 | 11.3b | Captions as transcript source — port the Google Meet live-captions DOM scraper from the `voice-preserved` branch (`CaptionsAdapter` / `pipeline/captions.py`) into a new `pipeline/transcript.py`. Captions append to the same meeting-record JSONL with `kind: caption`, unified with chat messages. Gate behind a `transcript.captions_enabled` config flag (default off — user opt-in for privacy). Degrade gracefully when captions aren't turned on in the meeting. | ⬜ | ~3h |
 | 11.4 | Skill file loading — users drop markdown files in a `skills/` directory (path configurable); contents appended to the system prompt at runtime so the bot reflects user identity, team conventions, ticket formats, etc. Delivers the "your AI, not Gemini" customization layer promised in `docs/mvp-bar.md` | ⬜ | ~2h |
 | 11.5 | Import Claude Code skills — reference-style import of user's existing `~/.claude/skills/` into Operator. `config.yaml` gets a `skills:` list of paths; on startup, resolve each path, parse `SKILL.md` frontmatter, inject `name + description` into the system prompt (progressive disclosure — full body loads when the model asks for it). Missing paths warn + skip, don't crash. Supports a gitignored `skills.local.yaml` for personal overrides so teams can share a baseline `config.yaml`. Startup log line prints resolved vs. skipped skills. Pitched as "Claude Code in Google Meet" — bring your instruction skills. Filter/warn on `allowed-tools` Operator can't honor (Bash/Edit/Write/Read). See `docs/agent-context.md` for full implementation notes. | ⬜ | ~2h |
@@ -177,20 +177,35 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 ---
 
+## Phase 15.5: Opinionated Quickstart
+
+*The "choose your fighter → add power-ups → go" layer. Implicit differentiator vs. joinly's framework-shaped positioning. See `docs/mvp-bar.md` for strategy context.*
+
+| Step | Description | Status | Est. |
+|------|-------------|--------|------|
+| 15.5.1 | Agents gallery + `claude-code` starter — `agents/README.md` defines the format (done session 97). Build out `agents/claude-code/` as the canonical example: complete runnable `config.yaml`, short `README.md` covering what/who/needs/setup/demo, optional bundled skills in `agents/claude-code/skills/`, `.env.example` for required keys. Verify end-to-end on a fresh clone. Depends on 11.5 (Claude Code skill import) being complete. | ⬜ | ~1.5h |
+| 15.5.2 | `operator setup` interactive wizard (minimal) — `python -m operator setup` script that: (a) asks which agent to start from (list of `agents/*` folders + "blank / custom"); (b) copies that agent's `config.yaml` to repo root (or user-specified path); (c) prompts for API keys and writes them to `.env`; (d) optionally runs `--check-mcp` before finishing. No daemon, no background service — one-shot config-writer. Writes are atomic; re-running overwrites safely. ~150 lines of Python. Matches OpenClaw's onboarding shape without pulling forward a full background-service architecture. | ⬜ | ~2h |
+| 15.5.3 | Second chat-native agent — user will pick the concrete agent near launch. Candidates: `standup` (files standup summaries + blockers to Linear), `triage` (converts feature-request chatter into Linear tickets), `incident-commander` (opens GitHub issues during incident calls, cross-links, pings oncall), `interview-notes` (structured candidate signal), `research` (live web lookup via Tavily MCP, drops citations). Translator was considered but is voice-native. Goal: one more folder in `agents/` so the gallery reads as a set, not a single example. | ⬜ | ~1h |
+
+**Phase total: ~4.5h**
+
+---
+
 ## Phase 16: README & Launch ← MVP GATE
 
 *Ship it.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 16.1 | Rewrite `README.md` — what it is, quick start, architecture, "meetings that produce artifacts" positioning. Includes: MCP compatibility notes (tested servers + known quirks), BYOMCP failure patterns and mitigation guidance, one annotated example config | ⬜ | ~4h |
-| 16.2 | Demo video/GIF — 30s screen recording of chat-based tool use in a live meeting, embedded at top of README | ⬜ | ~2h |
+| 16.1 | Rewrite `README.md` — what it is, quick start, architecture, "meetings that produce artifacts" positioning. **Must read as 3 steps** (choose an agent → add your keys/power-ups → join a meeting); agents gallery (`agents/`) is the entry point; link `claude-code` as the canonical starter. Includes: MCP compatibility notes (tested servers + known quirks), BYOMCP failure patterns and mitigation guidance, one annotated example config. Explicit "Claude Code in your Google Meet" framing in the hero. | ⬜ | ~4h |
+| 16.2 | Demo video/GIF — 30s screen recording embedded at top of README. **Hero hook: an artifact (Linear ticket / GitHub comment) materializing in chat while the speaker is still mid-sentence.** Visual surprise is the point; feature enumeration is not. Second demo (optional): drag-and-drop a skills folder and watch behavior change. | ⬜ | ~2h |
+| 16.3 | Launch campaign prep — draft 3 hero-framing posts (see `docs/mvp-bar.md` Launch Strategy section) tailored to their target channels: (a) "Claude Code in your Google Meet" for r/ClaudeAI + Claude-focused creators; (b) "The AI in my standup filed 3 Linear tickets before I finished talking" for r/ExperiencedDevs + eng newsletters; (c) a role-specific build tied to the second chat-native agent from 15.5.3. Prepare the seeded-PR plan for `agents/` (personas + use cases, 3 PRs queued for week 1). Direct-outreach shortlist: 10–20 Claude Code power users in SF. Identify 2–3 AI/PM newsletter operators for earned or paid mentions (Pika's playbook). | ⬜ | ~3h |
 
-**Phase total: ~6h**
+**Phase total: ~9h**
 
 ---
 
-**MVP total: ~40h across Phases 10–16 (against ~50–55h available through April 19, 2026)**
+**MVP total: ~53.5h across Phases 10–16 (against ~50–55h available through April 19, 2026). Right at the ceiling — 15.5 and 16.3 are the new swelling items; if the budget slips, 15.5.3 can move to week 1 post-launch and 16.3 can start earlier in parallel with 15.5.**
 
 ---
 
@@ -267,7 +282,8 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 ### Setup & Onboarding
 | Item | Origin | Description |
 |------|--------|-------------|
-| Setup wizard | 15.1 | `operator setup` — guided API key entry, voice selection, MCP server auth |
+| Setup wizard (full) | 15.1 | `operator setup` — full guided experience: API key entry, voice selection, MCP server auth, model selection UI, rerun-safe state. Minimal version shipped in Phase 15.5.2 (agent-picker + keys + config write); this is the expanded version with voice, MCP OAuth, and polished UX. |
+| Agents gallery expansion | 15.5 | Grow `agents/` beyond the 2 launch agents. Curate community contributions, add more job-shaped examples (release-manager, customer-success, RFC-reviewer, etc.), maintain an `awesome-operator` list for agents hosted in external repos. Ongoing post-launch. |
 | MCP OAuth setup step | 15.2 | Authenticate each MCP server during onboarding so tokens are cached |
 | Auto-populate per-MCP hints | 15.3 | Resolve identity (GitHub `get_me`, etc.) during onboarding |
 | First-run smoke test | 15.4 | Automated health check after setup |
