@@ -17,9 +17,25 @@
 
 ## Current Status
 
-**Phase:** Phase 11.4 LIVE-VALIDATED as of session 104 — all 9 tests in `docs/11_4_testing.md` passed in a fresh Meet. Phase 11 remaining: 11.7 (provider keys optional at import, ~15m). Phase 15.5.1 (claude-code starter agent, ~1.5h) is now unblocked.
+**Phase:** Phase 11 COMPLETE as of session 105. 11.7 shipped — provider key gate moved into `build_provider()`. Next: Phase 15.5.1 (claude-code starter agent gallery entry, ~1.5h).
 
-**What just happened (session 104, April 14, 2026):** Walked `docs/11_4_testing.md` T1–T9 end-to-end against two fresh Meets (progressive mode → non-progressive mode → broken-config mode).
+**What just happened (session 105, April 15, 2026):** Tiny Phase 11.7 fix + architectural discussion.
+
+- **`config.py:79`** — changed `OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]` to `.get(..., "")`. `ANTHROPIC_API_KEY` was already using `.get()`.
+- **`pipeline/providers/__init__.py` `build_provider()`** — added symmetric guard in the openai branch (`if not config.OPENAI_API_KEY: raise RuntimeError(...)`) matching the existing anthropic pattern. Each provider's key is now required only if that provider is configured.
+- **Verified both paths:** `OPENAI_API_KEY= python -c "import config"` imports cleanly; building with `llm.provider: anthropic` + empty OPENAI_API_KEY works; forcing `llm.provider: openai` with empty key raises the expected clear RuntimeError. Unblocks Anthropic-only BYOK users and `--check-mcp` without a provider key.
+- Committed as `d756962`.
+
+**Architectural threads discussed (no code, deferred to post-MVP):**
+- **Bash/code execution for Operator.** Options ranked: bash-MCP > skill-as-CLI-recipe > built-in. Bash-MCP gives per-tool confirm gating + audit trail (`READ_TOOLS`-style); skill-as-CLI-recipe is faster to author but every invocation looks like "bash ran" from `chat_runner.py`'s perspective. Noteworthy bash-MCP servers: `tumf/mcp-shell-server`, `blazickjp/shell-mcp-server`. Low adoption of bash-MCPs in general is because *sandboxing* (Docker/container per tool call) is the hard part, not the server.
+- **Phase 15.5.1 is a gallery entry, NOT a Claude-Code integration.** User correctly pushed back on an earlier mischaracterization of mine. Roadmap line 186 defines 15.5.1 as `agents/claude-code/` preconfigured starter folder (config.yaml + README.md + skills + .env.example). Operator does not talk to Claude Code; it *resembles* Claude Code in shape.
+- **Modular sub-agent spawning (Codex / Claude Code / scrapers).** Recommended shape: model sub-agents as MCP tools exposing `spawn`, `status`, `result`, `cancel`. Default execution = async-detached. Deliver artifacts *around* Operator (sub-agent writes directly to Linear / GitHub PR / Slack), not *through* it (avoid blowing Operator's context window). Three design axes: transport (MCP-per-agent vs dispatcher vs subprocess), execution model (sync / async-blocking / async-detached), result channel (through Operator / around Operator). All post-MVP.
+- **CLI-as-skill vs MCP.** CLI skills are great for breadth + fast authoring (SKILL.md + `--help`), but you lose structured tool-call logging, confirm gating, and `READ_TOOLS` allowlist. Recommendation: support both post-MVP; MCP stays for write-side tools where audit/confirm matters.
+- **Claude API + shell vs Claude Code.** Same raw capability; difference is the curated loop (tool-call handling, context management, confirm UX, session state, hooks, subagents, skills, slash commands, IDE integration). Operator already has its own loop in `chat_runner.py` + `llm.py` — we are a Claude-Code-shaped thing, specialized for meetings.
+
+**Next action:** Tackle **Phase 15.5.1** (claude-code starter agent gallery entry, ~1.5h) — flesh out `agents/claude-code/` with complete runnable `config.yaml`, README, skills, `.env.example`. Verify end-to-end on a fresh clone. After that: validation → polish → package → cross-platform → quickstart → launch. MVP target still April 19, 2026.
+
+**Previous context (session 104, April 14, 2026):** Walked `docs/11_4_testing.md` T1–T9 end-to-end against two fresh Meets (progressive mode → non-progressive mode → broken-config mode).
 
 - **T1** startup banner + menu injection ✓ — `SKILLS: 2/2 loaded` and `LLM injected skills (menu): hello, tone` both present.
 - **T2** `@operator use the hello skill` produced `tool_call name=load_skill`, `SKILLS turn=1 load_skill called: 'hello'`, `send_tool_result tool=load_skill result_len=81`, and reply `skill-token-7h2x acknowledged` — body reached the model, no confirmation prompt.
