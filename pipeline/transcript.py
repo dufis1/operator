@@ -14,12 +14,38 @@ hit disk. This matches chat messages (one record per finalized message) and
 keeps MeetingRecord.tail(n) readable for the LLM.
 """
 import logging
+import re
 import threading
 import time
 
 log = logging.getLogger(__name__)
 
 _POLL_INTERVAL = 0.1  # silence checker tick
+
+_WORD_RE = re.compile(r"\w+", re.UNICODE)
+
+
+def _strip_prior_prefix(text: str, prior: str) -> str:
+    """Return `text` with any leading words that match `prior` removed.
+
+    Comparison is token-wise and ignores case + punctuation, since Google
+    Meet sometimes auto-corrects casing/punctuation on text it has already
+    shown (e.g. "here," → "Here."). If `prior` isn't a token-prefix of
+    `text` at all, returns `text` unchanged (Meet rolled the window).
+    """
+    if not prior:
+        return text
+    prior_tokens = [m.group(0).lower() for m in _WORD_RE.finditer(prior)]
+    if not prior_tokens:
+        return text
+    text_tokens = [(m.group(0).lower(), m.end()) for m in _WORD_RE.finditer(text)]
+    if len(text_tokens) < len(prior_tokens):
+        return text
+    for i, p in enumerate(prior_tokens):
+        if text_tokens[i][0] != p:
+            return text
+    cut = text_tokens[len(prior_tokens) - 1][1]
+    return text[cut:].lstrip(" .,;:!?-")
 
 
 class TranscriptFinalizer:
@@ -40,6 +66,11 @@ class TranscriptFinalizer:
         self._current_speaker: str | None = None
         self._current_text: str = ""
         self._last_update_time: float = 0.0
+        # Per-speaker rolling window of what Meet's caption pane last showed
+        # for that speaker at finalize time. Used to strip the previously
+        # finalized prefix from the next finalize, since Meet keeps prior
+        # text visible in the same speaker's region.
+        self._last_window_per_speaker: dict[str, str] = {}
 
         self._stop = threading.Event()
         self._silence_thread = threading.Thread(
@@ -94,7 +125,15 @@ class TranscriptFinalizer:
         text = text.strip()
         if not text:
             return
-        log.info(f"caption_finalized reason={reason} speaker={speaker} text=\"{text[:80]}\"")
+        full_window = text
+        prior = self._last_window_per_speaker.get(speaker, "")
+        stripped = _strip_prior_prefix(text, prior)
+        if not stripped:
+            self._last_window_per_speaker[speaker] = full_window
+            return
+        text = stripped
+        self._last_window_per_speaker[speaker] = full_window
+        log.info(f"caption_finalized reason={reason} speaker={speaker} text=\"{text}\"")
         try:
             self._record.append(speaker, text, kind="caption", timestamp=timestamp)
         except Exception as e:

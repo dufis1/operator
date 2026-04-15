@@ -215,6 +215,7 @@ def _run_macos(meeting_url=None, force=False):
         from pipeline.transcript import TranscriptFinalizer
         slug = slug_from_url(meeting_url)
         meeting_record = MeetingRecord(slug=slug, meta={"meet_url": meeting_url})
+        llm.set_record(meeting_record)
         transcript_finalizer = TranscriptFinalizer(
             meeting_record, silence_seconds=config.CAPTION_SILENCE_SECONDS
         )
