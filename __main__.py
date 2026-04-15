@@ -200,24 +200,28 @@ def _run_macos(meeting_url=None, force=False):
     connector = MacOSAdapter(force=force)
     llm = LLMClient(build_provider())
 
-    # Captions → MeetingRecord wiring. Only the direct-URL path gets captions
-    # right now because we need the slug before connector.join() (expose_function
-    # must run before page.goto). Calendar mode gets a log notice and skips.
+    # Captions → MeetingRecord wiring.
+    #
+    # The JS bridge (window.__onCaption) is exposed by MacOSAdapter at browser
+    # startup whenever config.CAPTIONS_ENABLED is true, so set_caption_callback
+    # is safe to call before OR after connector.join(). Direct-URL mode wires
+    # the finalizer up-front here. Calendar mode wires per-meeting once a URL
+    # arrives via the calendar queue (see runner.run_polling), reusing the
+    # already-exposed bridge.
     meeting_record = None
     transcript_finalizer = None
-    if config.CAPTIONS_ENABLED:
-        if meeting_url:
-            from pipeline.meeting_record import MeetingRecord, slug_from_url
-            from pipeline.transcript import TranscriptFinalizer
-            slug = slug_from_url(meeting_url)
-            meeting_record = MeetingRecord(slug=slug, meta={"meet_url": meeting_url})
-            transcript_finalizer = TranscriptFinalizer(
-                meeting_record, silence_seconds=config.CAPTION_SILENCE_SECONDS
-            )
-            connector.set_caption_callback(transcript_finalizer.on_caption_update)
-            log.info("captions enabled — transcript will be appended to meeting record")
-        else:
-            log.warning("captions_enabled=true but calendar-mode captions not yet supported — skipping")
+    if config.CAPTIONS_ENABLED and meeting_url:
+        from pipeline.meeting_record import MeetingRecord, slug_from_url
+        from pipeline.transcript import TranscriptFinalizer
+        slug = slug_from_url(meeting_url)
+        meeting_record = MeetingRecord(slug=slug, meta={"meet_url": meeting_url})
+        transcript_finalizer = TranscriptFinalizer(
+            meeting_record, silence_seconds=config.CAPTION_SILENCE_SECONDS
+        )
+        connector.set_caption_callback(transcript_finalizer.on_caption_update)
+        log.info("captions enabled — transcript will be appended to meeting record")
+    elif config.CAPTIONS_ENABLED:
+        log.info("captions enabled — bridge will expose at browser startup; calendar runner wires per-meeting finalizer")
 
     # Start MCP connection in background while browser joins
     _mcp_result = {"client": None}

@@ -94,9 +94,15 @@ class MacOSAdapter(MeetingConnector):
     def set_caption_callback(self, fn):
         """Register fn(speaker, text, timestamp) for caption DOM updates.
 
-        Must be called BEFORE join() — the JS bridge has to be exposed before
-        the page navigates, otherwise the observer fires into a missing
-        window.__onCaption and silently drops captions.
+        May be called BEFORE or AFTER join(). The JS bridge is exposed at
+        browser startup whenever config.CAPTIONS_ENABLED is true (regardless
+        of whether a callback is set yet), so a late-bound callback still
+        receives captions cleanly. Captions that arrive while no callback is
+        registered are silently dropped. Pass None to unregister.
+
+        Late-bind enables calendar-polling mode, which only learns the meeting
+        URL — and thus can build a per-meeting MeetingRecord/finalizer — after
+        the browser is already running.
         """
         self._caption_callback = fn
 
@@ -418,9 +424,11 @@ class MacOSAdapter(MeetingConnector):
 
                 # Expose the caption bridge BEFORE navigation so the
                 # MutationObserver can find window.__onCaption the instant it
-                # attaches. Only exposes when a callback was registered — keeps
-                # chat-only runs free of caption plumbing.
-                if self._caption_callback is not None:
+                # attaches. Gated on the global captions_enabled flag (not on
+                # whether a callback is currently set) so callers can late-bind
+                # set_caption_callback after join() — calendar-polling mode
+                # only knows the meeting URL after the browser is up.
+                if config.CAPTIONS_ENABLED:
                     try:
                         page.expose_function("__onCaption", self._on_caption_from_js)
                         log.info("MacOSAdapter: caption bridge exposed")
@@ -557,11 +565,13 @@ class MacOSAdapter(MeetingConnector):
                         log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
                     log.info(f"TIMING in_meeting_wait={time.monotonic() - t_in_meeting:.1f}s")
 
-                    # Enable captions + inject the observer if a callback was
-                    # registered. Graceful degrade: if captions can't be
-                    # enabled (unsupported language, permissions, etc.) we
-                    # still hold the meeting open for chat.
-                    if self._caption_callback is not None:
+                    # Enable captions + inject the observer when captions are
+                    # enabled in config — independent of callback registration
+                    # so late-bound callbacks (calendar mode) receive captions
+                    # without restarting the browser. Graceful degrade: if
+                    # captions can't be enabled (unsupported language,
+                    # permissions, etc.) we still hold the meeting open for chat.
+                    if config.CAPTIONS_ENABLED:
                         t_cap = time.monotonic()
                         if enable_captions(page):
                             try:
