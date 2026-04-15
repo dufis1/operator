@@ -76,5 +76,5 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
     }
 
 # Secrets from .env
-OPENAI_API_KEY    = os.environ["OPENAI_API_KEY"]
+OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")

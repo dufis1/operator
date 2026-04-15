@@ -18,6 +18,10 @@ def build_provider():
     name = config.LLM_PROVIDER
     if name == "openai":
         from openai import OpenAI
+        if not config.OPENAI_API_KEY:
+            raise RuntimeError(
+                "llm.provider is 'openai' but OPENAI_API_KEY is not set in .env"
+            )
         return OpenAIProvider(OpenAI(api_key=config.OPENAI_API_KEY))
     if name == "anthropic":
         from anthropic import Anthropic
