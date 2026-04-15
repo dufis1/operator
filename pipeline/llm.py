@@ -119,7 +119,8 @@ class LLMClient:
         hint_template = config.FIRST_CONTACT_HINT
         messages: list[dict] = []
         for e in entries:
-            if e.get("kind", "chat") != "chat":
+            kind = e.get("kind", "chat")
+            if kind not in ("chat", "caption"):
                 continue
             sender = (e.get("sender") or "").strip()
             text = e.get("text", "")
@@ -127,6 +128,12 @@ class LLMClient:
                 messages.append({"role": "assistant", "content": text})
                 continue
             first = sender.split()[0] if sender else ""
+            if kind == "caption":
+                # Spoken context — not addressed to the bot. Prefix so the
+                # LLM can weigh it as ambient room talk vs direct chat.
+                content = f"[spoken] {first}: {text}" if first else f"[spoken] {text}"
+                messages.append({"role": "user", "content": content})
+                continue
             content = f"{first}: {text}" if first else text
             if hint_template and first and first not in self._greeted:
                 self._greeted.add(first)

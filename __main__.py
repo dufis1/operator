@@ -200,6 +200,25 @@ def _run_macos(meeting_url=None, force=False):
     connector = MacOSAdapter(force=force)
     llm = LLMClient(build_provider())
 
+    # Captions → MeetingRecord wiring. Only the direct-URL path gets captions
+    # right now because we need the slug before connector.join() (expose_function
+    # must run before page.goto). Calendar mode gets a log notice and skips.
+    meeting_record = None
+    transcript_finalizer = None
+    if config.CAPTIONS_ENABLED:
+        if meeting_url:
+            from pipeline.meeting_record import MeetingRecord, slug_from_url
+            from pipeline.transcript import TranscriptFinalizer
+            slug = slug_from_url(meeting_url)
+            meeting_record = MeetingRecord(slug=slug, meta={"meet_url": meeting_url})
+            transcript_finalizer = TranscriptFinalizer(
+                meeting_record, silence_seconds=config.CAPTION_SILENCE_SECONDS
+            )
+            connector.set_caption_callback(transcript_finalizer.on_caption_update)
+            log.info("captions enabled — transcript will be appended to meeting record")
+        else:
+            log.warning("captions_enabled=true but calendar-mode captions not yet supported — skipping")
+
     # Start MCP connection in background while browser joins
     _mcp_result = {"client": None}
     def _connect_mcp():
@@ -235,7 +254,7 @@ def _run_macos(meeting_url=None, force=False):
                 llm.inject_github_user(gh_login)
 
     log.info(f"TIMING setup={_time.monotonic() - t_start:.1f}s")
-    runner = ChatRunner(connector, llm, mcp_client=mcp)
+    runner = ChatRunner(connector, llm, mcp_client=mcp, meeting_record=meeting_record)
 
     poller = None
     _shutdown_called = False
@@ -256,6 +275,8 @@ def _run_macos(meeting_url=None, force=False):
             if signum:
                 log.info(f"Received signal {signum} — shutting down")
         runner.stop()
+        if transcript_finalizer:
+            transcript_finalizer.stop()
         if mcp:
             mcp.shutdown()
         if poller:

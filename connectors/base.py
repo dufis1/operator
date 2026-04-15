@@ -32,5 +32,13 @@ class MeetingConnector:
         """
         return True
 
+    def set_caption_callback(self, fn):
+        """Register fn(speaker, text, timestamp) for caption updates.
+
+        Optional — connectors that don't support captions may no-op. Must be
+        called before join() when supported.
+        """
+        pass
+
     def leave(self):
         raise NotImplementedError

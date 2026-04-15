@@ -30,6 +30,11 @@ BROWSER_PROFILE_DIR  = _config["connector"]["browser_profile_dir"]
 AUTH_STATE_FILE      = _config["connector"]["auth_state_file"]
 IDLE_TIMEOUT_SECONDS = _config["connector"].get("idle_timeout_seconds", 600)
 
+# Transcript (captions)
+_transcript = _config.get("transcript", {})
+CAPTIONS_ENABLED        = _transcript.get("captions_enabled", False)
+CAPTION_SILENCE_SECONDS = _transcript.get("silence_seconds", 0.7)
+
 # MCP Servers
 import logging as _logging
 _mcp_log = _logging.getLogger("config.mcp")

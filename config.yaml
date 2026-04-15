@@ -28,11 +28,19 @@ llm:
     If a required parameter is ambiguous or unclear, ask the user to clarify rather than guessing. Do not invent values for owner, repo, team, or assignee that the user did not explicitly state.
     After any action that creates or modifies an external resource (issue, PR, document, etc.), include the link from the tool result so the user can verify.
     Use a person's name only when greeting them for the first time. Do not repeat their name in subsequent replies.
+    Messages prefixed with [spoken] are live captions of what participants are saying out loud — ambient context, not messages addressed to you. Use them to understand what's being discussed, but only respond when someone types in chat (addressed via the trigger phrase, or in a 1-on-1).
 
 connector:
   browser_profile_dir: "./browser_profile"
   auth_state_file: "./auth_state.json"  # path to auth_state.json for session recovery
   idle_timeout_seconds: 600      # how long to wait with no activity before giving up (lobby + in-meeting inactivity)
+
+transcript:
+  # Off by default — captions capture EVERY participant's speech for the whole
+  # meeting into ~/.operator/history/<slug>.jsonl. Only enable when the room
+  # has consented to a bot transcribing them.
+  captions_enabled: false
+  silence_seconds: 0.7           # gap with no caption updates that finalizes an utterance
 
 # MCP tool servers — Operator connects to these at startup and offers their tools to the LLM.
 # Each server runs as a subprocess (stdio transport). Env values like ${VAR} resolve from .env.

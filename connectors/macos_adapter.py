@@ -13,6 +13,7 @@ from playwright.sync_api import sync_playwright
 import config
 
 from .base import MeetingConnector
+from .captions_js import CAPTION_OBSERVER_JS, enable_captions, filter_caption
 from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live, _chrome_kill_and_clear, _write_operator_pid
 
 log = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ class MacOSAdapter(MeetingConnector):
         self._seen_message_ids = set()
         self._chat_queue = queue.Queue()  # (command, args, result_queue)
         self._observer_installed = False
+        self._caption_callback = None  # fn(speaker, text, timestamp); set via set_caption_callback
+        self._js_time_offset = None    # performance.now() → wall-clock calibration
 
     # ------------------------------------------------------------------
     # MeetingConnector interface
@@ -87,6 +90,31 @@ class MacOSAdapter(MeetingConnector):
     def is_connected(self):
         """Return True if the browser session is still alive."""
         return not self._browser_closed.is_set()
+
+    def set_caption_callback(self, fn):
+        """Register fn(speaker, text, timestamp) for caption DOM updates.
+
+        Must be called BEFORE join() — the JS bridge has to be exposed before
+        the page navigates, otherwise the observer fires into a missing
+        window.__onCaption and silently drops captions.
+        """
+        self._caption_callback = fn
+
+    def _on_caption_from_js(self, speaker, text, js_timestamp):
+        """JS → Python caption bridge. Runs on the browser thread."""
+        cleaned = filter_caption(speaker, text)
+        if cleaned is None:
+            return
+        py_now = time.time()
+        if self._js_time_offset is None:
+            self._js_time_offset = py_now - js_timestamp / 1000.0
+        timestamp = self._js_time_offset + js_timestamp / 1000.0
+        log.info(f"caption: [{speaker}] {cleaned[:80]}")
+        if self._caption_callback:
+            try:
+                self._caption_callback(speaker, cleaned, timestamp)
+            except Exception as e:
+                log.warning(f"caption callback raised: {e}")
 
     # --- Browser-thread chat implementations (called from _process_chat_queue) ---
 
@@ -388,6 +416,17 @@ class MacOSAdapter(MeetingConnector):
                 page = browser.pages[0] if browser.pages else browser.new_page()
                 self._page = page
 
+                # Expose the caption bridge BEFORE navigation so the
+                # MutationObserver can find window.__onCaption the instant it
+                # attaches. Only exposes when a callback was registered — keeps
+                # chat-only runs free of caption plumbing.
+                if self._caption_callback is not None:
+                    try:
+                        page.expose_function("__onCaption", self._on_caption_from_js)
+                        log.info("MacOSAdapter: caption bridge exposed")
+                    except Exception as e:
+                        log.warning(f"MacOSAdapter: expose_function failed: {e}")
+
                 try:
                     page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
                     t_nav = time.monotonic()
@@ -517,6 +556,21 @@ class MacOSAdapter(MeetingConnector):
                     except Exception:
                         log.warning("MacOSAdapter: in-meeting indicator not detected — proceeding anyway")
                     log.info(f"TIMING in_meeting_wait={time.monotonic() - t_in_meeting:.1f}s")
+
+                    # Enable captions + inject the observer if a callback was
+                    # registered. Graceful degrade: if captions can't be
+                    # enabled (unsupported language, permissions, etc.) we
+                    # still hold the meeting open for chat.
+                    if self._caption_callback is not None:
+                        t_cap = time.monotonic()
+                        if enable_captions(page):
+                            try:
+                                page.evaluate(CAPTION_OBSERVER_JS)
+                                log.info(f"TIMING caption_observer_inject={time.monotonic() - t_cap:.1f}s")
+                            except Exception as e:
+                                log.warning(f"MacOSAdapter: observer inject failed: {e}")
+                        else:
+                            log.warning("MacOSAdapter: captions unavailable — continuing without transcript")
 
                     log.info("MacOSAdapter: in meeting — holding browser open")
                     log.info(f"TIMING total_join={time.monotonic() - t_start:.1f}s")
