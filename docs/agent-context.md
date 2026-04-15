@@ -17,9 +17,25 @@
 
 ## Current Status
 
-**Phase:** Phase 11.4 CODE COMPLETE as of session 103 — loader, LLM injection (menu or full-body), synthetic `load_skill` tool, slash-invocation fast path, SKILLS logging, and 13 unit tests all landed. Awaiting live-test walkthrough against `docs/11_4_testing.md` (9 tests, uses unique-token skills to prove the body actually reaches the model). Phase 11 remaining: 11.7 (provider keys optional at import, ~15m). Phase 15.5.1 (claude-code starter agent, ~1.5h) is now unblocked.
+**Phase:** Phase 11.4 LIVE-VALIDATED as of session 104 — all 9 tests in `docs/11_4_testing.md` passed in a fresh Meet. Phase 11 remaining: 11.7 (provider keys optional at import, ~15m). Phase 15.5.1 (claude-code starter agent, ~1.5h) is now unblocked.
 
-**What just happened (session 103, April 14, 2026):** Implemented Phase 11.4 in one pass.
+**What just happened (session 104, April 14, 2026):** Walked `docs/11_4_testing.md` T1–T9 end-to-end against two fresh Meets (progressive mode → non-progressive mode → broken-config mode).
+
+- **T1** startup banner + menu injection ✓ — `SKILLS: 2/2 loaded` and `LLM injected skills (menu): hello, tone` both present.
+- **T2** `@operator use the hello skill` produced `tool_call name=load_skill`, `SKILLS turn=1 load_skill called: 'hello'`, `send_tool_result tool=load_skill result_len=81`, and reply `skill-token-7h2x acknowledged` — body reached the model, no confirmation prompt.
+- **T3** `/tone how was the sprint demo` produced `SKILLS turn=2 slash-invoke: tone`, zero `load_skill` tool_calls, single `LLM ask` for the turn, reply started with `Arrr!` — `extra_system` threading works.
+- **T4** `/nope what's up` produced `SKILLS turn=3 unknown slash token: /nope` at DEBUG, normal reply, no counter bump.
+- **T5 (critical)** three chit-chat turns (`what's 2 plus 2`, `thanks`, `tell me a joke`) produced **zero** `load_skill` tool_calls. Menu wording is correctly non-tempting — no prompt tightening needed.
+- **T6** model's first instinct on `call load_skill with name="ghost"` was to reason from the menu and reply directly without calling the tool — actually ideal UX. A second, more forceful prompt (`force-call load_skill for the skill named "ghost"`) did trigger the tool, producing the literal `Error: no skill named 'ghost'. Available skills: hello, tone.` string. Error path works when forced.
+- **T7** flipped `progressive_disclosure: false` and restarted. Startup logged `LLM injected skills (full-body): hello, tone`. First chat turn (`use the hello skill`) got the `skill-token-7h2x acknowledged` reply with **zero** tool_calls. `tools=72` vs `tools=73` in progressive mode confirmed `load_skill` correctly gated out.
+- **T8** added `/tmp/does-not-exist` to paths and `/tmp/op-skills/broken/SKILL.md` without frontmatter. Startup logged both WARNs (missing path, missing frontmatter) and `SKILLS: 2/3 loaded (hello ✓, tone ✓)`. Operator came up healthy.
+- **T9** `SKILLS session summary: turns=1 load_skill_calls=1 by_name={'tone': 1}` emitted on Ctrl+C. Slash invocations correctly increment the counter.
+
+Cleanup done: `rm -rf /tmp/op-skills` and `config.yaml skills.paths` reverted to `[]`.
+
+**Next action:** Tackle **Phase 11.7** (provider keys optional at import, ~15m) next. Then Phase 15.5.1 (claude-code starter agent, ~1.5h). After that, validation → polish → package → cross-platform → quickstart → launch. MVP target still April 19, 2026.
+
+**Previous context (session 103, April 14, 2026):** Implemented Phase 11.4 in one pass.
 
 - **New `pipeline/skills.py`:** `Skill` dataclass + `load_skills(paths)`. Each config entry resolves to either a single skill folder (contains `SKILL.md`) or a parent dir scanned one level deep for `*/SKILL.md` — deeper nesting is ignored by design. Frontmatter parsed with `pyyaml`; malformed YAML, missing `name`/`description`, or unreadable files WARN + skip, never crash. `allowed-tools` parsed from either list or comma-string; anything outside the supported set (`load_skill` only for now) WARNs but the skill still loads (model may decline). Duplicate names across paths resolve last-wins + WARN. Startup banner matches the MCP shape: `SKILLS: N/M loaded (<name> ✓, ...)`.
 - **`LLMClient.inject_skills(skills, progressive)`:** in progressive mode, system prompt gets a name+description menu plus instructions that restrict `load_skill` calls to requests that *clearly* match a description (prompt-tightening knob if the model over-calls). In non-progressive mode, full bodies are inlined. Also added an `extra_system` one-shot kwarg to `ask()` so slash-invocation can thread the skill body through without duplicating the user turn or mutating the persistent system prompt.
