@@ -49,6 +49,39 @@ class LLMClient:
         """Attach (or replace) the MeetingRecord backing this client."""
         self._record = record
 
+    def inject_skills(self, skills: list, progressive: bool):
+        """Advertise available skills in the system prompt.
+
+        progressive=True  → name+description menu only; LLM calls load_skill to pull the body.
+        progressive=False → full bodies dumped inline; no extra round-trip.
+
+        Call this BEFORE inject_mcp_hints / inject_mcp_status so the final ordering
+        is: base → skills → MCP hints → MCP status (most-dynamic last for future caching).
+        """
+        if not skills:
+            return
+        if progressive:
+            lines = [f"- {s.name}: {s.description}" for s in skills]
+            block = (
+                "\nSkills available this session (callable via the load_skill tool):\n"
+                + "\n".join(lines)
+                + "\n\nCall load_skill(name=\"<name>\") ONLY when the user's request clearly "
+                "matches one of these descriptions. Do not call load_skill for unrelated "
+                "chit-chat, small talk, or general questions."
+            )
+        else:
+            sections = [f"## {s.name}\n{s.body}" for s in skills]
+            block = (
+                "\nSkills available this session — follow the instructions in the matching "
+                "skill when the user's request applies:\n\n"
+                + "\n\n".join(sections)
+            )
+        self._system_prompt += block
+        log.info(
+            f"LLM injected skills ({'menu' if progressive else 'full-body'}): "
+            f"{', '.join(s.name for s in skills)}"
+        )
+
     def inject_mcp_hints(self, servers: dict):
         """Append per-server hints from config to the system prompt."""
         sections = []
@@ -153,7 +186,7 @@ class LLMClient:
             messages.append({"role": "user", "content": extra_user_msg})
         return messages
 
-    def ask(self, message, record=True, tools=None):
+    def ask(self, message, record=True, tools=None, extra_system: str = ""):
         """Send a message to the LLM and return the reply.
 
         ChatRunner is expected to have appended this message to the meeting
@@ -181,9 +214,10 @@ class LLMClient:
         )
         log.debug(f"LLM message: {message}")
 
+        system_text = self._system_prompt + extra_system if extra_system else self._system_prompt
         try:
             response = self._provider.complete(
-                system=self._system_prompt,
+                system=system_text,
                 messages=messages,
                 model=config.LLM_MODEL,
                 max_tokens=self._max_tokens,

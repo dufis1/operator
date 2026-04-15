@@ -200,6 +200,11 @@ def _run_macos(meeting_url=None, force=False):
     connector = MacOSAdapter(force=force)
     llm = LLMClient(build_provider())
 
+    # Skills load up-front so inject_skills lands before MCP hints/status in the system prompt.
+    from pipeline.skills import load_skills
+    skills = load_skills(config.SKILLS_PATHS)
+    llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
+
     # Captions → MeetingRecord wiring.
     #
     # The JS bridge (window.__onCaption) is exposed by MacOSAdapter at browser
@@ -259,7 +264,14 @@ def _run_macos(meeting_url=None, force=False):
                 llm.inject_github_user(gh_login)
 
     log.info(f"TIMING setup={_time.monotonic() - t_start:.1f}s")
-    runner = ChatRunner(connector, llm, mcp_client=mcp, meeting_record=meeting_record)
+    runner = ChatRunner(
+        connector,
+        llm,
+        mcp_client=mcp,
+        meeting_record=meeting_record,
+        skills=skills,
+        skills_progressive=config.SKILLS_PROGRESSIVE_DISCLOSURE,
+    )
 
     poller = None
     _shutdown_called = False
@@ -355,6 +367,10 @@ def _run_linux(meeting_url, force=False):
     connector = LinuxAdapter()
     llm = LLMClient(build_provider())
 
+    from pipeline.skills import load_skills
+    skills = load_skills(config.SKILLS_PATHS)
+    llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
+
     mcp = None
     if config.MCP_SERVERS:
         from pipeline.mcp_client import MCPClient
@@ -373,7 +389,13 @@ def _run_linux(meeting_url, force=False):
             log.error(f"MCP client startup failed: {e}")
             mcp = None
 
-    runner = ChatRunner(connector, llm, mcp_client=mcp)
+    runner = ChatRunner(
+        connector,
+        llm,
+        mcp_client=mcp,
+        skills=skills,
+        skills_progressive=config.SKILLS_PROGRESSIVE_DISCLOSURE,
+    )
 
     _shutdown_called = False
 

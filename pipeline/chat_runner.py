@@ -42,11 +42,22 @@ POLL_INTERVAL = 0.5  # seconds between read_chat() calls
 PARTICIPANT_CHECK_INTERVAL = 3  # seconds between participant count checks
 ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip trigger phrase)
 
+LOAD_SKILL_TOOL = "load_skill"  # synthetic local tool — not routed to MCP
+_SLASH_RE = re.compile(r"^/([A-Za-z0-9_\-]+)\s*")
+
 
 class ChatRunner:
     """Polls meeting chat and responds to messages."""
 
-    def __init__(self, connector, llm, mcp_client=None, meeting_record: MeetingRecord | None = None):
+    def __init__(
+        self,
+        connector,
+        llm,
+        mcp_client=None,
+        meeting_record: MeetingRecord | None = None,
+        skills: list | None = None,
+        skills_progressive: bool = True,
+    ):
         self._connector = connector
         self._llm = llm
         self._mcp = mcp_client
@@ -58,6 +69,14 @@ class ChatRunner:
         self._seen_ids: set[str] = set()
         # Pending tool call awaiting user confirmation
         self._pending_tool_call: dict | None = None
+        # Skills — lookup by name; synthetic `load_skill` is offered only when
+        # progressive disclosure is on AND there's at least one skill loaded.
+        self._skills = {s.name: s for s in (skills or [])}
+        self._skills_progressive = skills_progressive
+        # SKILLS per-session counters for the summary log.
+        self._turn_count = 0
+        self._load_skill_calls = 0
+        self._load_skill_by_name: dict[str, int] = {}
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
@@ -104,6 +123,17 @@ class ChatRunner:
     def stop(self):
         """Signal the polling loop to exit."""
         self._stop_event.set()
+        self._log_skills_summary()
+
+    def _log_skills_summary(self):
+        """Emit the per-session SKILLS usage tally. Safe to call multiple times."""
+        if not self._skills and not self._load_skill_calls:
+            return
+        by_name = dict(self._load_skill_by_name) if self._load_skill_by_name else {}
+        log.info(
+            f"SKILLS session summary: turns={self._turn_count} "
+            f"load_skill_calls={self._load_skill_calls} by_name={by_name}"
+        )
 
     def _loop(self):
         """Main polling loop."""
@@ -214,11 +244,60 @@ class ChatRunner:
 
             self._stop_event.wait(POLL_INTERVAL)
 
+    def _tools_for_llm(self) -> list | None:
+        """Combined tool list: MCP tools + synthetic `load_skill` when applicable."""
+        tools = list(self._mcp.get_openai_tools()) if self._mcp else []
+        if self._skills and self._skills_progressive:
+            names = sorted(self._skills.keys())
+            tools.append({
+                "type": "function",
+                "function": {
+                    "name": LOAD_SKILL_TOOL,
+                    "description": (
+                        "Load the full instructions for a named skill from the available-skills "
+                        "list. Call ONLY when the user's request clearly matches a skill's "
+                        "description; never for unrelated chit-chat."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "enum": names,
+                                "description": "Name of the skill to load.",
+                            }
+                        },
+                        "required": ["name"],
+                    },
+                },
+            })
+        return tools or None
+
     def _handle_message(self, text):
         """Process a single chat message via LLM."""
+        self._turn_count += 1
+        # Slash-invocation fast path — /<name> (after trigger phrase is already stripped).
+        # If it matches a loaded skill, prepend the body to the user message so the
+        # LLM sees the full instructions without the extra load_skill round-trip.
+        extra_system = ""
+        m = _SLASH_RE.match(text)
+        if m:
+            candidate = m.group(1)
+            skill = self._skills.get(candidate)
+            if skill:
+                log.info(f"SKILLS turn={self._turn_count} slash-invoke: {candidate}")
+                self._load_skill_calls += 1
+                self._load_skill_by_name[candidate] = self._load_skill_by_name.get(candidate, 0) + 1
+                extra_system = (
+                    f"\n\nThe user invoked the \"{candidate}\" skill. Follow these instructions "
+                    f"for this turn:\n{skill.body}"
+                )
+            else:
+                log.debug(f"SKILLS turn={self._turn_count} unknown slash token: /{candidate}")
+
         try:
-            tools = self._mcp.get_openai_tools() if self._mcp else None
-            result = self._llm.ask(text, tools=tools)
+            tools = self._tools_for_llm()
+            result = self._llm.ask(text, tools=tools, extra_system=extra_system)
         except Exception as e:
             log.error(f"ChatRunner: LLM call failed: {e}")
             return
@@ -290,7 +369,7 @@ class ChatRunner:
             self._pending_tool_call = None
             reason = f"User wants to adjust this call and said: \"{text}\" — re-propose the corrected tool call."
             try:
-                tools = self._mcp.get_openai_tools() if self._mcp else None
+                tools = self._tools_for_llm()
                 result = self._llm.send_tool_result(
                     tc["id"], tc["name"], reason, tools=tools)
             except Exception as e:
@@ -311,12 +390,38 @@ class ChatRunner:
         elif result["type"] == "text":
             self._send(result["content"])
         elif result["type"] == "tool_call":
-            if self._needs_confirmation(result):
+            if result["name"] == LOAD_SKILL_TOOL:
+                self._handle_load_skill(result)
+            elif self._needs_confirmation(result):
                 self._request_confirmation(result)
             else:
                 self._execute_and_respond(result)
         elif result["type"] == "context_overflow":
             self._send("Our conversation got too long — I've cleared the history. What would you like to do next?")
+
+    def _handle_load_skill(self, tc):
+        """Resolve a load_skill call locally and feed the skill body back as the tool result."""
+        name = (tc.get("arguments") or {}).get("name", "")
+        skill = self._skills.get(name)
+        available = ", ".join(sorted(self._skills.keys())) or "<none>"
+        log.info(f"SKILLS turn={self._turn_count} load_skill called: {name!r} (available: {available})")
+        self._load_skill_calls += 1
+        self._load_skill_by_name[name] = self._load_skill_by_name.get(name, 0) + 1
+        if skill:
+            result_content = f"[skill: {skill.name}]\n{skill.body}"
+        else:
+            result_content = (
+                f"Error: no skill named {name!r}. Available skills: {available}. "
+                f"Proceed without a skill or ask the user to clarify."
+            )
+        try:
+            tools = self._tools_for_llm()
+            result = self._llm.send_tool_result(tc["id"], tc["name"], result_content, tools=tools)
+        except Exception as e:
+            log.error(f"ChatRunner: load_skill follow-up failed: {e}")
+            self._send("Couldn't load that skill — check the logs.")
+            return
+        self._dispatch_result(result)
 
     def _execute_and_respond(self, tc):
         """Execute a tool call in a background thread with heartbeat + timeout, then feed result to LLM."""
@@ -379,7 +484,7 @@ class ChatRunner:
 
         # Feed result back to LLM — it may summarize or request another tool
         try:
-            tools = self._mcp.get_openai_tools() if self._mcp else None
+            tools = self._tools_for_llm()
             result = self._llm.send_tool_result(tc["id"], tc["name"], tool_result, tools=tools)
         except Exception as e:
             log.error(f"ChatRunner: LLM summary failed: {e}")

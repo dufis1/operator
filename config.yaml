@@ -35,6 +35,21 @@ connector:
   auth_state_file: "./auth_state.json"  # path to auth_state.json for session recovery
   idle_timeout_seconds: 600      # how long to wait with no activity before giving up (lobby + in-meeting inactivity)
 
+# Skills — Claude Code-style SKILL.md folders the LLM can load on demand.
+# Each entry is a path to either:
+#   - a single skill folder containing SKILL.md, OR
+#   - a parent directory that will be scanned one level deep for */SKILL.md
+# Paths support ~ expansion. Later entries override earlier ones on name collision (last-wins).
+#
+# progressive_disclosure: true  → LLM sees a name+description menu; calls load_skill(name) to pull full body.
+#                         false → full bodies are injected into the system prompt at startup (no extra round-trip).
+skills:
+  progressive_disclosure: true
+  paths: []
+  # Examples:
+  #   - ~/.claude/skills            # scan every skill folder under ~/.claude/skills/
+  #   - ./skills/commit             # load a single skill folder
+
 transcript:
   # Off by default — captions capture EVERY participant's speech for the whole
   # meeting into ~/.operator/history/<slug>.jsonl. Only enable when the room

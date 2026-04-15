@@ -30,6 +30,11 @@ BROWSER_PROFILE_DIR  = _config["connector"]["browser_profile_dir"]
 AUTH_STATE_FILE      = _config["connector"]["auth_state_file"]
 IDLE_TIMEOUT_SECONDS = _config["connector"].get("idle_timeout_seconds", 600)
 
+# Skills
+_skills = _config.get("skills") or {}
+SKILLS_PATHS                 = _skills.get("paths") or []
+SKILLS_PROGRESSIVE_DISCLOSURE = _skills.get("progressive_disclosure", True)
+
 # Transcript (captions)
 _transcript = _config.get("transcript", {})
 CAPTIONS_ENABLED        = _transcript.get("captions_enabled", False)
