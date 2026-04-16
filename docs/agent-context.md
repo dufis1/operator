@@ -17,20 +17,39 @@
 
 ## Current Status
 
-**Phase:** Phase 12 COMPLETE. Session 107 was planning + Phase 12 validation. Next: **Phase 15.5** (roster build-out) — three roster members (coder, PM, designer) forming a pre-built execution team.
+**Phase:** Phase 15.5.0 + 15.5.1 COMPLETE. Next: **Phase 15.5.2** (`roster/pm/`, ~1.5h) → 15.5.2b (`roster/designer/`, ~1h) → 15.5.3 (setup wizard) → 15.5.4 (meet.new auto-launch).
 
-**What just happened (session 107, April 15, 2026):** Phase 12 validated (OpenAI provider spot-check, ~1h vs ~3h estimated — gap covered by thorough 11.x testing). Then planning for Phase 15.5:
+**What just happened (session 108, April 15, 2026):** Shipped first two slices of Phase 15.5.
+
+- **15.5.0 (rename `agents/` → `roster/`)** — `git mv agents roster`, rewrote `roster/README.md` (agents→roster members, "choose your fighter" language, PR template `roster: <name>`). Updated forward-looking references in `docs/roadmap.md`, `docs/agent-context.md`, `docs/mvp-bar.md`. Dropped "loadout" comment from root `config.yaml` line 1.
+- **15.5.1 (`roster/engineer/`)** — four files, fully self-contained, zero changes to existing code:
+  - `delegate_to_claude_code.py` (~130 lines): stdio MCP server with one tool. Runs `claude -p "<task>" --worktree --output-format json` as async subprocess, parses JSON, returns summary with duration/cost. Error handling for missing CLI, subprocess failure, JSON parse failure, `is_error: true`. Built on `mcp` 1.27.0 (already in venv, no new deps).
+  - `config.yaml`: complete Operator config. `agent.name: "Engineer"`, `user_display_name: "Your Name"` placeholder, `llm.provider: anthropic`, `model: claude-sonnet-4-5`, engineering-persona system prompt. **`tool_timeout_seconds: 600`** (10 min, only in engineer — bumped from global 120s for realistic Claude Code delegations). `skills.paths: [~/.claude/skills]`. `mcp_servers`: github + delegate enabled; linear/notion/slack commented as power-ups.
+  - `README.md`: five-section format (what/who/needs/setup/demo). Demo GIF placeholder.
+  - `.env.example`: `ANTHROPIC_API_KEY=` + `GITHUB_TOKEN=`.
+- **Late-session rename:** `roster/coder/` → `roster/engineer/` ("coder" felt reductive). All paths updated including `config.yaml` `args: ["roster/engineer/delegate_to_claude_code.py"]` and READMEs.
+- **Verification:** `delegate_to_claude_code` MCP server boots clean via stdio. Tool discovery test with MCP SDK `ClientSession + stdio_client` confirmed 1 tool with correct schema. `delegate_to_claude_code` is NOT in `READ_TOOLS` (chat_runner.py) — auto-requires user confirmation, no code changes needed to existing files.
+
+**Key design decision this session:** roster-specific code lives inside the roster member's own folder, not shared `pipeline/`. Each roster member is a self-contained bundle (`README.md` + `config.yaml` + optional `skills/` + optional MCP servers). Users can `cp roster/<name>/config.yaml ./config.yaml` and run.
+
+**Open items:**
+- **Live Meet end-to-end test of `delegate_to_claude_code`** not yet done. Discovery + schema verified; behavior in an actual meeting (confirmation prompt → CLI subprocess → summary back into chat) is next natural step.
+- **Demo GIF placeholder** in `roster/engineer/README.md` — generate once the tool has been exercised live.
+
+**Next action:** **Phase 15.5.2** (`roster/pm/`, ~1.5h) — PM/standup assistant with Linear + GitHub MCP, captions enabled by default, PRD-from-discussion skill. Optional: live-test 15.5.1 first if user wants the confidence before layering in the next roster member.
+
+**Previous context (session 107, April 15, 2026):** Phase 12 validated (OpenAI provider spot-check, ~1h vs ~3h estimated — gap covered by thorough 11.x testing). Then planning for Phase 15.5:
 
 - **`agents/` renamed to `roster/`** — "agents" felt gimmicky/overused. Explored ~30 naming options. `roster` won: lives natively in both the gaming metaphor (fighting game character select) and the meeting/team metaphor ("here's the roster"). Fits the "choose your fighter → add power-ups → go" onboarding model.
-- **Three roster members (was two):** expanded from coder + PM to coder + PM + designer, framed as a "pre-built execution team."
-  - **`roster/coder/`** (was `claude-code`) — GitHub MCP + bundled `delegate_to_claude_code` mini MCP server (~50 lines Python, runs `claude -p "<task>" --worktree`, returns result). Security is Claude Code's problem (own permission model + worktree isolation). Loads user's `~/.claude/skills/`. Prerequisite: `claude` CLI installed. Power-up path: shell MCP (with security warning).
+- **Three roster members (was two):** expanded from engineer + PM to engineer + PM + designer, framed as a "pre-built execution team."
+  - **`roster/engineer/`** (was `claude-code`, then `coder`) — GitHub MCP + bundled `delegate_to_claude_code` mini MCP server (~50 lines Python, runs `claude -p "<task>" --worktree`, returns result). Security is Claude Code's problem (own permission model + worktree isolation). Loads user's `~/.claude/skills/`. Prerequisite: `claude` CLI installed. Power-up path: shell MCP (with security warning).
   - **`roster/pm/`** (was `standup-pm`) — Linear MCP (the "one killer MCP"), GitHub for access. Captions enabled by default. PRD-from-discussion skill. Structured standup summary. Power-up path: Notion, Slack, Brave Search.
   - **`roster/designer/`** (new) — Figma MCP (`figma-developer-mcp`, official, production-ready, read-only: pull frames/nodes, export images, get/post comments). Creative persona with personality. Minimal scope — just the idea that we ship with comprehensive value. Power-up path: Canva MCP when mature.
-- **Key design decision: no shell MCP for coder.** GitHub MCP covers code reading. Read-only shell is redundant (GitHub `get_file_contents` + `search_code` already do this). Full shell has real prompt-injection risk (arbitrary code execution as user). Instead, `delegate_to_claude_code` gives the "it can actually code" capability without the security surface — Claude Code has its own battle-tested sandbox.
+- **Key design decision: no shell MCP for engineer.** GitHub MCP covers code reading. Read-only shell is redundant (GitHub `get_file_contents` + `search_code` already do this). Full shell has real prompt-injection risk (arbitrary code execution as user). Instead, `delegate_to_claude_code` gives the "it can actually code" capability without the security surface — Claude Code has its own battle-tested sandbox.
 - **"Loadout" terminology dropped** from `config.yaml` comment (line 1) — user hadn't heard the term, didn't resonate.
 - **Phase 12 completed** this session (~1h total vs ~3h estimated). OpenAI provider spot-checked in live meeting: basic chat, read-only MCP auto-exec, write tool confirmation + correction flow, tool call chaining all passed. Config reverted to Anthropic.
 
-**Next action:** Tackle **Phase 15.5.0** (~15m) — rename `agents/` → `roster/`, update all references. Then **15.5.1** (coder roster member, ~2h) → **15.5.2** (PM, ~1.5h) → **15.5.2b** (designer, ~1h).
+**Next action:** Tackle **Phase 15.5.1** (engineer roster member, ~2h) → **15.5.2** (PM, ~1.5h) → **15.5.2b** (designer, ~1h). Phase 15.5.0 (rename `agents/` → `roster/`) complete.
 
 **Previous context (session 105, April 15, 2026):** Tiny Phase 11.7 fix + architectural discussion.
 
@@ -41,12 +60,12 @@
 
 **Architectural threads discussed (no code, deferred to post-MVP):**
 - **Bash/code execution for Operator.** Options ranked: bash-MCP > skill-as-CLI-recipe > built-in. Bash-MCP gives per-tool confirm gating + audit trail (`READ_TOOLS`-style); skill-as-CLI-recipe is faster to author but every invocation looks like "bash ran" from `chat_runner.py`'s perspective. Noteworthy bash-MCP servers: `tumf/mcp-shell-server`, `blazickjp/shell-mcp-server`. Low adoption of bash-MCPs in general is because *sandboxing* (Docker/container per tool call) is the hard part, not the server.
-- **Phase 15.5.1 is a roster entry WITH Claude Code delegation (revised session 107).** Originally (session 105) this was a gallery-only entry with no subprocess integration. Session 107 added a bundled `delegate_to_claude_code` mini MCP server (~50 lines Python) that runs `claude -p "<task>" --worktree` as a subprocess. This is NOT the heavy sub-agent architecture discussed in session 105 — it's a single tool call that shells out to the CLI. Security is Claude Code's responsibility (own permission model + worktree isolation). The coder roster member both *resembles* Claude Code in shape (skills, engineering persona) and *delegates to* Claude Code for actual execution.
+- **Phase 15.5.1 is a roster entry WITH Claude Code delegation (revised session 107).** Originally (session 105) this was a gallery-only entry with no subprocess integration. Session 107 added a bundled `delegate_to_claude_code` mini MCP server (~50 lines Python) that runs `claude -p "<task>" --worktree` as a subprocess. This is NOT the heavy sub-agent architecture discussed in session 105 — it's a single tool call that shells out to the CLI. Security is Claude Code's responsibility (own permission model + worktree isolation). The engineer roster member both *resembles* Claude Code in shape (skills, engineering persona) and *delegates to* Claude Code for actual execution.
 - **Modular sub-agent spawning (Codex / Claude Code / scrapers).** Recommended shape: model sub-agents as MCP tools exposing `spawn`, `status`, `result`, `cancel`. Default execution = async-detached. Deliver artifacts *around* Operator (sub-agent writes directly to Linear / GitHub PR / Slack), not *through* it (avoid blowing Operator's context window). Three design axes: transport (MCP-per-agent vs dispatcher vs subprocess), execution model (sync / async-blocking / async-detached), result channel (through Operator / around Operator). All post-MVP.
 - **CLI-as-skill vs MCP.** CLI skills are great for breadth + fast authoring (SKILL.md + `--help`), but you lose structured tool-call logging, confirm gating, and `READ_TOOLS` allowlist. Recommendation: support both post-MVP; MCP stays for write-side tools where audit/confirm matters.
 - **Claude API + shell vs Claude Code.** Same raw capability; difference is the curated loop (tool-call handling, context management, confirm UX, session state, hooks, subagents, skills, slash commands, IDE integration). Operator already has its own loop in `chat_runner.py` + `llm.py` — we are a Claude-Code-shaped thing, specialized for meetings.
 
-**Next action:** Tackle **Phase 15.5.0** (~15m, rename `agents/` → `roster/`) then **15.5.1** (`roster/coder/`, ~2h — config.yaml + delegate_to_claude_code mini MCP server + README + skills + .env.example). After that: 15.5.2 (PM) → 15.5.2b (designer) → 15.5.3 (wizard) → 15.5.4 (meet.new) → 13 → 15.6 → 14 → 15 → 16. MVP target still April 19, 2026.
+**Next action:** Tackle **Phase 15.5.1** (`roster/engineer/`, ~2h — config.yaml + delegate_to_claude_code mini MCP server + README + skills + .env.example). After that: 15.5.2 (PM) → 15.5.2b (designer) → 15.5.3 (wizard) → 15.5.4 (meet.new) → 13 → 15.6 → 14 → 15 → 16. Phase 15.5.0 (rename) complete. MVP target still April 19, 2026.
 
 **Previous context (session 104, April 14, 2026):** Walked `docs/11_4_testing.md` T1–T9 end-to-end against two fresh Meets (progressive mode → non-progressive mode → broken-config mode).
 
@@ -138,7 +157,7 @@ Response: pick two implicit differentiators rather than feature-match. (1) **"Cl
 - **`docs/roadmap.md` updated** — new Phase 15.5 (Opinionated Quickstart) inserted between 15 and 16 with three steps: 15.5.1 `claude-code` starter agent (~1.5h), 15.5.2 minimal `operator setup` wizard (~2h), 15.5.3 second chat-native agent (~1h). Phase 16.1 README now explicitly requires 3-step structure and agents-gallery entry point. Phase 16.2 demo spec now calls out the mid-sentence-artifact visual hook. New Phase 16.3 Launch campaign prep (~3h) — draft three hero-framing posts, seeded PR plan, direct-outreach shortlist, newsletter mention targets. Post-MVP "Setup wizard" entry rephrased to clarify the minimal version ships in 15.5; full wizard (voice, MCP OAuth, polished UX) is post-MVP. New post-MVP "Agents gallery expansion" entry for ongoing recipe curation. MVP hour total bumped from ~40h to ~53.5h — right at the ceiling; 15.5.3 and 16.3 can slip post-launch if needed.
 
 **Design decisions made this session worth remembering:**
-- **Gallery pattern over forks.** Forks fragment git history and don't make the parent repo look alive. A `agents/` folder with PR contributions keeps everyone on main, makes contributors visible in the commit log, and turns every seeded-persona build into a permanent artifact pinned in the repo. This is the primitive; forks are not.
+- **Gallery pattern over forks.** Forks fragment git history and don't make the parent repo look alive. A `roster/` folder with PR contributions keeps everyone on main, makes contributors visible in the commit log, and turns every seeded-persona build into a permanent artifact pinned in the repo. This is the primitive; forks are not.
 - **"Claude Code in your Google Meet" is framing, not product.** The product stays Operator; the campaign is CCiYM. Defaulting the skills path to `~/.claude/skills/` is a convenience for Claude Code users, not a lock-in — any markdown skill file works with any model.
 - **CLI (end-user commands) vs. SDK (library for other devs).** Joinly's MCP server is effectively an SDK play. Operator's defensive lane is CLI-for-end-users — `operator setup`, future `operator skill add`, `operator doctor`, `operator check-mcp`. Don't race on SDK breadth.
 - **Joinly is ahead on surface, not ready on positioning.** Don't chase voice, Zoom, or Teams pre-launch. Win on specificity and seeded community signal instead.
@@ -380,17 +399,17 @@ Pitch: **"Claude Code in Google Meet."** Users bring their existing Claude Code 
 
 Pitch: **"Choose your fighter → add power-ups → go."** The agents gallery is the gallery layer; the wizard turns it into a 3-step setup. Implicit differentiator vs. joinly's framework-shaped positioning.
 
-**Why a gallery, not forks.** Forks fragment git history and don't make the parent repo look alive. A `agents/` folder with PR contributions keeps everyone on main, makes contributors visible in the commit log, and turns every seeded-persona build into a permanent artifact. This is the primitive; forks were rejected explicitly. Reference patterns: Ollama model library, LangChain templates, n8n templates, ComfyUI workflows, Vercel templates, Hugging Face Spaces.
+**Why a gallery, not forks.** Forks fragment git history and don't make the parent repo look alive. A `roster/` folder with PR contributions keeps everyone on main, makes contributors visible in the commit log, and turns every seeded-persona build into a permanent artifact. This is the primitive; forks were rejected explicitly. Reference patterns: Ollama model library, LangChain templates, n8n templates, ComfyUI workflows, Vercel templates, Hugging Face Spaces.
 
-**Folder format (already locked in `agents/README.md`).** Each agent is a self-contained folder with a runnable `config.yaml`, optional `skills/` directory, a short `README.md` (what / who / needs / setup / demo), and `.env.example`. The agent must run on a fresh clone after the user fills in keys — no hidden dependencies.
+**Folder format (already locked in `roster/README.md`).** Each roster member is a self-contained folder with a runnable `config.yaml`, optional `skills/` directory, a short `README.md` (what / who / needs / setup / demo), and `.env.example`. The roster member must run on a fresh clone after the user fills in keys — no hidden dependencies.
 
 ### 15.5.1 — `claude-code` starter agent
 
 Canonical example. Demonstrates the format and is the launch hero. **Depends on Phase 11.5 (Claude Code skill import) being complete** — without skill import, this agent has nothing distinct to show.
 
-- `agents/claude-code/config.yaml` — complete Operator config; either OpenAI or Anthropic as default (decide near build time, lean Anthropic since the framing is "Claude Code"); `mcp_servers` includes Linear + GitHub; `skills:` points at `~/.claude/skills/` by default, with a comment explaining how to swap to a custom path.
-- `agents/claude-code/README.md` — "What it does: brings your existing `~/.claude/skills/` into Google Meet so the agent files Linear tickets, looks up GitHub PRs, and follows your team conventions during a live call." Setup: copy `config.yaml`, fill `.env`, run. Demo: short GIF of an artifact appearing in chat mid-sentence.
-- `agents/claude-code/skills/` — leave empty by default. The whole point is the user's own skills get loaded from `~/.claude/skills/`. Optionally bundle one demo skill that's safe to ship (e.g. `file-linear-ticket.md`) so the agent has at least one skill even if the user has none locally.
+- `roster/engineer/config.yaml` — complete Operator config; either OpenAI or Anthropic as default (decide near build time, lean Anthropic since the framing is "Claude Code"); `mcp_servers` includes Linear + GitHub; `skills:` points at `~/.claude/skills/` by default, with a comment explaining how to swap to a custom path.
+- `roster/engineer/README.md` — "What it does: brings your existing `~/.claude/skills/` into Google Meet so the agent files Linear tickets, looks up GitHub PRs, and follows your team conventions during a live call." Setup: copy `config.yaml`, fill `.env`, run. Demo: short GIF of an artifact appearing in chat mid-sentence.
+- `roster/engineer/skills/` — leave empty by default. The whole point is the user's own skills get loaded from `~/.claude/skills/`. Optionally bundle one demo skill that's safe to ship (e.g. `file-linear-ticket.md`) so the agent has at least one skill even if the user has none locally.
 - `.env.example` — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, `LINEAR_API_KEY`, `GITHUB_TOKEN`.
 
 ### 15.5.2 — `operator setup` interactive wizard (minimal)
@@ -400,7 +419,7 @@ Scope: a one-shot config-writer, not a daemon, not a background service, not a T
 - Entry point: `python -m operator setup` (add a `setup` subcommand to `__main__.py`'s arg parser, or ship a separate `operator/setup.py` module — pick whatever is shorter).
 - Flow:
   1. Print the 3-step framing: "Step 1: choose an agent. Step 2: add your keys. Step 3: join a meeting."
-  2. List `agents/*` subdirectories with their one-line pitches (parsed from each agent's `README.md` first heading or a frontmatter field), plus a "blank / custom" option.
+  2. List `roster/*` subdirectories with their one-line pitches (parsed from each roster member's `README.md` first heading or a frontmatter field), plus a "blank / custom" option.
   3. User picks one (numbered prompt). Copy that agent's `config.yaml` to repo root (or `--output PATH`).
   4. Read the agent's `.env.example`, prompt for each var, write to `.env` (preserving any pre-existing keys not asked about).
   5. Optionally run `python __main__.py --check-mcp` and report the result.
@@ -415,7 +434,7 @@ User picks near launch from: `standup`, `triage`, `incident-commander`, `intervi
 
 ### Launch interplay
 
-The gallery doubles as launch ammunition (see `docs/mvp-bar.md` Launch Strategy). Each seeded persona contributes one `agents/<name>/` PR, then posts about that build. Real users browsing the repo see contributor activity on `main` — social proof as code. Ship 2 agents at launch (`claude-code` + the 15.5.3 pick), target 5 within week 1 via seeded PRs.
+The gallery doubles as launch ammunition (see `docs/mvp-bar.md` Launch Strategy). Each seeded persona contributes one `roster/<name>/` PR, then posts about that build. Real users browsing the repo see contributor activity on `main` — social proof as code. Ship 3 roster members at launch (engineer + PM + designer), target 5 within week 1 via seeded PRs.
 
 ---
 

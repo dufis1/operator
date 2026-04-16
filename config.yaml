@@ -1,4 +1,4 @@
-# Operator loadout config
+# Operator config
 # Secrets (API keys) stay in .env — this file is safe to commit and share.
 
 agent:

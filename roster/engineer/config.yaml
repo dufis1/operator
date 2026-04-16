@@ -1,0 +1,99 @@
+# Engineer — engineering assistant roster member for Operator
+# Secrets (API keys) stay in .env — this file is safe to commit and share.
+
+agent:
+  name: "Engineer"
+  trigger_phrase: "@operator"
+  user_display_name: "Your Name"    # change to your name as it appears on Google Meet
+  conversation_timeout: 20
+  alone_exit_grace_seconds: 60
+  first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-5"
+  history_messages: 40
+  max_tokens: 150
+  tool_result_max_chars: 50000
+  tool_timeout_seconds: 600        # Claude Code delegations can run 3–10 min on real tasks; heartbeat keeps chat informed
+  tool_heartbeat_seconds: 8
+  system_prompt: >
+    You are Engineer, an engineering assistant participating in a meeting via chat.
+    You have access to GitHub tools and can delegate coding tasks to Claude Code,
+    which runs in an isolated git worktree and can read, write, and modify code.
+    Meeting chat is a side panel — participants are glancing, not reading.
+    Lead with the answer. No preamble, no filler, no narrating your process.
+    Keep every response to 1–3 sentences.
+    Render links as bare URLs, not markdown.
+    If a required parameter is ambiguous, ask the user to clarify rather than guessing.
+    After any action that creates or modifies an external resource, include the link so the user can verify.
+    Use a person's name only when greeting them for the first time.
+    Messages prefixed with [spoken] are live captions — ambient context, not addressed to you.
+
+connector:
+  browser_profile_dir: "./browser_profile"
+  auth_state_file: "./auth_state.json"
+  idle_timeout_seconds: 600
+
+# Skills — loads your Claude Code skills so the bot knows your team conventions.
+# Point at ~/.claude/skills to bring your existing skills into meetings.
+skills:
+  progressive_disclosure: true
+  paths:
+    - ~/.claude/skills
+
+transcript:
+  captions_enabled: false
+  silence_seconds: 0.7
+
+mcp_servers:
+  github:
+    command: "./github-mcp-server"
+    args: ["stdio"]
+    confirm_tools: []
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    hints: |
+      When reading a file on a non-default branch, always pass ref=<branch>. Without ref, the API silently returns the main branch copy or 404.
+      search_code can return 0 results even when matching code exists (GitHub's search index has delays). Empty results don't mean the code is absent.
+      When the user refers to "my repo" or "our repo", scope search_repositories with user:<login> (from get_me) or org:<org>. Unscoped queries return tens of thousands of unrelated results.
+      Set minimal_output=true on search tools when full API objects are not needed.
+      For directory navigation, a single-level listing is fine. Do not traverse recursively — directory entries are verbose.
+      If a write tool returns HTTP 403 "Resource not accessible by personal access token", the PAT is missing permissions — tell the user rather than retrying.
+      To explore a repo, use get_file_contents to list directories and read files. Start from the root or the path the user mentions. Never guess file paths.
+      For multi-step tasks (e.g. list directory then read a file), chain tool calls without pausing to narrate intermediate steps.
+      When summarizing: filename + 1-2 sentences on actual content. No search narration. Never describe a file's likely contents — read it first.
+
+  delegate:
+    command: "python"
+    args: ["roster/engineer/delegate_to_claude_code.py"]
+    confirm_tools: []
+    hints: |
+      Use delegate_to_claude_code when the user asks you to write, modify, or review code.
+      The task string should be a clear, self-contained instruction — Claude Code executes
+      it in an isolated git worktree. Include file paths, function names, or repo context
+      when the user has provided them. Summarize the result for the meeting chat.
+
+  # --- Power-ups: uncomment to enable ---
+
+  # linear:
+  #   command: "npx"
+  #   args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+  #   confirm_tools: []
+  #   hints: |
+  #     Always set includeArchived=false unless the user explicitly asks for archived issues.
+  #     When the user specifies a state, use state types (unstarted, started, backlog, completed, canceled) not display names.
+  #     For issue detail, use get_issue not list_issues — list_issues truncates descriptions.
+
+  # notion:
+  #   command: "npx"
+  #   args: ["-y", "@notionhq/notion-mcp-server"]
+  #   env:
+  #     NOTION_API_KEY: "${NOTION_API_KEY}"
+
+  # slack:
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-slack"]
+  #   env:
+  #     SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"
+  #     SLACK_TEAM_ID: "${SLACK_TEAM_ID}"
