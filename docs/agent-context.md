@@ -17,9 +17,40 @@
 
 ## Current Status
 
-**Phase:** Phase 15.5.1 LIVE-VALIDATED. Next: **Phase 15.5.2** (`roster/pm/`, ~1.5h) → 15.5.2b (`roster/designer/`, ~1h) → 15.5.3 (setup wizard) → 15.5.4 (meet.new auto-launch).
+**Phase:** Phase 15.5.2 LIVE-VALIDATED. Next: **Phase 15.5.2b** (`roster/designer/`, ~1h) → 15.5.3 (setup wizard, ~2h) → 15.5.4 (meet.new auto-launch, ~1h).
 
-**What just happened (session 109, April 15, 2026):** Live-tested the engineer bundle end-to-end against a real Meet using a new 7-test plan (`tests/15_5_1_testing.md`).
+**What just happened (session 110, April 15, 2026):** Built and live-validated `roster/pm/` — the second canonical roster member.
+
+- **Bundle shape** mirrors `roster/engineer/`: self-contained folder, four files + `skills/` subdir. Zero changes to `pipeline/` or any existing code.
+  - `config.yaml` — Linear MCP + GitHub MCP active; Notion/Slack/Brave commented as power-ups. `captions_enabled: true` by default (PM's value depends on hearing spoken commitments). `max_tokens: 400` (bumped from engineer's 150 — structured summaries need headroom). `agent.name: "PM"`, PM-persona system prompt (structured thinker, action-item extractor, "ask rather than guess", bare URLs).
+  - `skills/prd-from-discussion/SKILL.md` — Problem/User/Goal/Scope/Non-goals/Open questions/Owner structure. Explicit rule: "If the discussion never named a user or never stated a goal, write `Goal — not stated in discussion` rather than inventing one." Live T6 honored this exactly.
+  - `skills/standup-summary/SKILL.md` — Decisions/Action items/Blockers/Tickets filed/Open questions. Rules: empty sections omitted, only list tickets THIS session filed, owners by spoken name only, absolute dates. Live T5 honored all four rules.
+  - `README.md` — 5-section format (what/who/needs/setup/demo). Calls out captions-must-be-on prerequisite and Linear's first-run OAuth flow via `mcp-remote`.
+  - `.env.example` — `ANTHROPIC_API_KEY=` + `GITHUB_TOKEN=` (Linear uses OAuth, no env var).
+- **Test plan authored first** (`tests/15_5_2_testing.md`, ~180 lines, 7 tests). Covers what's NEW in 15.5.2: Linear MCP first-run + read auto-exec + write confirmation gate, captions default-on, both bundled skills via `load_skill` (progressive disclosure on), max_tokens=400 headroom, GH MCP co-existence.
+- **All 7 tests passed** against fresh Meet `tfb-tpnb-kpw`:
+  - T1: Linear 31 tools + GitHub 41 tools connected; `SKILLS: 4/4 loaded (begin-session ✓, end-session ✓, prd-from-discussion ✓, standup-summary ✓)` — bundled skills correctly stacked with user skills under the dual-path config.
+  - T2: Captions stream as `caption:` → `caption_finalized` with silence reason; Operator silent on spoken-only content.
+  - T3: `list_issues` auto-executed (no confirmation). Real workspace returned `{"issues":[],"hasNextPage":false}` (no issues assigned to Jojo) — mechanics validated, URL check deferred to T4.
+  - T4: `save_issue` hit confirmation gate. PM system prompt's "ask rather than guess" rule fired live — asked "which team?" instead of hallucinating, auto-ran `list_teams` on "what are the options?", got "Mojo-jojo", then on "that one" proposed the call. `yes` → `auto-executing linear__save_issue` → MOJ-18 filed. Reply: bare URL `https://linear.app/mojo-jojo/issue/MOJ-18/operator-smoke-test-1552`.
+  - T5: `load_skill('standup-summary')` called. Output used bold section headers exactly per skill spec. Bonus: also pulled the Figma-review blocker from T2's captions 4 minutes earlier into the summary — `[spoken]` context carries cross-turn.
+  - T6: `load_skill('prd-from-discussion')` called. Output included `**Owner / next step** — not stated in discussion.` exactly as the skill prescribed when the information wasn't in the captured discussion.
+  - T7: GitHub MCP lives alongside Linear. The get_me reply came from the injected user hint (`dufis1`) not a fresh tool call — startup-time `MCP executing tool=github__get_me` confirmed the GH tool path itself is live.
+- **First-run Linear OAuth** was NOT exercised this session — user's machine already had the `mcp-remote` token cached. README's first-run doc section remains unverified but matches public `mcp-remote` behavior.
+- **Finding:** `MCP stripping unprompted limit=3 from linear__list_issues` — Linear MCP doesn't accept `limit`; our client strips it. Not a bundle bug, observed by the client pre-dispatching.
+- **Cleanup done:** `config.yaml.bak` restored to baseline, backup removed. MOJ-18 left in Linear (Linear's MCP doesn't expose a delete-issue tool — only `delete_attachment`/`delete_comment`; user can either delete via UI or `save_issue`-to-canceled).
+
+**Open items:**
+- **Demo GIF placeholder** in `roster/pm/README.md` — remaining TODO. Replay of T4 (ticket materializing mid-chat) produces the right footage.
+- **MOJ-18 smoke-test ticket** still in Linear (ship-blocker? no — just clutter).
+- **Linear first-run OAuth flow** in README unverified on a fresh machine.
+- Nothing blocks Phase 15.5.2b.
+
+**Next action:** **Phase 15.5.2b** (`roster/designer/`, ~1h) — creative/design-review partner with Figma MCP (`figma-developer-mcp`, read-only: frames/nodes/images/comments). Creative persona with personality. Minimal skills (design-review-feedback structured critique). Same self-contained-bundle shape.
+
+---
+
+**Previous context (session 109, April 15, 2026):** Live-tested the engineer bundle end-to-end against a real Meet using a new 7-test plan (`tests/15_5_1_testing.md`).
 
 - **Test plan authored first** (~140 lines), essential-only, patterned after `tests/11_4_testing.md`. Covers what's NEW in 15.5.1: both MCP servers boot, delegate tool is offered to the LLM, confirmation gate fires (since `delegate_to_claude_code` is NOT in `READ_TOOLS`), happy path (approve → heartbeat → summary + footer), GitHub MCP co-exists, empty-task guard, clean shutdown.
 - **All 7 tests passed.** T4 happy-path hit a real `claude -p --worktree` subprocess: counted 10 Python files in `pipeline/`, 5.4s runtime, $0.069 cost, heartbeat `Still working on that...` fired exactly at 8s. T6 empty-task guard caught the call before spawning claude (3ms execution, no subprocess).

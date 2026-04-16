@@ -1,0 +1,106 @@
+# PM — product / standup assistant roster member for Operator
+# Secrets (API keys) stay in .env — this file is safe to commit and share.
+
+agent:
+  name: "PM"
+  trigger_phrase: "@operator"
+  user_display_name: "Your Name"    # change to your name as it appears on Google Meet
+  conversation_timeout: 20
+  alone_exit_grace_seconds: 60
+  first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-5"
+  history_messages: 40
+  max_tokens: 400                  # higher than engineer — PM writes PRD drafts and structured standup summaries
+  tool_result_max_chars: 50000
+  tool_timeout_seconds: 60
+  tool_heartbeat_seconds: 8
+  system_prompt: >
+    You are PM, a product / standup partner participating in a meeting via chat.
+    You file Linear tickets from spoken commitments, track blockers and owners,
+    draft PRDs from discussion, and post structured summaries when asked.
+    You have access to Linear (file/query/update tickets) and GitHub (repo context).
+    Meeting chat is a side panel — participants are glancing, not reading.
+    Lead with the answer. No preamble, no filler, no narrating your process.
+    Default to 1–3 sentences. Use structured output (bullets, headings) only when
+    the user asks for a summary, PRD, or standup recap.
+    Render links as bare URLs, not markdown.
+    If a required parameter is ambiguous (owner, priority, project), ask rather than guess.
+    After filing or updating a ticket, include the Linear URL so the user can verify.
+    Use a person's name only when greeting them for the first time.
+    Messages prefixed with [spoken] are live captions — ambient context. Listen for
+    commitments ("I'll ship X by Friday"), blockers ("I'm stuck on Y"), and
+    decisions ("we're going with Z") — but do not respond unless addressed.
+
+connector:
+  browser_profile_dir: "./browser_profile"
+  auth_state_file: "./auth_state.json"
+  idle_timeout_seconds: 600
+
+# Skills — bundled PM skills (PRD drafting, standup summary) + user's own skills.
+# Order: user skills first, bundle second, so bundled skills override user copies
+# by the same name (last-wins). Flip the order if you prefer the opposite.
+skills:
+  progressive_disclosure: true
+  paths:
+    - ~/.claude/skills
+    - roster/pm/skills
+
+# Captions on by default — PM's value depends on hearing commitments, blockers,
+# and decisions as they're spoken. Turn captions on in Meet before joining.
+transcript:
+  captions_enabled: true
+  silence_seconds: 0.7
+
+mcp_servers:
+  linear:
+    command: "npx"
+    args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+    confirm_tools: []   # read tools auto-execute; list tool names here to always require confirmation
+    hints: |
+      Always set includeArchived=false unless the user explicitly asks for archived issues.
+      When the user specifies a state, use state types (unstarted, started, backlog, completed, canceled) not display names.
+      For issue detail, use get_issue not list_issues — list_issues truncates descriptions.
+      When creating an issue from a spoken commitment, include the speaker as assignee if their Linear identity is known; otherwise leave unassigned and mention it in chat.
+      Scope list_issues with teamId or projectId when the user names a team or project — unscoped queries return too many results.
+      Prefer save_issue over create_issue + update_issue pairs; it's idempotent.
+
+  github:
+    command: "./github-mcp-server"
+    args: ["stdio"]
+    confirm_tools: []
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    hints: |
+      When reading a file on a non-default branch, always pass ref=<branch>. Without ref, the API silently returns the main branch copy or 404.
+      When the user refers to "my repo" or "our repo", scope search_repositories with user:<login> (from get_me) or org:<org>. Unscoped queries return tens of thousands of unrelated results.
+      Set minimal_output=true on search tools when full API objects are not needed.
+      For directory navigation, a single-level listing is fine. Do not traverse recursively — directory entries are verbose.
+      If a write tool returns HTTP 403 "Resource not accessible by personal access token", the PAT is missing permissions — tell the user rather than retrying.
+      When summarizing: filename + 1-2 sentences on actual content. No search narration. Never describe a file's likely contents — read it first.
+
+  # --- Power-ups: uncomment to enable ---
+
+  # notion:
+  #   command: "npx"
+  #   args: ["-y", "@notionhq/notion-mcp-server"]
+  #   env:
+  #     NOTION_API_KEY: "${NOTION_API_KEY}"       # create at notion.so/profile/integrations
+  #   hints: ""    # fill in after pressure testing
+
+  # slack:
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-slack"]
+  #   env:
+  #     SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"     # Bot User OAuth Token from api.slack.com/apps
+  #     SLACK_TEAM_ID: "${SLACK_TEAM_ID}"         # Workspace ID from Settings > About
+  #   hints: ""    # fill in after pressure testing
+
+  # brave_search:
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-brave-search"]
+  #   env:
+  #     BRAVE_API_KEY: "${BRAVE_API_KEY}"         # api.search.brave.com
+  #   hints: ""    # fill in after pressure testing

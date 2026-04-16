@@ -93,6 +93,7 @@ points at whichever directories it wants to load from.
 | Roster member | What it does | Status |
 |---------------|--------------|--------|
 | [`engineer/`](./engineer/) | Engineering assistant — looks up GitHub issues and PRs, delegates coding tasks to Claude Code, runs your existing `~/.claude/skills/` | canonical |
+| [`pm/`](./pm/) | Product / standup partner — files Linear tickets from spoken commitments, drafts PRDs from discussion, posts structured standup summaries | canonical |
 | _more coming — open a PR_ |  |  |
 
 ---
