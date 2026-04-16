@@ -33,6 +33,28 @@ cp roster/engineer/.env.example .env
 python __main__.py https://meet.google.com/xxx-yyyy-zzz
 ```
 
+## Worktree cleanup
+
+Every time Engineer delegates to Claude Code, the CLI creates an isolated git
+worktree under `.claude/worktrees/<name>/` and a matching `worktree-<name>`
+branch. **Claude Code does not auto-remove these** once the delegation
+finishes, so they accumulate across meetings.
+
+Prune them periodically:
+
+```bash
+# List active worktrees
+git worktree list
+
+# Remove a specific one (and its branch)
+git worktree remove .claude/worktrees/<name>
+git branch -D worktree-<name>
+
+# Or: bulk-prune worktrees whose directories have been deleted
+git worktree prune
+```
+
 ## Demo
 
 <!-- TODO: 15s GIF showing delegate_to_claude_code creating a branch mid-meeting -->
+
