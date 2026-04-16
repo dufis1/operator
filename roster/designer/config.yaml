@@ -64,20 +64,18 @@ transcript:
 
 mcp_servers:
   figma:
+    # GLips community server (https://github.com/GLips/Figma-Context-MCP) — Figma PAT,
+    # read-only. Chosen as the default after the official server's OAuth dynamic-client
+    # registration returned 403 (Figma's MCP catalog gate is hard, not soft).
+    # If Operator is added to Figma's catalog, swap to the official server — see README.
     command: "npx"
-    args: ["-y", "mcp-remote", "https://mcp.figma.com/mcp"]
-    # Tools that auto-execute without user confirmation. Anything not listed here confirms by default.
-    # Best-guess read tool names for Figma's official MCP server — confirm against the
-    # actual list logged at startup ("MCP server 'figma' connected — N tools") and
-    # adjust if names differ. Write tools (create/modify frames, components, variables)
-    # are intentionally omitted so they hit the confirmation gate.
+    args: ["-y", "figma-developer-mcp", "--stdio"]
+    env:
+      FIGMA_API_KEY: "${FIGMA_TOKEN}"    # personal access token from figma.com/settings
+    # GLips exposes two read tools — both auto-execute.
     read_tools:
-      - get_design_context
-      - get_code
-      - get_image
-      - get_variable_defs
-      - get_components
-      - get_styles
+      - get_figma_data
+      - download_figma_images
     confirm_tools: []   # list tool names here to override read_tools and always require confirmation
     hints: |
       Always pass the file key from a Figma URL the user provides; do not invent file keys.
@@ -85,9 +83,8 @@ mcp_servers:
       When the user says "the login screen" or "the carousel", confirm which file they mean before fetching — don't guess across files.
       Prefer the smallest-scoped fetch: a single node-id over a whole-file fetch. Whole-file fetches return enormous payloads.
       For images, request PNG at 1x unless the user asks for a higher resolution; downloaded image data inflates the tool result.
-      Variables, components, and styles are read separately — fetch them only when the user asks about design tokens, the system, or reuse.
       When summarizing a frame: layout shape (vertical stack, grid, etc.) + dominant typography + 1-2 spacing or hierarchy observations. Do not narrate every node.
-      For write operations (create/modify frames, components, variables): confirm the target file and frame with the user before executing — these mutate real design files.
+      If get_figma_data returns a thin payload (e.g. a single RECTANGLE when the user expected a multi-node frame), say so plainly and ask for a different node-id or the layers panel — do not fabricate structure that isn't in the result.
 
   # --- Power-ups: uncomment to enable ---
 

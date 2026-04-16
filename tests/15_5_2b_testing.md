@@ -4,13 +4,16 @@ Essential-only. Each test walks through concrete steps and a clear pass
 signal. Run them in order. Keep `tail -f /tmp/operator.log` open in a second
 pane.
 
-This suite exercises what's NEW in the Designer bundle: **Figma's official
-MCP server** (first-run OAuth via `mcp-remote` + read + write-with-confirmation),
-the **opinionated designer persona**, the bundled **`design-review-feedback`**
+This suite exercises what's NEW in the Designer bundle: the **GLips Figma
+MCP server** (`figma-developer-mcp`, PAT-authenticated, read-only), the
+**opinionated designer persona**, the bundled **`design-review-feedback`**
 skill loaded via `progressive_disclosure`, and `captions_enabled: true` in
 service of the "show me the login screen" hero moment. Battle-tested paths
 (chat polling, JSONL, Anthropic provider, Ctrl+C shutdown) are only
 smoke-checked.
+
+Write operations (T4) live in the Power-ups section, not the default path —
+enabling them requires swapping the MCP server.
 
 ## Prep
 
@@ -28,26 +31,30 @@ smoke-checked.
 
    ```bash
    grep ANTHROPIC_API_KEY .env       # required
-   which npx                          # Figma MCP uses npx + mcp-remote
+   grep FIGMA_TOKEN .env             # required — personal access token from figma.com/settings
+   which npx                          # GLips MCP runs via npx
    ```
 
-   `FIGMA_TOKEN` in `.env` is unused for this bundle (the official server is
-   OAuth-authenticated). Leaving it set is harmless.
+   The config maps `${FIGMA_TOKEN}` → `FIGMA_API_KEY` in the server's env, so
+   a missing or empty `FIGMA_TOKEN` surfaces at T1 as a handshake failure.
 
 4. **Turn captions ON in Google Meet before joining** (CC button in the Meet
    toolbar). Bundle's config expects captions; without them, T2 + T6 fail.
 
-5. Pick the fresh meeting URL: `https://meet.google.com/bak-exiq-ekg`.
+5. Pick a fresh meeting URL: `https://meet.google.com/xxx-yyyy-zzz`. Use a
+   new one each run — stale slugs get bounced.
 
-6. Have the test Figma file URL ready:
-   `https://www.figma.com/design/bTJlOWqmnmqVRmc2e4GGYd/Product-carousel.?node-id=2-2`
-   (file key `bTJlOWqmnmqVRmc2e4GGYd`, node `2:2` — a product carousel for a
-   skincare site).
+6. Have a Figma file URL ready with a substantive multi-node frame (not a
+   single-node wrapper image). The `Plant-shop-curved-carousel-(Community)`
+   file works well: copy it to your account from Figma Community, then use
+   `https://www.figma.com/design/<yourFileKey>/Plant-shop-curved-carousel?node-id=1-2`.
+   A frame with 5+ child nodes, auto-layout, and real typography exercises
+   T3's grounded-critique check well.
 
 7. Terminal A — start Operator:
 
    ```bash
-   source venv/bin/activate && python __main__.py https://meet.google.com/bak-exiq-ekg
+   source venv/bin/activate && python __main__.py https://meet.google.com/xxx-yyyy-zzz
    ```
 
 8. Terminal B — stream logs:
@@ -60,44 +67,35 @@ smoke-checked.
 
 ## T1 — Startup: Figma MCP connects + bundled skill loads
 
-**Steps:** Watch the log during startup, before sending any chat. This is the
-first time Figma MCP runs on this machine, so `mcp-remote` will open a browser
-window for OAuth — sign in to Figma and approve; the subprocess will wait.
+**Steps:** Watch the log during startup, before sending any chat. No browser
+popup — authentication is PAT-based, so `figma-developer-mcp` starts silently
+via npx.
 
 **Pass:**
-- Browser opens to Figma OAuth consent. Approve.
-- Log shows `MCP server 'figma' connected — N tools` (Figma's official server
-  exposes a handful of design + code-context + write tools).
+- Log shows `MCP server 'figma' connected — 2 tools` (GLips exposes
+  `get_figma_data` and `download_figma_images`).
+- Log shows `MCP: 1/1 servers loaded (figma ✓)`.
 - Log shows `SKILLS: X/Y loaded (…)` and the names include
   `design-review-feedback ✓`.
 - No `MCP USER CONFIG: … failed to start` entries.
 
 **Fail signals:**
-- Browser doesn't open → check terminal for the auth URL printed by
-  `mcp-remote` and paste it manually.
-- OAuth rejects with "client not allowed" or similar → the catalog
-  enforcement we worried about is real. Fall back to community
-  `figma-developer-mcp` (see Fallback section).
+- `MCP: 0/1 servers loaded (figma ✗)` → most likely `FIGMA_TOKEN` is empty
+  or invalid. Regenerate a PAT at `figma.com/settings`, update `.env`, and
+  relaunch. `npx` download issues are a less common cause; run
+  `npx -y figma-developer-mcp --stdio --help` manually to surface them.
 - `SKILLS: path not found or not a directory: roster/designer/skills` →
   running from the wrong cwd; start Operator from the repo root.
 
-**After T1 passes — verify the `read_tools` list matches reality:**
-
-The designer config ships with a best-guess `read_tools` list for Figma. Grep
-the log for the actual tool names:
+The bundle's `read_tools` list (`get_figma_data`, `download_figma_images`)
+matches GLips' actual surface, so no mirror-back step is needed for the
+default path. If you swap to a different server (see Power-ups), verify the
+tool names via:
 
 ```bash
 grep "MCP server 'figma' connected" /tmp/operator.log
-grep "tool=" /tmp/operator.log | grep figma | head -20
+grep "tool_call name=figma" /tmp/operator.log | head -20
 ```
-
-If any names you ship in `roster/designer/config.yaml` under `mcp_servers.figma.read_tools`
-don't match what the server actually exposes, edit the list in `config.yaml`
-(the live one at the repo root, copied from the bundle) and **restart Operator**
-(Ctrl+C in Terminal A, re-run the launch command) before continuing to T3.
-
-Mirror any corrections back into `roster/designer/config.yaml` so the bundle
-ships with accurate names.
 
 ---
 
@@ -124,65 +122,45 @@ feels tight."
 
 ## T3 — Figma read: fetch the carousel frame
 
-**Steps:** In chat:
-`@operator pull up the product carousel — figma.com/design/bTJlOWqmnmqVRmc2e4GGYd/Product-carousel.?node-id=2-2`
+**Steps:** In chat (replace the URL with the Figma file you prepped in step 6):
+`@operator pull up the carousel — <your-figma-url>`
 
 **Pass:**
-- Log shows `LLM tool_call name=figma__<read-tool>` (likely
-  `figma__get_design_context` or similar).
-- Log shows `ChatRunner: auto-executing figma__<read-tool>` (no
-  confirmation — assumes the post-T1 `READ_TOOLS` update is in place).
+- Log shows `LLM tool_call name=figma__get_figma_data`.
+- Log shows `ChatRunner: auto-executing figma__get_figma_data` (no
+  confirmation — `get_figma_data` is in the bundle's `read_tools`).
 - Log shows `MCP tool result length=N` with N substantial (a real frame
-  payload is multi-KB).
+  payload is multi-KB; single-node fetches on trivial nodes can be <1KB —
+  if so, pick a richer frame).
 - Operator's chat reply summarizes the frame: layout shape (carousel /
   horizontal stack), dominant typography, and 1-2 spacing or hierarchy
   observations. Specific to the actual content — references the product
   cards, not generic "looks like a page."
 
 **Fail signals:**
-- Confirmation prompt appears → the tool name in `mcp_servers.figma.read_tools`
-  doesn't match what the LLM called. Check the log's `tool_call name=` against
-  the list in your `config.yaml`, fix, restart.
+- Confirmation prompt appears → somehow `get_figma_data` is missing from
+  `mcp_servers.figma.read_tools`. Fix the bundle and restart.
 - No tool_call → Designer ignored the URL. Re-prompt: "use figma to fetch
-  node 2:2 from file bTJlOWqmnmqVRmc2e4GGYd."
-- Reply is generic ("a product carousel typically has…") instead of grounded
-  in the fetched payload → the LLM didn't read the result; check the raw
+  node <id> from file <key>."
+- Tool result returns a thin payload (a single RECTANGLE when you expected a
+  multi-frame carousel) → the node-id points at a wrapper image, not the
+  actual frame. This is **expected** to trigger Designer's anti-hallucination
+  guard: the reply should flag the mismatch and ask for the right node-id,
+  *not* fabricate card-level critique. That's a pass for the guard, a fail
+  for the test fixture — send a different URL and re-run.
+- Reply is generic ("a product carousel typically has…") on a substantive
+  payload → the LLM didn't read the result; check the raw
   `MCP tool result:` debug entry in the log.
 
 ---
 
 ## T4 — Figma write: hits the confirmation gate
 
-**Steps:** Pick a write the official MCP exposes (likely
-`update_text`, `set_variable`, `create_frame`, or similar — check the
-T1 tool list). In chat, ask Designer to perform a small, undoable change
-to the test file. Example:
-`@operator change the heading text on the carousel from its current value to "Spring Refresh"`
-
-**Pass (confirmation turn):**
-- Log shows `LLM tool_call name=figma__<write-tool>`.
-- Log shows `ChatRunner: requesting confirmation for figma__<write-tool>`.
-- Operator's reply begins with `I'd like to run <write-tool> via figma with: …`
-  and includes the target frame and the new value.
-- Log does NOT show `auto-executing` for this turn.
-
-Then reply `yes`.
-
-**Pass (execution turn):**
-- Log shows `ChatRunner: auto-executing figma__<write-tool>`.
-- Log shows `MCP executing tool=<write-tool> server=figma` followed by
-  `MCP tool result length=N`.
-- Operator's final chat reply confirms the change and includes the file URL
-  so you can verify in the Figma desktop/web app.
-
-**Fail signals:**
-- Auto-executed on the first turn → a write tool name leaked into
-  `READ_TOOLS` (regression — fix immediately).
-- Write tool returns a permission error → the OAuth scopes don't include
-  edit. Re-auth via `mcp-remote` and approve broader scopes, or accept that
-  T4 is read-only on this account.
-
-**Cleanup:** undo the change in Figma's UI after the run.
+**N/A on the default path.** GLips (`figma-developer-mcp`) is read-only —
+the only tools it exposes are `get_figma_data` and `download_figma_images`,
+so there's nothing to gate. Write-operation testing lives with whichever
+power-up you enable for mutations (see Power-ups section). For the default
+bundle, treat T4 as automatically passing and move to T5.
 
 ---
 
@@ -256,29 +234,66 @@ hero product." Then in chat:
 
 ---
 
-## Fallback — if T1's official-server OAuth rejects Operator
+## Power-ups — swap in a different Figma MCP server
 
-The "MCP catalog" restriction in Figma's docs is the risk we flagged before
-the build. If `mcp-remote` can't complete the OAuth dance, swap in the
-community server:
+The default GLips server covers T1–T3, T5, T6, T7. To exercise write
+operations (T4), swap `mcp_servers.figma` in `config.yaml` for one of these
+and re-run the relevant subset:
 
-1. Stop Operator.
-2. In `config.yaml` under `mcp_servers.figma`, replace the `command` and
-   `args`:
+**Grab `cursor-talk-to-figma-mcp`** — ~25 mutation tools (`create_frame`,
+`set_text_content`, `move_node`, etc.). Requires installing their Figma
+plugin and running a local WebSocket bridge (`bun socket`); operates only
+on the file currently open in the plugin, not an arbitrary URL. Good for
+T4 but T3's "paste a Figma URL" UX is lost.
 
-   ```yaml
-   figma:
-     command: "npx"
-     args: ["-y", "figma-developer-mcp", "--stdio"]
-     env:
-       FIGMA_API_KEY: "${FIGMA_TOKEN}"
-   ```
+```yaml
+figma:
+  command: "bunx"
+  args: ["cursor-talk-to-figma-mcp@latest"]
+  read_tools:
+    - get_document_info
+    - get_selection
+    - read_my_design
+    - get_node_info
+    - get_nodes_info
+    - get_annotations
+    - get_reactions
+    - get_styles
+    - get_local_components
+    - get_instance_overrides
+    - scan_text_nodes
+    - scan_nodes_by_types
+    - join_channel
+  confirm_tools: []
+```
 
-3. Make sure `FIGMA_TOKEN` in `.env` is set to your Figma personal access
-   token.
-4. Re-run T1. The community server exposes `get_figma_data` and
-   `download_figma_images` only — read-only, so T4 is N/A in the fallback
-   path.
+After swapping, start the bridge in a separate shell (`bun socket`), install
+the plugin in Figma from
+`github.com/grab/cursor-talk-to-figma-mcp`, then re-run T1 and run T4 against
+the file you've opened in the plugin.
+
+**Figma's official MCP server** — OAuth-authenticated, full read + write,
+but currently gated by Figma's MCP catalog. When we live-tested during
+session 112 (2026-04-16), dynamic client registration returned
+`403 Forbidden`, confirming the gate is hard. If Operator is ever added to
+the catalog, this becomes the best option — no plugin, no bridge:
+
+```yaml
+figma:
+  command: "npx"
+  args: ["-y", "mcp-remote", "https://mcp.figma.com/mcp"]
+  read_tools:
+    - get_design_context
+    - get_code
+    - get_image
+    - get_variable_defs
+    - get_components
+    - get_styles
+  confirm_tools: []
+```
+
+Re-run T1 — the log will show `HTTP 403 ... registerClient` if the catalog
+gate is still closed.
 
 ---
 
