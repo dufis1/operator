@@ -17,9 +17,28 @@
 
 ## Current Status
 
-**Phase:** Phase 15.5.0 + 15.5.1 COMPLETE. Next: **Phase 15.5.2** (`roster/pm/`, ~1.5h) → 15.5.2b (`roster/designer/`, ~1h) → 15.5.3 (setup wizard) → 15.5.4 (meet.new auto-launch).
+**Phase:** Phase 15.5.1 LIVE-VALIDATED. Next: **Phase 15.5.2** (`roster/pm/`, ~1.5h) → 15.5.2b (`roster/designer/`, ~1h) → 15.5.3 (setup wizard) → 15.5.4 (meet.new auto-launch).
 
-**What just happened (session 108, April 15, 2026):** Shipped first two slices of Phase 15.5.
+**What just happened (session 109, April 15, 2026):** Live-tested the engineer bundle end-to-end against a real Meet using a new 7-test plan (`tests/15_5_1_testing.md`).
+
+- **Test plan authored first** (~140 lines), essential-only, patterned after `tests/11_4_testing.md`. Covers what's NEW in 15.5.1: both MCP servers boot, delegate tool is offered to the LLM, confirmation gate fires (since `delegate_to_claude_code` is NOT in `READ_TOOLS`), happy path (approve → heartbeat → summary + footer), GitHub MCP co-exists, empty-task guard, clean shutdown.
+- **All 7 tests passed.** T4 happy-path hit a real `claude -p --worktree` subprocess: counted 10 Python files in `pipeline/`, 5.4s runtime, $0.069 cost, heartbeat `Still working on that...` fired exactly at 8s. T6 empty-task guard caught the call before spawning claude (3ms execution, no subprocess).
+- **Two findings, neither a ship blocker:**
+  - (a) The LLM paraphrases the `[Completed in X.Xs, cost $Y.YYYY]` footer out of its chat summary — the footer lands correctly in the tool result (DEBUG log confirms) but doesn't reach users. Test plan was over-spec; corrected mid-run to require footer in tool result only.
+  - (b) `claude -p --worktree` leaves worktrees + branches behind after delegation — Claude Code's own cleanup is not automatic. Added a "Worktree cleanup" section to `roster/engineer/README.md` showing `git worktree list / remove / prune` commands. Not a bundle bug.
+- **T5 retry noted:** first try used `@operator what's my github login?` — the bot resolves GH login at startup and caches it in the system prompt, so the LLM answered from prompt memory without calling `github__get_me`. Retried with `list the last 3 commits on my operator repo — owner dufis1 repo operator` which forced a real `github__list_commits` call. Not a bundle bug, just a testing gotcha.
+- **Cleanup done:** T4's worktree (`proud-snuggling-octopus`) and branch removed; `config.yaml.bak` (the engineer-config swap-in backup) restored and deleted.
+- Commit: `8e6236a session 109: Phase 15.5.1 live-tested; engineer README gains worktree cleanup`.
+
+**Open items:**
+- **Demo GIF placeholder** in `roster/engineer/README.md` — remaining TODO. Easy to record now that the flow is validated; any T3→T4 replay produces the right footage.
+- Nothing blocks Phase 15.5.2.
+
+**Next action:** **Phase 15.5.2** (`roster/pm/`, ~1.5h) — PM/standup assistant with Linear + GitHub MCP, captions enabled by default, PRD-from-discussion skill. Follow the same self-contained-bundle shape as `roster/engineer/`.
+
+---
+
+**Previous context (session 108, April 15, 2026):** Shipped first two slices of Phase 15.5.
 
 - **15.5.0 (rename `agents/` → `roster/`)** — `git mv agents roster`, rewrote `roster/README.md` (agents→roster members, "choose your fighter" language, PR template `roster: <name>`). Updated forward-looking references in `docs/roadmap.md`, `docs/agent-context.md`, `docs/mvp-bar.md`. Dropped "loadout" comment from root `config.yaml` line 1.
 - **15.5.1 (`roster/engineer/`)** — four files, fully self-contained, zero changes to existing code:
