@@ -17,9 +17,24 @@
 
 ## Current Status
 
-**Phase:** Phase 11 COMPLETE as of session 105. 11.7 shipped — provider key gate moved into `build_provider()`. Next: Phase 15.5.1 (claude-code starter agent gallery entry, ~1.5h).
+**Phase:** Phase 11 COMPLETE. Session 106 was a planning-only session — no code, roadmap reshape only. Next: Phase 15.5.1 (claude-code starter agent gallery entry, ~1.5h).
 
-**What just happened (session 105, April 15, 2026):** Tiny Phase 11.7 fix + architectural discussion.
+**What just happened (session 106, April 15, 2026):** Planning session. Four pre-MVP/post-MVP threads assessed against `docs/mvp-bar.md`, then `docs/roadmap.md` reshaped.
+
+- **Pre-MVP additions (4 items, +8h to budget):**
+  - **15.5.2** — `standup-pm` agent committed as the second MVP agent (was TBD). Pairs with `claude-code` to span dev+PM personas and read+write tool use; serves hero framing #2 ("AI in my standup filed 3 Linear tickets").
+  - **15.5.4** — auto-launch with `meet.new` (~1h). No-URL `python __main__.py` opens browser → captures slug → joins. Removes the demo-friction step.
+  - **15.6** — new pre-launch security phase (~4.5h). 15.6.1 runtime audit (prompt injection + write-tool surface, OpenClaw-precedent driven). 15.6.2 `agents/CONTRIBUTING.md` + CODEOWNERS gate for community-contributed agents.
+  - **16.3** — Tier-1 landing page (~2h). Static site, embedded demo, Calendly fallback. Explicitly *not* the Tier-3 hosted-bot route — that lane belongs to Joinly and would undermine the "clone and run" wedge.
+- **Post-MVP additions:** new "Behavior & Personas" block with **participation scalar** (silent / prompted / interjects); week-1 seeded-PR queue named in agents-gallery-expansion (debriefer, spec-scribe, incident-commander, customer-call, research); heavier security-pending agents (claude-code-bash, scraper, computer-use); **hosted demo bot (Tier 3)** added to the Hosted Operator phase (~6h on top).
+- **Phase order revised:** original order had two real dependency problems — 15.5 *after* 15 (cross-platform tested before final product surface added) and 13 *before* 15.5 (audited config before adding new keys). Reordered to **12 → 15.5 → 13 → 15.6 → 14 → 15 → 16** so polish/security/package/cross-platform all run against final code. Each reordered phase carries an italic "sequenced…" note for future readers.
+- **Item-level renumbering:** within 15.5, swapped wizard (now 15.5.3) and standup-pm (now 15.5.2) so the picker has both fighters at write-time. Within 16, swapped landing (now 16.3) and campaign (now 16.4) so posts can reference the live URL. Phase numbers like "15.5", "15.6" deliberately kept as identifiers even though they're out of numerical order in the doc — handoff/agent-context references stay valid.
+- **Budget reality:** ~33.5h remaining for ~4 days (April 15→19). ~6.5h over comfortable budget. **User chose to hold the launch date with no triage.** "Do not cut 15.6.1" footnoted in MVP-total — runtime security is the OpenClaw item and is the hardest to retrofit.
+- **Other tree state at session start:** user had pre-existing local edits (deleted `docs/11_3_b_testing.md` and `docs/11_4_testing.md` — completed test sheets, no longer needed; small `docs/mvp-bar.md` tweak rephrasing the no-SaaS line as "BYOK — paste your key, go"). Folded into the session-end commit.
+
+**Next action:** Tackle **Phase 15.5.1** (claude-code starter agent gallery entry, ~1.5h) — flesh out `agents/claude-code/` with complete runnable `config.yaml`, README, skills, `.env.example`. Verify end-to-end on a fresh clone.
+
+**Previous context (session 105, April 15, 2026):** Tiny Phase 11.7 fix + architectural discussion.
 
 - **`config.py:79`** — changed `OPENAI_API_KEY = os.environ["OPENAI_API_KEY"]` to `.get(..., "")`. `ANTHROPIC_API_KEY` was already using `.get()`.
 - **`pipeline/providers/__init__.py` `build_provider()`** — added symmetric guard in the openai branch (`if not config.OPENAI_API_KEY: raise RuntimeError(...)`) matching the existing anthropic pattern. Each provider's key is now required only if that provider is configured.
