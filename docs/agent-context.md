@@ -17,9 +17,40 @@
 
 ## Current Status
 
-**Phase:** Phase 15.5.2 LIVE-VALIDATED. Next: **Phase 15.5.2b** (`roster/designer/`, ~1h) → 15.5.3 (setup wizard, ~2h) → 15.5.4 (meet.new auto-launch, ~1h).
+**Phase:** Phase 15.5.2b + 15.5.2c code-complete, **awaiting live validation**. Next: live-test the designer bundle against `bak-exiq-ekg`, then 15.5.3 (setup wizard, ~2h) → 15.5.4 (meet.new auto-launch, ~1h).
 
-**What just happened (session 110, April 15, 2026):** Built and live-validated `roster/pm/` — the second canonical roster member.
+**What just happened (session 111, April 16, 2026):** Built `roster/designer/` (Phase 15.5.2b) AND shipped a pipeline refactor (Phase 15.5.2c — per-server `read_tools` allowlist) that surfaced during the designer build. Neither has been live-tested yet — session ended at the live-test handoff.
+
+- **15.5.2c pipeline refactor** — wiped the hardcoded `READ_TOOLS` set in `pipeline/chat_runner.py` (was coupling the pipeline to specific Linear/GitHub tool names). Replaced with per-server `read_tools` config.
+  - `config.py` — added `read_tools: set` to the `MCP_SERVERS` schema (default empty).
+  - `pipeline/chat_runner.py` — `_needs_confirmation` now consults `config.MCP_SERVERS[server]["read_tools"]` only. Policy: `confirm_tools` hit → confirm; `read_tools` hit → auto-exec; else confirm (safe-by-default).
+  - All four configs updated with inline `read_tools:` blocks: root `config.yaml` (linear + github), `roster/engineer/` (github + delegate), `roster/pm/` (linear + github), `roster/designer/` (figma best-guess).
+  - `roster/README.md` contributing section now documents the field.
+  - **Motivation:** session-111 live-test handoff required users to patch `chat_runner.py` for Figma — a contradiction of the "self-contained bundle" promise. Also killed the cross-server collision bug (`list_issues` matched both Linear and GitHub). Pipeline now carries zero per-MCP knowledge.
+
+- **Designer bundle (15.5.2b)** — self-contained folder, same shape as engineer/pm.
+  - `config.yaml` — Anthropic `claude-sonnet-4-5`, official Figma MCP via `npx -y mcp-remote https://mcp.figma.com/mcp` (OAuth-authenticated). `captions_enabled: true` (hero: reacting to "pull up the login screen"). `max_tokens: 400`. Designer persona with opinions — "firm, not rude", register example baked into prompt.
+  - `skills/design-review-feedback/SKILL.md` — What works / What breaks / Questions / Suggestions structure. "Before you write" rule: fetch the frame via MCP first, don't critique from imagination. "Be specific" rule: reach for a number, element name, or direct comparison — "spacing feels off" is banned.
+  - `README.md` — 5-section, Figma OAuth first-run doc. `.env.example` — `ANTHROPIC_API_KEY` only (Figma OAuth handled by `mcp-remote`).
+  - **MCP choice pivoted mid-build** (session 111): planned `figma-developer-mcp` (community, PAT, read-only). Switched to Figma's **official** remote server after reading `developers.figma.com/docs/figma-mcp-server/` — same `mcp-remote` plumbing as Linear, read AND write tools (write confirm-gated via the new 15.5.2c policy). The docs say "only clients in the Figma MCP Catalog can connect" but Claude Code's install is a vanilla `claude mcp add --transport http ...` and MCP's OAuth spec uses dynamic client registration — so the catalog restriction is almost certainly soft. Fallback to GLips documented in the test plan if OAuth rejects Operator at T1.
+
+- **Test plan authored** (`tests/15_5_2b_testing.md`, 7 tests): startup + Figma OAuth, captions stream as `[spoken]`, Figma read auto-execs, Figma write hits confirmation gate, persona check (conversational "gut check" stays terse), bundled skill via `load_skill`, clean shutdown. Cleanup section names Operator as the owner (restore `config.yaml.bak`, mirror any Figma tool-name corrections back into the bundle).
+
+- **Live-test prep done this session** (pending user action): `config.yaml.bak` created, `roster/designer/config.yaml` swapped in as root, `user_display_name` patched to "Jojo Shapiro", `.env` + `npx` verified. Ended session before running the live test — config restored to baseline pre-commit.
+
+**Open items / blockers:**
+- **Live test not run.** The `bak-exiq-ekg` Meet URL is booked; next session picks up at "turn captions ON, launch Operator, walk T1–T7".
+- **Figma read_tools is a best guess.** T1 will log the actual tool names exposed by `mcp.figma.com/mcp`; any mismatch gets patched in `config.yaml` (live) and mirrored back to `roster/designer/config.yaml`.
+- **OAuth rejection risk at T1** — Figma's "MCP catalog" language. If it rejects, fall back to GLips per the test plan. Low probability given Linear works via the same bridge.
+- **Demo GIF TODOs** in `roster/pm/README.md` (session 110) and `roster/designer/README.md` (session 111) both remain.
+- **MOJ-18** smoke-test ticket still in Linear (session 110 carryover).
+- Linear first-run OAuth doc still unverified on a fresh machine (session 110 carryover).
+
+**Next action:** Live-validate the designer bundle. Steps: turn captions ON in Meet, swap designer config in (`cp config.yaml config.yaml.bak && cp roster/designer/config.yaml config.yaml`), set `user_display_name`, run `python __main__.py https://meet.google.com/bak-exiq-ekg`, walk `tests/15_5_2b_testing.md` T1→T7. Verify the Figma `read_tools` list against T1's tool inventory; mirror any corrections back into the bundle.
+
+---
+
+**Previous context (session 110, April 15, 2026):** Built and live-validated `roster/pm/` — the second canonical roster member.
 
 - **Bundle shape** mirrors `roster/engineer/`: self-contained folder, four files + `skills/` subdir. Zero changes to `pipeline/` or any existing code.
   - `config.yaml` — Linear MCP + GitHub MCP active; Notion/Slack/Brave commented as power-ups. `captions_enabled: true` by default (PM's value depends on hearing spoken commitments). `max_tokens: 400` (bumped from engineer's 150 — structured summaries need headroom). `agent.name: "PM"`, PM-persona system prompt (structured thinker, action-item extractor, "ask rather than guess", bare URLs).

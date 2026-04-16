@@ -58,7 +58,30 @@ mcp_servers:
   linear:
     command: "npx"
     args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
-    confirm_tools: []   # read tools auto-execute; list tool names here to always require confirmation
+    # Tools that auto-execute without user confirmation. Anything not listed here confirms by default.
+    read_tools:
+      - list_issues
+      - get_issue
+      - get_issue_status
+      - list_issue_statuses
+      - list_projects
+      - get_project
+      - list_teams
+      - get_team
+      - list_users
+      - get_user
+      - list_cycles
+      - list_milestones
+      - get_milestone
+      - list_documents
+      - get_document
+      - list_comments
+      - list_issue_labels
+      - list_project_labels
+      - search_documentation
+      - get_attachment
+      - extract_images
+    confirm_tools: []   # list tool names here to override read_tools and always require confirmation
     hints: |
       Always set includeArchived=false unless the user explicitly asks for archived issues.
       When the user specifies a state, use state types (unstarted, started, backlog, completed, canceled) not display names.
@@ -70,6 +93,29 @@ mcp_servers:
   github:
     command: "./github-mcp-server"
     args: ["stdio"]
+    read_tools:
+      - get_me
+      - get_file_contents
+      - get_commit
+      - get_tag
+      - get_label
+      - get_latest_release
+      - get_release_by_tag
+      - list_branches
+      - list_commits
+      - list_issues
+      - list_pull_requests
+      - list_releases
+      - list_tags
+      - get_team_members
+      - get_teams
+      - search_code
+      - search_issues
+      - search_pull_requests
+      - search_repositories
+      - search_users
+      - issue_read
+      - pull_request_read
     confirm_tools: []
     env:
       GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"

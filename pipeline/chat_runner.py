@@ -15,29 +15,6 @@ from pipeline.meeting_record import MeetingRecord, slug_from_url
 
 log = logging.getLogger(__name__)
 
-# Known read-only MCP tool names (without server prefix).
-# These auto-execute without user confirmation.  Unknown tools default to confirm.
-READ_TOOLS = {
-    # Linear
-    "list_issues", "get_issue", "get_issue_status", "list_issue_statuses",
-    "list_projects", "get_project", "list_teams", "get_team",
-    "list_users", "get_user", "list_cycles", "list_milestones", "get_milestone",
-    "list_documents", "get_document", "list_comments",
-    "list_issue_labels", "list_project_labels",
-    "search_documentation", "research",
-    "get_attachment", "list_issue_types",
-    "extract_images",
-    # GitHub
-    "get_me", "get_file_contents", "get_commit", "get_tag",
-    "get_label", "get_latest_release", "get_release_by_tag",
-    "list_branches", "list_commits", "list_issues", "list_pull_requests",
-    "list_releases", "list_tags", "list_issue_types",
-    "get_team_members", "get_teams",
-    "search_code", "search_issues", "search_pull_requests",
-    "search_repositories", "search_users",
-    "issue_read", "pull_request_read",
-}
-
 POLL_INTERVAL = 0.5  # seconds between read_chat() calls
 PARTICIPANT_CHECK_INTERVAL = 3  # seconds between participant count checks
 ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip trigger phrase)
@@ -310,19 +287,25 @@ class ChatRunner:
         self._dispatch_result(result)
 
     def _needs_confirmation(self, tool_call):
-        """Return True if this tool call requires user confirmation."""
+        """Return True if this tool call requires user confirmation.
+
+        Policy is purely per-server config (no pipeline-level tool-name knowledge):
+          1. If the server lists this tool in `confirm_tools`, always confirm.
+          2. If the server lists this tool in `read_tools`, auto-execute.
+          3. Otherwise, confirm — safe-by-default for tools the bundle didn't declare.
+        """
         name = tool_call["name"]
         parts = name.split("__", 1)
         server = parts[0] if len(parts) == 2 else None
         tool = parts[1] if len(parts) == 2 else name
 
-        # User override: always confirm these even if they're reads
         if server and server in config.MCP_SERVERS:
             if tool in config.MCP_SERVERS[server]["confirm_tools"]:
                 return True
+            if tool in config.MCP_SERVERS[server]["read_tools"]:
+                return False
 
-        # Default: auto-approve known reads, confirm everything else
-        return tool not in READ_TOOLS
+        return True
 
     def _request_confirmation(self, tool_call):
         """Ask user for confirmation before executing a tool."""

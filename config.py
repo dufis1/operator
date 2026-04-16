@@ -73,6 +73,10 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         "env": _resolve_env_vars(_srv.get("env", {}), _name),
         "hints": _srv.get("hints", "").strip(),
         "confirm_tools": set(_srv.get("confirm_tools", [])),
+        # Tools that auto-execute without user confirmation. Empty set = every
+        # tool from this server requires confirmation. Bundle authors declare
+        # the read tool names here; the pipeline carries no per-MCP defaults.
+        "read_tools": set(_srv.get("read_tools", [])),
     }
 
 # Secrets from .env

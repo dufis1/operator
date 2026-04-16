@@ -64,6 +64,15 @@ Must be a complete, runnable Operator config (not a fragment). Copy the root
 `config.yaml` as a starting point and modify. The roster member should work on a
 fresh clone after the user fills in their API keys — no hidden dependencies.
 
+**Declare your MCP's read tools.** Each `mcp_servers.<name>` block takes a
+`read_tools:` list of tool names that auto-execute without user confirmation.
+Anything not listed confirms by default — safe-by-default for unknown tools,
+but a friction wall if you forget to populate the list. Look at the canonical
+roster members (`engineer/`, `pm/`) for the shape, and start your MCP
+once locally to see the actual tool names in the startup log
+(`MCP server '<name>' connected — N tools`). Write tools should be omitted —
+they belong behind the confirmation gate.
+
 ### `skills/`
 
 Optional. If the roster member ships its own skills, put them here. Skills are
@@ -94,6 +103,7 @@ points at whichever directories it wants to load from.
 |---------------|--------------|--------|
 | [`engineer/`](./engineer/) | Engineering assistant — looks up GitHub issues and PRs, delegates coding tasks to Claude Code, runs your existing `~/.claude/skills/` | canonical |
 | [`pm/`](./pm/) | Product / standup partner — files Linear tickets from spoken commitments, drafts PRDs from discussion, posts structured standup summaries | canonical |
+| [`designer/`](./designer/) | Design-review partner — pulls up Figma frames mid-meeting, critiques layout and hierarchy, edits files when asked | canonical |
 | _more coming — open a PR_ |  |  |
 
 ---

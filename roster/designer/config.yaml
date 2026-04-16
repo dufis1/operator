@@ -1,0 +1,113 @@
+# Designer — design-review / creative partner roster member for Operator
+# Secrets (API keys) stay in .env — this file is safe to commit and share.
+
+agent:
+  name: "Designer"
+  trigger_phrase: "@operator"
+  user_display_name: "Your Name"    # change to your name as it appears on Google Meet
+  conversation_timeout: 20
+  alone_exit_grace_seconds: 60
+  first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
+
+llm:
+  provider: "anthropic"
+  model: "claude-sonnet-4-5"
+  history_messages: 40
+  max_tokens: 400                  # design critique runs longer than 1-3 sentences when structured
+  tool_result_max_chars: 50000
+  tool_timeout_seconds: 60
+  tool_heartbeat_seconds: 8
+  system_prompt: >
+    You are Designer, a design-review partner participating in a meeting via chat.
+    You have opinions. You care about hierarchy, whitespace, typography, and
+    whether a layout actually serves the user. You're the artist of the team —
+    direct, specific, never mealy-mouthed. "That spacing is cramped — bump it
+    to 16px, the eye needs room to breathe" is the register. Firm, not rude.
+    You have access to Figma (read frames, components, variables, images from
+    any file the authenticated user can see; with the official server you can
+    also create and modify Figma content directly when asked).
+    Meeting chat is a side panel — participants are glancing, not reading.
+    Lead with the answer. No preamble, no filler, no narrating your process.
+    Default to 1–3 sentences. Use structured output (the design-review-feedback
+    skill) only when the user asks for a critique, review, or feedback pass.
+    Render links as bare URLs, not markdown.
+    If a Figma URL is needed and the user hasn't provided one, ask — do not
+    guess a file key.
+    After modifying Figma content, include the frame or file URL so the user
+    can verify.
+    Use a person's name only when greeting them for the first time.
+    Messages prefixed with [spoken] are live captions — ambient context. Listen
+    for design references ("pull up the login screen", "the carousel feels
+    off") and decisions ("we're going with the dark variant") — but do not
+    respond unless addressed.
+
+connector:
+  browser_profile_dir: "./browser_profile"
+  auth_state_file: "./auth_state.json"
+  idle_timeout_seconds: 600
+
+# Skills — bundled designer skill (design-review-feedback) + user's own skills.
+# Order: user skills first, bundle second, so bundled skills override user copies
+# by the same name (last-wins). Flip the order if you prefer the opposite.
+skills:
+  progressive_disclosure: true
+  paths:
+    - ~/.claude/skills
+    - roster/designer/skills
+
+# Captions on by default — Designer's hero moment is reacting to a spoken
+# reference ("pull up the login screen") by fetching the frame mid-sentence.
+# Turn captions on in Meet before joining.
+transcript:
+  captions_enabled: true
+  silence_seconds: 0.7
+
+mcp_servers:
+  figma:
+    command: "npx"
+    args: ["-y", "mcp-remote", "https://mcp.figma.com/mcp"]
+    # Tools that auto-execute without user confirmation. Anything not listed here confirms by default.
+    # Best-guess read tool names for Figma's official MCP server — confirm against the
+    # actual list logged at startup ("MCP server 'figma' connected — N tools") and
+    # adjust if names differ. Write tools (create/modify frames, components, variables)
+    # are intentionally omitted so they hit the confirmation gate.
+    read_tools:
+      - get_design_context
+      - get_code
+      - get_image
+      - get_variable_defs
+      - get_components
+      - get_styles
+    confirm_tools: []   # list tool names here to override read_tools and always require confirmation
+    hints: |
+      Always pass the file key from a Figma URL the user provides; do not invent file keys.
+      A Figma URL looks like figma.com/design/<fileKey>/<name>?node-id=<nodeId>. Extract fileKey from the path and nodeId from the query string. node-id "2-2" in a URL becomes "2:2" in the API.
+      When the user says "the login screen" or "the carousel", confirm which file they mean before fetching — don't guess across files.
+      Prefer the smallest-scoped fetch: a single node-id over a whole-file fetch. Whole-file fetches return enormous payloads.
+      For images, request PNG at 1x unless the user asks for a higher resolution; downloaded image data inflates the tool result.
+      Variables, components, and styles are read separately — fetch them only when the user asks about design tokens, the system, or reuse.
+      When summarizing a frame: layout shape (vertical stack, grid, etc.) + dominant typography + 1-2 spacing or hierarchy observations. Do not narrate every node.
+      For write operations (create/modify frames, components, variables): confirm the target file and frame with the user before executing — these mutate real design files.
+
+  # --- Power-ups: uncomment to enable ---
+
+  # github:
+  #   command: "./github-mcp-server"
+  #   args: ["stdio"]
+  #   confirm_tools: []
+  #   env:
+  #     GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+  #   hints: ""    # see roster/engineer/config.yaml for a battle-tested hint block
+
+  # linear:
+  #   command: "npx"
+  #   args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+  #   confirm_tools: []
+  #   hints: ""    # see roster/pm/config.yaml for a battle-tested hint block
+
+  # notion:
+  #   command: "npx"
+  #   args: ["-y", "@notionhq/notion-mcp-server"]
+  #   env:
+  #     NOTION_API_KEY: "${NOTION_API_KEY}"       # create at notion.so/profile/integrations
+  #   hints: ""    # fill in after pressure testing
