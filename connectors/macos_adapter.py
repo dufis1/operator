@@ -658,6 +658,7 @@ class MacOSAdapter(MeetingConnector):
                     last_admit_check = time.time()
                     t_hold_start = time.time()
                     admit_diagnostic_saved = False
+                    last_admit_attempt = None  # (pill_text, participant_count) when we last tried — used to suppress retries on stale pill
                     network_lost_at = None  # set when alert first detected, cleared on recovery
                     NETWORK_GRACE_SECONDS = 30  # exit only if alert persists this long
                     while not self._leave_event.is_set() and time.time() < deadline:
@@ -683,41 +684,83 @@ class MacOSAdapter(MeetingConnector):
                                 ).first
                                 if pill.count() > 0 and pill.is_visible():
                                     try:
-                                        pill.hover()
-                                        page.wait_for_timeout(400)
-                                    except Exception as e:
-                                        log.debug(f"MacOSAdapter: pill hover failed: {e}")
+                                        pill_text = pill.inner_text(timeout=500).strip()
+                                    except Exception:
+                                        pill_text = "<unreadable>"
+                                    current_count = self._do_get_participant_count(page)
 
-                                    # After hover, snapshot once so we can
-                                    # inspect the tray DOM if clicks miss.
-                                    if not admit_diagnostic_saved:
-                                        save_debug(page, "admit_diagnostic")
-                                        admit_diagnostic_saved = True
+                                    # Cooldown: Meet leaves the "Admit N guest" pill widget
+                                    # sticky in the DOM after the guest is admitted (visible
+                                    # text persists). Skip if pill text + participant count
+                                    # both match our last attempt — otherwise we'd spam
+                                    # admit clicks every 2s on a phantom knocker.
+                                    if (last_admit_attempt is not None
+                                            and last_admit_attempt[0] == pill_text
+                                            and last_admit_attempt[1] == current_count):
+                                        pass
+                                    else:
+                                        log.info(f"MacOSAdapter: admit pill detected text={pill_text!r} count={current_count}")
 
-                                    # Try clicking the Admit button inside the tray.
-                                    admit_btn = page.get_by_role(
-                                        "button", name=_re.compile(r"^Admit$", _re.I)
-                                    ).first
-                                    clicked = False
-                                    if admit_btn.count() > 0 and admit_btn.is_visible():
+                                        def _wait_count_increase(start, timeout_ms=3000):
+                                            deadline_v = time.monotonic() + (timeout_ms / 1000)
+                                            while time.monotonic() < deadline_v:
+                                                new = self._do_get_participant_count(page)
+                                                if new > start:
+                                                    return new
+                                                page.wait_for_timeout(150)
+                                            return None
+
                                         try:
-                                            admit_btn.click(timeout=1000)
-                                            log.info("MacOSAdapter: admitted via tray click")
-                                            clicked = True
+                                            pill.hover()
+                                            page.wait_for_timeout(400)
                                         except Exception as e:
-                                            log.warning(f"MacOSAdapter: tray admit click failed: {e}")
+                                            log.debug(f"MacOSAdapter: pill hover failed: {e}")
 
-                                    # Fallback: keyboard path from a11y hint.
-                                    if not clicked:
-                                        try:
-                                            pill.focus()
-                                            page.keyboard.press("ArrowDown")
-                                            page.wait_for_timeout(200)
-                                            page.keyboard.press("Enter")
-                                            log.info("MacOSAdapter: admitted via keyboard path")
-                                        except Exception as e:
-                                            log.warning(f"MacOSAdapter: keyboard admit failed: {e}")
-                                            save_debug(page, "admit_keyboard_fail")
+                                        if not admit_diagnostic_saved:
+                                            save_debug(page, "admit_diagnostic")
+                                            admit_diagnostic_saved = True
+
+                                        admit_btn = page.get_by_role(
+                                            "button", name=_re.compile(r"^Admit$", _re.I)
+                                        ).first
+                                        btn_count = admit_btn.count()
+                                        btn_visible = btn_count > 0 and admit_btn.is_visible()
+                                        log.info(f"MacOSAdapter: admit_btn count={btn_count} visible={btn_visible}")
+
+                                        tray_click_succeeded = False
+                                        if btn_visible:
+                                            try:
+                                                admit_btn.click(timeout=1000)
+                                                tray_click_succeeded = True
+                                            except Exception as e:
+                                                log.warning(f"MacOSAdapter: tray admit click raised: {e}")
+
+                                        if tray_click_succeeded:
+                                            new_count = _wait_count_increase(current_count)
+                                            if new_count is not None:
+                                                log.info(f"MacOSAdapter: admitted via tray click (verified — participant count {current_count} → {new_count})")
+                                                save_debug(page, "post_admit_success")
+                                                last_admit_attempt = (pill_text, new_count)
+                                            else:
+                                                log.warning(f"MacOSAdapter: tray click — no count change in 3s; treating pill as stale")
+                                                last_admit_attempt = (pill_text, current_count)
+                                        else:
+                                            try:
+                                                pill.focus()
+                                                page.keyboard.press("ArrowDown")
+                                                page.wait_for_timeout(200)
+                                                page.keyboard.press("Enter")
+                                                new_count = _wait_count_increase(current_count)
+                                                if new_count is not None:
+                                                    log.info(f"MacOSAdapter: admitted via keyboard path (verified — participant count {current_count} → {new_count})")
+                                                    save_debug(page, "post_admit_success")
+                                                    last_admit_attempt = (pill_text, new_count)
+                                                else:
+                                                    log.warning(f"MacOSAdapter: keyboard path — no count change in 3s (text={pill_text!r}); treating pill as stale")
+                                                    last_admit_attempt = (pill_text, current_count)
+                                            except Exception as e:
+                                                log.warning(f"MacOSAdapter: keyboard admit failed: {e}")
+                                                save_debug(page, "admit_keyboard_fail")
                             except Exception as e:
                                 log.debug(f"MacOSAdapter: admit poll error: {e}")
 
