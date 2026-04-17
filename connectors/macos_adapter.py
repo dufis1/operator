@@ -416,7 +416,59 @@ class MacOSAdapter(MeetingConnector):
             log.info("MacOSAdapter: waiting for browser to close...")
             if not self._browser_closed.wait(timeout=10):
                 log.warning("MacOSAdapter: browser close timed out (10s)")
+            # Give sync_playwright.__exit__ a short window to unwind cleanly.
+            # If the greenlet event loop wedges on a dead CDP socket (can happen
+            # after Chrome self-exits), force-kill the Node driver directly —
+            # that unblocks the kqueue.select(None) and lets the thread exit.
+            self._browser_thread.join(timeout=2)
+            if self._browser_thread.is_alive():
+                self._kill_playwright_drivers()
+                self._browser_thread.join(timeout=2)
+            if self._browser_thread.is_alive():
+                log.warning("MacOSAdapter: browser thread still stuck after driver SIGKILL")
+                try:
+                    import sys as _sys, traceback as _tb
+                    frame = _sys._current_frames().get(self._browser_thread.ident)
+                    if frame is not None:
+                        stack = "".join(_tb.format_stack(frame))
+                        log.warning(f"MacOSAdapter: stuck browser-thread stack:\n{stack}")
+                except Exception:
+                    pass
         log.info("MacOSAdapter: left meeting")
+
+    def _kill_playwright_drivers(self):
+        """SIGKILL any Playwright Node driver child processes.
+        Used to unblock the greenlet event loop when sync_playwright.__exit__
+        hangs waiting on a dead CDP socket."""
+        import os as _os
+        import signal as _signal
+        import subprocess as _sp
+        try:
+            r = _sp.run(
+                ["pgrep", "-P", str(_os.getpid())],
+                capture_output=True, text=True, timeout=2,
+            )
+            child_pids = [int(p) for p in r.stdout.split() if p.strip().isdigit()]
+        except Exception as e:
+            log.warning(f"MacOSAdapter: pgrep failed: {e}")
+            return
+        for cpid in child_pids:
+            try:
+                cmd_r = _sp.run(
+                    ["ps", "-o", "command=", "-p", str(cpid)],
+                    capture_output=True, text=True, timeout=1,
+                )
+                cmd = cmd_r.stdout.strip()
+            except Exception:
+                cmd = ""
+            if "playwright" in cmd and "run-driver" in cmd:
+                try:
+                    _os.kill(cpid, _signal.SIGKILL)
+                    log.warning(f"MacOSAdapter: force-killed stuck Playwright driver pid={cpid}")
+                except ProcessLookupError:
+                    pass
+                except Exception as e:
+                    log.warning(f"MacOSAdapter: failed to kill driver pid={cpid}: {e}")
 
     # ------------------------------------------------------------------
     # Internal
@@ -823,24 +875,15 @@ class MacOSAdapter(MeetingConnector):
                         page.wait_for_timeout(500)
                         log.info("MacOSAdapter: clicked Leave call")
                     except Exception:
-                        # Fall back to navigating away if Leave button not found
-                        try:
-                            page.goto("about:blank", timeout=3000)
-                            log.info("MacOSAdapter: navigated away (Leave button not found)")
-                        except Exception:
-                            pass
-                    def _close_browser():
-                        try:
-                            browser.close()
-                        except Exception:
-                            pass
-                    close_t = threading.Thread(target=_close_browser, daemon=True)
-                    close_t.start()
-                    close_t.join(timeout=5)
-                    if close_t.is_alive():
-                        log.warning("MacOSAdapter: browser.close() timed out (5s) — forcing exit")
-                    else:
-                        log.info("MacOSAdapter: browser closed")
+                        pass
+                    try:
+                        page.goto("about:blank", timeout=3000)
+                    except Exception:
+                        pass
+                    # Intentionally no explicit browser.close() — on persistent
+                    # contexts it can hang waiting for CDP responses that never
+                    # arrive (Chrome may have self-exited after Leave). The
+                    # sync_playwright __exit__ below handles teardown reliably.
                     # Drain any pending chat queue commands so callers unblock
                     # immediately instead of waiting for their full timeout.
                     while not self._chat_queue.empty():
@@ -855,24 +898,12 @@ class MacOSAdapter(MeetingConnector):
                         except queue.Empty:
                             break
                     self._browser_closed.set()
-                    # Suppress Playwright teardown noise (greenlet/asyncio)
-                    import asyncio, io, sys
-                    try:
-                        loop = asyncio.get_event_loop()
-                        loop.set_exception_handler(lambda _loop, _ctx: None)
-                    except Exception:
-                        pass
-                    self._orig_stderr = sys.stderr
-                    sys.stderr = io.StringIO()
 
         except Exception as e:
             log.error(f"MacOSAdapter: browser session error: {e}")
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
-            if hasattr(self, "_orig_stderr"):
-                import sys
-                sys.stderr = self._orig_stderr
             pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
             try:
                 os.remove(pid_file)

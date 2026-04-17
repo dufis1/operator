@@ -131,12 +131,20 @@ class ChatRunner:
                 log.warning(f"ChatRunner: read_chat failed: {e}")
                 messages = []
 
+            # Bail out before doing any more work if shutdown fired while we
+            # were blocked in read_chat — prevents a stray final iteration
+            # (and its participant-count log) after SIGINT.
+            if self._stop_event.is_set():
+                break
+
             # Periodically refresh participant count
             now = time.time()
             if now - last_participant_check >= PARTICIPANT_CHECK_INTERVAL:
                 last_participant_check = now
                 try:
                     new_count = self._connector.get_participant_count()
+                    if self._stop_event.is_set():
+                        break
                     if new_count != participant_count:
                         log.info(f"ChatRunner: participant count changed {participant_count} → {new_count}")
                     participant_count = new_count

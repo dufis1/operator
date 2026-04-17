@@ -62,7 +62,20 @@ def _kill_orphaned_children():
 
     import logging
     log = logging.getLogger("operator")
-    log.warning(f"Safety net: killing {len(child_pids)} orphaned child process(es): {child_pids}")
+
+    labeled = []
+    for cpid in child_pids:
+        try:
+            r = _sp.run(
+                ["ps", "-o", "command=", "-p", str(cpid)],
+                capture_output=True, text=True, timeout=1,
+                start_new_session=False,
+            )
+            cmd = r.stdout.strip().replace("\n", " ")
+        except Exception:
+            cmd = ""
+        labeled.append(f"{cpid} ({cmd})" if cmd else str(cpid))
+    log.warning(f"Safety net: killing {len(child_pids)} orphaned child process(es): [{', '.join(labeled)}]")
 
     for cpid in child_pids:
         try:
