@@ -6,11 +6,28 @@ Wraps Playwright/Chrome meeting join into the MeetingConnector interface.
 import os
 import logging
 import queue
+import re
 import threading
 import time
+from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 import config
+
+# Meet room codes look like `abc-defg-hij` — three lowercase letter groups
+# separated by hyphens. Used to distinguish a real meeting URL from the
+# `/new` interstitial (which may carry query strings like `?authuser=0&hs=178`).
+_MEET_ROOM_RE = re.compile(r"^/[a-z]{3,}-[a-z]{3,}-[a-z]{3,}/?$")
+
+
+def _is_real_meet_room(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if "meet.google.com" not in (parsed.netloc or ""):
+        return False
+    return bool(_MEET_ROOM_RE.match(parsed.path or ""))
 
 from .base import MeetingConnector
 from .captions_js import CAPTION_OBSERVER_JS, enable_captions, filter_caption
@@ -459,10 +476,7 @@ class MacOSAdapter(MeetingConnector):
                         log.info("MacOSAdapter: opening meet.new for fresh meeting")
                         page.goto("https://meet.new", wait_until="domcontentloaded", timeout=30000)
                         try:
-                            page.wait_for_url(
-                                lambda u: "meet.google.com/" in u and not u.rstrip("/").endswith(("meet.new", "/new")),
-                                timeout=30000,
-                            )
+                            page.wait_for_url(_is_real_meet_room, timeout=30000)
                         except Exception as e:
                             log.error(f"MacOSAdapter: meet.new did not redirect to a meeting URL: {e}")
                             js.signal_failure("meet_new_no_redirect")
@@ -530,6 +544,18 @@ class MacOSAdapter(MeetingConnector):
                         js.signal_failure("cant_join")
                         return
 
+                    # meet.new auto-joins the creator, so the pre-join screen
+                    # never appears. Detect the in-meeting Leave-call button
+                    # and skip camera toggle + join-button race when set.
+                    already_in_meeting = False
+                    try:
+                        leave_btn = page.get_by_role("button", name="Leave call")
+                        if leave_btn.count() > 0 and leave_btn.first.is_visible():
+                            already_in_meeting = True
+                            log.info("MacOSAdapter: already in meeting — skipping pre-join flow")
+                    except Exception:
+                        pass
+
                     # --- Pre-join screen actions ---
 
                     # Turn off camera and confirm before joining
@@ -557,20 +583,23 @@ class MacOSAdapter(MeetingConnector):
 
                     # Race all join buttons — avoids 5s timeout per missing button
                     t_join = time.monotonic()
-                    join_now = page.get_by_role("button", name="Join now")
-                    ask_join = page.get_by_role("button", name="Ask to join")
-                    switch_here = page.get_by_role("button", name="Switch here")
                     clicked_label = None
-                    try:
-                        join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
-                        for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
-                            if btn.is_visible():
-                                btn.click()
-                                clicked_label = label
-                                log.debug(f"MacOSAdapter: clicked {label!r}")
-                                break
-                    except Exception:
-                        pass
+                    if already_in_meeting:
+                        clicked_label = "already_in"
+                    else:
+                        join_now = page.get_by_role("button", name="Join now")
+                        ask_join = page.get_by_role("button", name="Ask to join")
+                        switch_here = page.get_by_role("button", name="Switch here")
+                        try:
+                            join_now.or_(ask_join).or_(switch_here).wait_for(timeout=10000)
+                            for label, btn in [("Join now", join_now), ("Ask to join", ask_join), ("Switch here", switch_here)]:
+                                if btn.is_visible():
+                                    btn.click()
+                                    clicked_label = label
+                                    log.debug(f"MacOSAdapter: clicked {label!r}")
+                                    break
+                        except Exception:
+                            pass
 
                     if clicked_label is None:
                         save_debug(page, "join_fail")
@@ -626,11 +655,71 @@ class MacOSAdapter(MeetingConnector):
                     deadline = time.time() + 4 * 3600
                     last_health = time.time()
                     last_alert_check = time.time()
+                    last_admit_check = time.time()
+                    t_hold_start = time.time()
+                    admit_diagnostic_saved = False
                     network_lost_at = None  # set when alert first detected, cleared on recovery
                     NETWORK_GRACE_SECONDS = 30  # exit only if alert persists this long
                     while not self._leave_event.is_set() and time.time() < deadline:
                         self._process_chat_queue(page)
                         page.wait_for_timeout(500)
+
+                        # Admission poll every 2s. Meet renders a top-right
+                        # "Admit N guest(s)" element — accessibility text says
+                        # "Press Down Arrow to open the hover tray and Escape
+                        # to close", so it's a hover-tray widget, not a plain
+                        # button. Flow: locate the pill by its visible text,
+                        # real-hover it (Playwright moves the mouse, which
+                        # fires the handlers Google's widget binds), then
+                        # click the Admit button that appears in the tray.
+                        # Keyboard path is a fallback (focus + ArrowDown +
+                        # Enter) per the a11y hint.
+                        import re as _re
+                        if time.time() - last_admit_check >= 2:
+                            last_admit_check = time.time()
+                            try:
+                                pill = page.get_by_text(
+                                    _re.compile(r"^Admit\s+\d+\s+(guest|people)", _re.I)
+                                ).first
+                                if pill.count() > 0 and pill.is_visible():
+                                    try:
+                                        pill.hover()
+                                        page.wait_for_timeout(400)
+                                    except Exception as e:
+                                        log.debug(f"MacOSAdapter: pill hover failed: {e}")
+
+                                    # After hover, snapshot once so we can
+                                    # inspect the tray DOM if clicks miss.
+                                    if not admit_diagnostic_saved:
+                                        save_debug(page, "admit_diagnostic")
+                                        admit_diagnostic_saved = True
+
+                                    # Try clicking the Admit button inside the tray.
+                                    admit_btn = page.get_by_role(
+                                        "button", name=_re.compile(r"^Admit$", _re.I)
+                                    ).first
+                                    clicked = False
+                                    if admit_btn.count() > 0 and admit_btn.is_visible():
+                                        try:
+                                            admit_btn.click(timeout=1000)
+                                            log.info("MacOSAdapter: admitted via tray click")
+                                            clicked = True
+                                        except Exception as e:
+                                            log.warning(f"MacOSAdapter: tray admit click failed: {e}")
+
+                                    # Fallback: keyboard path from a11y hint.
+                                    if not clicked:
+                                        try:
+                                            pill.focus()
+                                            page.keyboard.press("ArrowDown")
+                                            page.wait_for_timeout(200)
+                                            page.keyboard.press("Enter")
+                                            log.info("MacOSAdapter: admitted via keyboard path")
+                                        except Exception as e:
+                                            log.warning(f"MacOSAdapter: keyboard admit failed: {e}")
+                                            save_debug(page, "admit_keyboard_fail")
+                            except Exception as e:
+                                log.debug(f"MacOSAdapter: admit poll error: {e}")
 
                         # Network-loss alert check every 5s.
                         # Polls role="alert" (ARIA standard — stable across Meet UI updates).

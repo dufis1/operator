@@ -24,9 +24,9 @@ is Claude-specific. Swap the model in `config.yaml` and the same skills work.
 #    (see the roster member's README for which keys it needs)
 
 # 2. Run — name the bot you want, optionally pass a Meet URL
-./operator engineer https://meet.google.com/xxx-yyyy-zzz
-./operator engineer                                      # auto-opens meet.new
-./operator list                                          # show all bots
+operator engineer https://meet.google.com/xxx-yyyy-zzz
+operator engineer                                      # auto-opens meet.new
+operator list                                          # show all bots
 ```
 
 Every run names the bot explicitly. Config lives in `roster/<name>/config.yaml`

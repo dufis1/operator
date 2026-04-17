@@ -27,7 +27,7 @@ MCP generally) are only smoke-checked.
 4. Terminal A — start Operator:
 
    ```bash
-   ./operator engineer <meet-url>
+   operator engineer <meet-url>
    ```
 
 5. Terminal B — stream logs:

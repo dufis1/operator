@@ -12,6 +12,7 @@ Usage:
 import os
 import subprocess
 import sys
+import webbrowser
 from pathlib import Path
 
 _ROOT = Path(__file__).parent
@@ -340,6 +341,12 @@ def _run_macos(meeting_url=None, force=False):
             return
         log.info(f"meet.new resolved to {meeting_url}")
         print(f"Fresh meeting: {meeting_url}")
+        # The bot joins in a headless Chrome — pop the Meet open in the
+        # user's default browser so they can see and chat with the bot.
+        try:
+            webbrowser.open(meeting_url)
+        except Exception as e:
+            log.warning(f"could not auto-open meeting URL in browser: {e}")
         meeting_record, transcript_finalizer = _wire_meeting_record(meeting_url)
 
     mcp = None

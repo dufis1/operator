@@ -32,8 +32,8 @@ cp roster/designer/.env.example .env
 #    agent.user_display_name: "Your Name"
 
 # 3. Run — direct URL or auto-open meet.new
-./operator designer https://meet.google.com/xxx-yyyy-zzz
-./operator designer
+operator designer https://meet.google.com/xxx-yyyy-zzz
+operator designer
 ```
 
 ## Using it

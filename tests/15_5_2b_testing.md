@@ -48,7 +48,7 @@ enabling them requires swapping the MCP server.
 6. Terminal A — start Operator:
 
    ```bash
-   ./operator designer https://meet.google.com/xxx-yyyy-zzz
+   operator designer https://meet.google.com/xxx-yyyy-zzz
    ```
 
 7. Terminal B — stream logs:

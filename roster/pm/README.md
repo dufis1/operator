@@ -29,8 +29,8 @@ cp roster/pm/.env.example .env
 #    agent.user_display_name: "Your Name"
 
 # 3. Run — direct URL or auto-open meet.new
-./operator pm https://meet.google.com/xxx-yyyy-zzz
-./operator pm
+operator pm https://meet.google.com/xxx-yyyy-zzz
+operator pm
 ```
 
 **First run:** Linear MCP opens a browser window for OAuth. Authenticate once;

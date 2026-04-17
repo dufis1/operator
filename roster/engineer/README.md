@@ -27,8 +27,8 @@ cp roster/engineer/.env.example .env
 #    agent.user_display_name: "Your Name"
 
 # 3. Run — direct URL or auto-open meet.new
-./operator engineer https://meet.google.com/xxx-yyyy-zzz
-./operator engineer
+operator engineer https://meet.google.com/xxx-yyyy-zzz
+operator engineer
 ```
 
 ## Worktree cleanup

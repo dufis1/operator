@@ -11,16 +11,17 @@ Operator is a chat-based AI meeting participant. It joins Google Meet, opens the
 ### Run
 
 ```bash
-./operator pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
-./operator pm                                        # auto-open meet.new
-./operator list                                      # show available roster bots
-./operator                                           # usage + roster list
+operator pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
+operator pm                                        # auto-open meet.new
+operator list                                      # show available roster bots
+operator                                           # usage + roster list
 ```
 
 Replace `pm` with any bot under `roster/` (`engineer`, `designer`, …). Every
 run selects a roster bot explicitly — there is no ambient root `config.yaml`
-anymore. The `./operator` wrapper handles venv activation; you can also call
-`python __main__.py <name> [url]` directly if the venv is already active.
+anymore. The `operator` wrapper (symlinked into `~/.local/bin/`) handles venv
+activation; you can also call `python __main__.py <name> [url]` directly if
+the venv is already active.
 
 ### Logs & Diagnostics
 

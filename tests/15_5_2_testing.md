@@ -32,7 +32,7 @@ Ctrl+C shutdown) are only smoke-checked.
 5. Terminal A — start Operator:
 
    ```bash
-   ./operator pm https://meet.google.com/tfb-tpnb-kpw
+   operator pm https://meet.google.com/tfb-tpnb-kpw
    ```
 
 6. Terminal B — stream logs:

@@ -8,7 +8,7 @@ Run them in order. Keep `tail -f /tmp/operator.log` open in a second pane and
 
 1. Set `transcript.captions_enabled: true` in `roster/<bot>/config.yaml` (e.g. `roster/pm/config.yaml`).
 2. Pick a fresh meeting URL so the JSONL starts empty.
-3. Start: `./operator <name> <meet-url>` (e.g. `./operator pm <meet-url>`).
+3. Start: `operator <name> <meet-url>` (e.g. `operator pm <meet-url>`).
 4. Have a second participant on another device to generate speech.
 
 ---

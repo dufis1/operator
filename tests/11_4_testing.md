@@ -37,7 +37,7 @@ Run them in order. Keep `tail -f /tmp/operator.log` open in a second pane.
    ```
 
 3. Pick a fresh meeting URL so the JSONL starts empty.
-4. Start: `./operator <name> <meet-url>` (e.g. `./operator pm <meet-url>`).
+4. Start: `operator <name> <meet-url>` (e.g. `operator pm <meet-url>`).
 
 ---
 
