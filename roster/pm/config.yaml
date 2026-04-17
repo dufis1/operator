@@ -8,6 +8,7 @@ agent:
   conversation_timeout: 20
   alone_exit_grace_seconds: 60
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
+  tagline: "turns decisions into Linear tickets before you forget them"
 
 llm:
   provider: "anthropic"

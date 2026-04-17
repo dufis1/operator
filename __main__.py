@@ -130,22 +130,60 @@ def _check_mcp() -> int:
     return 0 if not client.failed_servers else 1
 
 
-def _print_mcp_startup_banner(mcp):
-    """Print a one-line MCP status banner to stderr."""
+def _print_startup_banner(skills, plain=False):
+    """Print the face + identity + loadout banner as the boot splash.
+
+    Must fire BEFORE MCP / browser startup logs so it sits at the top of the
+    terminal like a fighter-select splash, not buried mid-scroll. MCP server
+    names come from config (known without connecting); per-server ✓/✗ status
+    is left to the existing connect logs rather than duplicated here.
+
+        ▄▄▄▄▄▄   <AgentName>
+        █ ▲▲ █   <tagline>
+        █ ══ █   linear · github · 4 skills · claude-sonnet-4-5
+        ▀▀▀▀▀▀
+
+    Also triggers the first-run portrait hook: any bot without a committed
+    portrait.txt gets one minted from the deterministic glyph generator.
+    """
     import config
     import sys as _sys
-    if not config.MCP_SERVERS:
-        return
-    parts = []
-    for name in config.MCP_SERVERS:
-        if name in mcp.failed_servers:
-            parts.append(f"{name} ✗")
-        else:
-            parts.append(f"{name} ✓")
-    loaded = len(config.MCP_SERVERS) - len(mcp.failed_servers)
-    total = len(config.MCP_SERVERS)
-    suffix = "" if not mcp.failed_servers else " — run --check-mcp for details"
-    print(f"MCP: {loaded}/{total} servers loaded ({', '.join(parts)}){suffix}", file=_sys.stderr)
+    from pipeline import face
+
+    bot_name = os.environ.get("OPERATOR_BOT", "")
+    portrait_path = _ROSTER_DIR / bot_name / "portrait.txt"
+
+    # First-run hook — contributor-added bot with no portrait gets one minted.
+    # Skip in --plain mode so the ASCII fallback doesn't get persisted as the
+    # canonical look for a bot that just happened to boot on a hostile terminal.
+    if bot_name and not plain and not portrait_path.exists():
+        if face.write_if_missing(bot_name, portrait_path):
+            import logging
+            logging.getLogger("operator").info(
+                f"minted fresh portrait: {portrait_path}"
+            )
+
+    if plain:
+        face_text = face.render(bot_name, plain=True)
+    else:
+        face_text = face.load_or_render(bot_name, portrait_path=portrait_path)
+    face_lines = face_text.split("\n")
+
+    sep = " | " if plain else " · "
+    parts = list(config.MCP_SERVERS.keys())
+    n_skills = len(skills) if skills else 0
+    if n_skills:
+        parts.append(f"{n_skills} skills")
+    parts.append(config.LLM_MODEL)
+    loadout = sep.join(parts)
+
+    right = [config.AGENT_NAME, config.AGENT_TAGLINE, loadout, ""]
+
+    gap = "   "
+    print("", file=_sys.stderr)
+    for fl, rt in zip(face_lines, right):
+        print(f"{fl}{gap}{rt}".rstrip(), file=_sys.stderr)
+    print("", file=_sys.stderr)
 
 
 def _available_bots():
@@ -158,6 +196,18 @@ def _available_bots():
 
 
 def _bot_tagline(name):
+    # Prefer the explicit agent.tagline in config.yaml; fall back to the first
+    # non-header line of README.md for older bots that pre-date the field.
+    cfg = _ROSTER_DIR / name / "config.yaml"
+    if cfg.exists():
+        try:
+            import yaml
+            data = yaml.safe_load(cfg.read_text()) or {}
+            tag = ((data.get("agent") or {}).get("tagline") or "").strip()
+            if tag:
+                return tag
+        except Exception:
+            pass
     readme = _ROSTER_DIR / name / "README.md"
     if not readme.exists():
         return ""
@@ -180,6 +230,11 @@ def _print_usage():
     print("  operator <name>           Auto-open a new Meet, join as that bot")
     print("  operator setup            Create a new roster bot (wizard)")
     print("  operator list             Show available bots")
+    print()
+    print("Flags:")
+    print("  --plain                   ASCII-only banner (screen readers / hostile terminals)")
+    print("  --force                   Retry join even if a session is flagged stuck")
+    print("  --check-mcp               Start MCP servers, print tool counts, exit")
     print()
     bots = _available_bots()
     if bots:
@@ -237,11 +292,14 @@ def _run_bot(name, rest):
     url = None
     force = False
     check_mcp = False
+    plain = False
     for arg in rest:
         if arg == "--force":
             force = True
         elif arg == "--check-mcp":
             check_mcp = True
+        elif arg == "--plain":
+            plain = True
         elif arg.startswith("-"):
             print(f"Unknown flag: {arg}")
             return 2
@@ -258,13 +316,13 @@ def _run_bot(name, rest):
         return _check_mcp()
 
     if sys.platform == "darwin":
-        _run_macos(url, force=force)
+        _run_macos(url, force=force, plain=plain)
     else:
-        _run_linux(url, force=force)
+        _run_linux(url, force=force, plain=plain)
     return 0
 
 
-def _run_macos(meeting_url=None, force=False):
+def _run_macos(meeting_url=None, force=False, plain=False):
     """Run on macOS — direct URL or meet.new auto-launch."""
     import logging
     import signal
@@ -293,12 +351,16 @@ def _run_macos(meeting_url=None, force=False):
     from pipeline.providers import build_provider
 
     t_start = _time.monotonic()
-    connector = MacOSAdapter(force=force)
-    llm = LLMClient(build_provider())
 
-    # Skills load up-front so inject_skills lands before MCP hints/status in the system prompt.
+    # Skills load up-front so inject_skills lands before MCP hints/status in
+    # the system prompt, and so the banner can show skill count before MCP
+    # connects. Banner prints immediately after, as the boot splash.
     from pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
+    _print_startup_banner(skills, plain=plain)
+
+    connector = MacOSAdapter(force=force)
+    llm = LLMClient(build_provider())
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
 
     # Captions → MeetingRecord wiring. The JS bridge (window.__onCaption) is
@@ -370,7 +432,6 @@ def _run_macos(meeting_url=None, force=False):
             llm.inject_mcp_hints(config.MCP_SERVERS)
             loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
             llm.inject_mcp_status(loaded, mcp.failed_servers)
-            _print_mcp_startup_banner(mcp)
             gh_login = mcp.resolve_github_user()
             if gh_login:
                 llm.inject_github_user(gh_login)
@@ -424,7 +485,7 @@ def _run_macos(meeting_url=None, force=False):
         _shutdown()
 
 
-def _run_linux(meeting_url, force=False):
+def _run_linux(meeting_url, force=False, plain=False):
     """Run on Linux — requires a meeting URL and a live DISPLAY."""
     import logging
     import signal
@@ -463,12 +524,13 @@ def _run_linux(meeting_url, force=False):
     from pipeline.providers import build_provider
     import config
 
+    from pipeline.skills import load_skills
+    skills = load_skills(config.SKILLS_PATHS)
+    _print_startup_banner(skills, plain=plain)
+
     log.info(f"Starting Operator (Linux) — joining {meeting_url}")
     connector = LinuxAdapter()
     llm = LLMClient(build_provider())
-
-    from pipeline.skills import load_skills
-    skills = load_skills(config.SKILLS_PATHS)
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
 
     mcp = None
@@ -481,7 +543,6 @@ def _run_linux(meeting_url, force=False):
             llm.inject_mcp_hints(config.MCP_SERVERS)
             loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
             llm.inject_mcp_status(loaded, mcp.failed_servers)
-            _print_mcp_startup_banner(mcp)
             gh_login = mcp.resolve_github_user()
             if gh_login:
                 llm.inject_github_user(gh_login)
