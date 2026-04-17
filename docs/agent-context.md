@@ -17,7 +17,7 @@
 
 ## Current Status
 
-**Phase:** Phase 15.5.2b + 15.5.2c **LIVE-VALIDATED**. Bundle ship-ready. Next: 15.5.3 (`operator setup` interactive wizard, ~2h) → 15.5.4 (auto-launch with `meet.new`, ~1h) to close Phase 15.5.
+**Phase:** Phase 15.5.2b + 15.5.2c **LIVE-VALIDATED**. Bundle ship-ready. Phase 15.5 replanned (session 113): three blocks — 15.5.3 runtime architecture (~2.5h) → 15.5.4 face system + profile banner (~4h) → 15.5.5 wizard as creation flow (~4h). Old 15.5.3 (wizard-copies-config) and old 15.5.4 (`--preset` flag) retired; their intent is absorbed into the new three-block shape.
 
 **What just happened (session 112, April 16, 2026):** Walked `tests/15_5_2b_testing.md` T1–T7 against fresh Meet `cyv-utza-jxp`. The "soft" catalog restriction on Figma's official MCP turned out to be hard. Fell back to GLips mid-session, re-ran, all tests passed, then promoted GLips to bundle default with full doc update.
 
@@ -36,10 +36,10 @@
   - `tests/15_5_2b_testing.md` — intro flipped, Prep requires FIGMA_TOKEN, T1 expects silent PAT start + 2 tools, T3 expects `figma__get_figma_data` + anti-hallucination guard documented as an expected pass signal on thin fixtures, T4 N/A, Fallback → Power-ups with Grab and official-server configs. Prep step 6 now points at Plant-shop-curved-carousel from Community (the skincare fixture turned out to be the thin-rectangle file).
 
 **Open items:**
-- **15.5.3 + 15.5.4 outstanding** — the remaining 15.5 scope. Setup wizard + `meet.new` auto-launch. ~3h combined.
+- **15.5.3 + 15.5.4 + 15.5.5 outstanding** — the remaining 15.5 scope, restructured session 113. Runtime architecture + face system + wizard (creation). ~10.5h combined, up from the original ~3.5h — budget crunch noted in roadmap footer; 14 + 15 are slim-down candidates if needed.
 - **Demo GIF** in `roster/designer/README.md` still a placeholder — user has deprioritized.
 
-**Next action:** Phase 15.5.3 — `operator setup` interactive wizard (`python -m operator setup`): picks a roster member, copies its `config.yaml` to repo root, prompts for API keys, writes to `.env`, optionally runs `--check-mcp`. ~150 lines of Python, atomic writes, re-run-safe. See roadmap row 15.5.3 for spec.
+**Next action:** Phase 15.5.3 — runtime architecture. Positional CLI dispatch in `__main__.py`: `operator <name> [url]` runs that bot; `operator setup` / `operator list` / bare `operator` as subcommands. Delete root `config.yaml`, load from `roster/<name>/config.yaml` at runtime. `.env` stays at root. `operator <name>` with no URL auto-opens `meet.new` (absorbs old 15.5.4). Ship `./operator` bash wrapper as provisional launcher (curl installer deferred post-launch pending product-name lock). See roadmap row 15.5.3 for the full spec and `## Phase 15.5 — Design notes` section below for the architectural rationale.
 
 ---
 
@@ -491,25 +491,56 @@ Canonical example. Demonstrates the format and is the launch hero. **Depends on 
 - `roster/engineer/skills/` — leave empty by default. The whole point is the user's own skills get loaded from `~/.claude/skills/`. Optionally bundle one demo skill that's safe to ship (e.g. `file-linear-ticket.md`) so the agent has at least one skill even if the user has none locally.
 - `.env.example` — `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`, `LINEAR_API_KEY`, `GITHUB_TOKEN`.
 
-### 15.5.2 — `operator setup` interactive wizard (minimal)
+### 15.5.3 — Runtime architecture (roster as source of truth)
 
-Scope: a one-shot config-writer, not a daemon, not a background service, not a TUI framework.
+**The architectural shift** (session 113): today, `python __main__.py <url>` reads an ambient `config.yaml` at repo root — "whatever was last copied there." Replaced by explicit per-run bot selection. Every run names the bot.
 
-- Entry point: `python -m operator setup` (add a `setup` subcommand to `__main__.py`'s arg parser, or ship a separate `operator/setup.py` module — pick whatever is shorter).
-- Flow:
-  1. Print the 3-step framing: "Step 1: choose an agent. Step 2: add your keys. Step 3: join a meeting."
-  2. List `roster/*` subdirectories with their one-line pitches (parsed from each roster member's `README.md` first heading or a frontmatter field), plus a "blank / custom" option.
-  3. User picks one (numbered prompt). Copy that agent's `config.yaml` to repo root (or `--output PATH`).
-  4. Read the agent's `.env.example`, prompt for each var, write to `.env` (preserving any pre-existing keys not asked about).
-  5. Optionally run `python __main__.py --check-mcp` and report the result.
-  6. Print the next-step command: `python __main__.py <meet-url>`.
-- Re-run safety: if `config.yaml` or `.env` exists, confirm overwrite (or merge for `.env`). Atomic writes via tempfile + rename.
-- ~150 lines of Python, no new dependencies (use `input()` and `pathlib`).
-- **Out of scope:** voice, MCP OAuth flows, model selection UI beyond what the chosen agent's config dictates, polished TUI. Those land in the post-MVP full wizard.
+- Positional CLI in `__main__.py`:
+  - `operator <name> <url>` — run that bot in that meeting. Load `roster/<name>/config.yaml` directly.
+  - `operator <name>` (no URL) — auto-open `meet.new`, capture slug, join as that bot. (Absorbs old 15.5.4's `meet.new` deliverable.)
+  - `operator setup` — launches the wizard (see 15.5.5).
+  - `operator list` — prints available roster members + one-line pitches.
+  - `operator` (bare) — prints usage + roster list.
+- Dispatch rule: if first arg matches a `roster/*` folder, treat as bot-name; if it's a known subcommand (`setup` / `list`), dispatch there; else error with helpful usage.
+- Delete root `config.yaml`. Config loading reads `roster/<name>/config.yaml` at runtime.
+- `.env` stays at repo root, shared across all bots (keys like `ANTHROPIC_API_KEY` are environment-scoped, not bot-scoped).
+- Ship `./operator` bash wrapper in repo root: `#!/usr/bin/env bash` + `cd "$(dirname "$0")"` + `source venv/bin/activate` + `exec python __main__.py "$@"`. Provisional launcher until product name is locked and curl installer ships post-launch.
+- **Breaking change:** every doc, test, and reference to `python __main__.py <url>` migrates to `operator <name> <url>`. Pre-launch, so the cost is grep + update, not deprecation.
 
-### 15.5.3 — Second chat-native agent
+### 15.5.4 — Face system + profile banner
 
-User picks near launch from: `standup`, `triage`, `incident-commander`, `interview-notes`, `research`. Translator was the original sketch but is voice-native and weakens the chat-MVP story. Goal of this slot: the gallery reads as a *set* (≥2 agents), not a one-off.
+Each bot has a unique pixel-art face that prints on every run. Faces are the bot's identity and the "you're playing as X" moment when a meeting starts.
+
+- **Deterministic face generator.** Half-block Unicode (`▀ ▄ █`) + ANSI 256-color. 16×20 pixels — fits 3-across in a standard terminal, readable. Seed = hash(bot name), so the same name always produces the same face. Parts library: eyes, mouth, brow, hair/hat, accessory, palette.
+- **Shipping portraits.** Run the generator for `engineer` / `pm` / `designer`, hand-curate until good, commit as `roster/<name>/portrait.txt`.
+- **First-run write hook.** Any `operator <name>` run that finds no `portrait.txt` in the roster folder generates one and writes it. This is the "gift" for contributors: they add `roster/translator/` with a config and README, run `operator translator` once, and a face file materializes for them to commit with their PR.
+- **Startup banner.** Every `operator <name>` run prints a block before joining:
+  ```
+  ╔════════════════════════════╗
+  ║   <face>      ENGINEER     ║
+  ║               looks up GH  ║
+  ║               MCPs: GitHub ║
+  ║               Skills: 4    ║
+  ║               Model: ...   ║
+  ╚════════════════════════════╝
+  ```
+  Reads from the active config — pulls agent name, one-line tagline (from README h1 or a config field), MCP names, skill count, model.
+- **`--plain` fallback.** Prints ASCII-only banner for screen readers / hostile terminals / CI logs.
+- Dep: `rich` for color/boxes/layout (new dep — already battle-tested, 1-package install).
+
+### 15.5.5 — `operator setup` wizard (creation flow)
+
+**Key reframe** (session 113): wizard is no longer "activate a bundle by copying config to root." It's a *creation* tool — builds a new `roster/<name>/` folder so the user ends up with their own bot they run explicitly.
+
+- `operator setup` — four steps:
+  1. **Choose a template (or start blank).** Fighter-select grid UI — colored boxes, pre-shipped faces visible, numbered prompt. "Start blank" produces a minimal config stub.
+  2. **Power-ups — awareness + toggle.** Show the template's bundled MCPs and skills as a checklist (including commented-out power-up entries in the template config). User toggles what ends up in the new bot. Narrow scope: only touches what the template declares. Out of scope: arbitrary MCP discovery, paste-a-URL flow, `~/.claude/skills` path editor (all post-launch).
+  3. **Keys.** Prompt for any env vars the new bot needs that aren't already in `.env`. `getpass` for secrets (no echo, never print existing values). Merge into `.env`, preserving unrelated keys. Atomic write.
+  4. **Finalize.** Atomic-write the new `roster/<new-name>/` folder: `config.yaml` (built from template + toggles), `README.md` stub, `.env.example`. Generate face via 15.5.4's generator, write `portrait.txt`. Print: `Your bot is ready. Run: operator <new-name> <meet-url>`.
+- Re-run-safe: name-collision check against existing roster folders.
+- Intent of step 2: pure FYI — user should *know* what their bot can do (so they know to ask it to file a Linear ticket), not be forced into configuration work. Checkbox ergonomics, not a forms-based MCP configurator.
+- **Depends on 15.5.3** (for `setup` dispatch surface) and **15.5.4** (for face generator + pre-baked shipping portraits rendered in step 1's grid).
+- ~250 lines of Python + `rich`. Out of scope: voice, MCP OAuth flows, model selection UI beyond what the template dictates. Those land in the post-MVP full wizard.
 
 ### Launch interplay
 
