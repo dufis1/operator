@@ -12,17 +12,11 @@ Ctrl+C shutdown) are only smoke-checked.
 
 ## Prep
 
-1. Back up the current root config and swap in the PM config:
+1. Edit `roster/pm/config.yaml` → set `agent.user_display_name` to your
+   Google Meet display name (the template ships with `"Your Name"`). The
+   runtime loads the bot's config directly — no root `config.yaml` to swap.
 
-   ```bash
-   cp config.yaml config.yaml.bak
-   cp roster/pm/config.yaml config.yaml
-   ```
-
-2. Edit `config.yaml` → set `agent.user_display_name` to your Google Meet
-   display name (the template ships with `"Your Name"`).
-
-3. Verify prerequisites:
+2. Verify prerequisites:
 
    ```bash
    ls github-mcp-server                           # GH MCP binary at repo root
@@ -30,18 +24,18 @@ Ctrl+C shutdown) are only smoke-checked.
    which npx                                      # Linear MCP uses npx + mcp-remote
    ```
 
-4. **Turn captions ON in Google Meet before joining** (CC button in the Meet
+3. **Turn captions ON in Google Meet before joining** (CC button in the Meet
    toolbar). Bundle's config expects captions; without them, T2/T6 will fail.
 
-5. Pick the fresh meeting URL: `https://meet.google.com/tfb-tpnb-kpw`.
+4. Pick the fresh meeting URL: `https://meet.google.com/tfb-tpnb-kpw`.
 
-6. Terminal A — start Operator:
+5. Terminal A — start Operator:
 
    ```bash
-   source venv/bin/activate && python __main__.py https://meet.google.com/tfb-tpnb-kpw
+   ./operator pm https://meet.google.com/tfb-tpnb-kpw
    ```
 
-7. Terminal B — stream logs:
+6. Terminal B — stream logs:
 
    ```bash
    tail -f /tmp/operator.log
@@ -67,7 +61,7 @@ browser window for OAuth — complete the auth; the subprocess will wait.
 - `SKILLS: path not found or not a directory: roster/pm/skills` → running
   from the wrong cwd; start Operator from the repo root.
 - Neither bundled skill appears in the SKILLS banner → the `skills.paths`
-  order broke; re-check `config.yaml`.
+  order broke; re-check `roster/pm/config.yaml`.
 
 ---
 
@@ -213,10 +207,7 @@ new PMs to view it in their first session." Then in chat:
 ## Cleanup
 
 ```bash
-# Restore your original root config
-cp config.yaml.bak config.yaml
-rm config.yaml.bak
-
+# Revert your display name in roster/pm/config.yaml if you don't want it committed.
 # Optional — delete the T4 smoke-test ticket from Linear's UI.
 # Optional — wipe the test meeting's JSONL:
 # rm ~/.operator/history/tfb-tpnb-kpw.jsonl

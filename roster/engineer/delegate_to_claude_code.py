@@ -6,7 +6,7 @@ as a subprocess, returns the result. Confirmation-gated as a write tool.
 
 Prerequisite: `claude` CLI installed and authenticated.
 
-Add to config.yaml under mcp_servers:
+Already wired under roster/engineer/config.yaml → mcp_servers.delegate:
 
   delegate:
     command: "python"

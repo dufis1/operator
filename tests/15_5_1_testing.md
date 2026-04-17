@@ -10,17 +10,11 @@ MCP generally) are only smoke-checked.
 
 ## Prep
 
-1. Back up the current root config and swap in the engineer config:
+1. Edit `roster/engineer/config.yaml` → set `agent.user_display_name` to your
+   Google Meet display name (the template ships with `"Your Name"`). The new
+   runtime loads the bot's config directly — no root `config.yaml` to swap.
 
-   ```bash
-   cp config.yaml config.yaml.bak
-   cp roster/engineer/config.yaml config.yaml
-   ```
-
-2. Edit `config.yaml` → set `agent.user_display_name` to your Google Meet
-   display name (the template ships with `"Your Name"`).
-
-3. Verify prerequisites:
+2. Verify prerequisites:
 
    ```bash
    which claude                # Claude Code CLI on PATH + authenticated
@@ -28,15 +22,15 @@ MCP generally) are only smoke-checked.
    grep -E "ANTHROPIC_API_KEY|GITHUB_TOKEN" .env   # both keys present
    ```
 
-4. Pick a fresh meeting URL so the JSONL starts empty.
+3. Pick a fresh meeting URL so the JSONL starts empty.
 
-5. Terminal A — start Operator:
+4. Terminal A — start Operator:
 
    ```bash
-   source venv/bin/activate && python __main__.py <meet-url>
+   ./operator engineer <meet-url>
    ```
 
-6. Terminal B — stream logs:
+5. Terminal B — stream logs:
 
    ```bash
    tail -f /tmp/operator.log
@@ -162,11 +156,10 @@ git worktree list
 ## Cleanup
 
 ```bash
-# Restore your original root config
-cp config.yaml.bak config.yaml
-rm config.yaml.bak
+# Revert your display name in roster/engineer/config.yaml if you don't want
+# it committed.
 
-# Remove the test meeting's JSONL if you want a clean slate
+# Optional — remove the test meeting's JSONL for a clean slate:
 # rm ~/.operator/history/<slug>.jsonl
 ```
 

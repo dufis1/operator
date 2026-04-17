@@ -17,6 +17,7 @@ import time
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("OPERATOR_BOT", "pm")
 
 import config  # noqa: E402
 from connectors.macos_adapter import MacOSAdapter  # noqa: E402

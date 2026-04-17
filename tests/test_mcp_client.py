@@ -15,6 +15,7 @@ import tempfile
 
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+os.environ.setdefault("OPERATOR_BOT", "pm")
 
 # ── Setup: write a minimal MCP server to a temp file ──────────────────
 # This server exposes two tools: "echo" (returns its input) and "fail" (always errors).

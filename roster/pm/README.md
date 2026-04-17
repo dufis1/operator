@@ -21,18 +21,16 @@ turn "I'll ship X by Friday" into a real Linear ticket with an owner.
 ## Setup
 
 ```bash
-# 1. Copy the config
-cp roster/pm/config.yaml ./config.yaml
-
-# 2. Fill in your API keys
+# 1. Fill in your API keys
 cp roster/pm/.env.example .env
 # Edit .env with your keys
 
-# 3. Update your display name in config.yaml
+# 2. Update your display name in roster/pm/config.yaml
 #    agent.user_display_name: "Your Name"
 
-# 4. Run
-python __main__.py https://meet.google.com/xxx-yyyy-zzz
+# 3. Run — direct URL or auto-open meet.new
+./operator pm https://meet.google.com/xxx-yyyy-zzz
+./operator pm
 ```
 
 **First run:** Linear MCP opens a browser window for OAuth. Authenticate once;

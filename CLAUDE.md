@@ -11,11 +11,16 @@ Operator is a chat-based AI meeting participant. It joins Google Meet, opens the
 ### Run
 
 ```bash
-source venv/bin/activate
-python __main__.py https://meet.google.com/xxx-yyyy-zzz
-# or
-MEETING_URL=https://meet.google.com/xxx-yyyy-zzz python __main__.py
+./operator pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
+./operator pm                                        # auto-open meet.new
+./operator list                                      # show available roster bots
+./operator                                           # usage + roster list
 ```
+
+Replace `pm` with any bot under `roster/` (`engineer`, `designer`, …). Every
+run selects a roster bot explicitly — there is no ambient root `config.yaml`
+anymore. The `./operator` wrapper handles venv activation; you can also call
+`python __main__.py <name> [url]` directly if the venv is already active.
 
 ### Logs & Diagnostics
 
@@ -67,7 +72,6 @@ Pipeline (platform-agnostic)
   pipeline/providers/         — neutral LLMProvider interface + OpenAI + Anthropic backends
   pipeline/mcp_client.py      — stdio MCP transport, tool discovery, failure backoff
   pipeline/guardrails.py      — validate tool results (binary/null-byte rejection)
-  pipeline/calendar_poller.py — auto-join upcoming meetings from Google Calendar
 ```
 
 ### Key Data Flow
@@ -80,17 +84,17 @@ Pipeline (platform-agnostic)
 
 ### Configuration
 
-All runtime settings live in `config.yaml` (loaded by `config.py` into module-level constants). Top-level blocks:
+Every run names a roster bot explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `roster/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `roster/`. Top-level blocks:
 - `agent` — `name`, `trigger_phrase`, `user_display_name`, `conversation_timeout`, `alone_exit_grace_seconds`, `first_contact_hint`
 - `llm` — `provider` (`openai` | `anthropic`), `model`, `system_prompt`, `history_messages` (tail size replayed from the meeting record), `max_tokens`, `tool_result_max_chars`, `tool_timeout_seconds`, `tool_heartbeat_seconds`
 - `connector` — `browser_profile_dir`, `auth_state_file`, `idle_timeout_seconds`
 - `mcp_servers` — per-server command, env, hints, and confirm-tool overrides
 
-API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) go in `.env`. Never commit `.env`, `browser_profile/`, or `auth_state.json`.
+API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) live in a single `.env` at the repo root, shared across all bots. Never commit `.env`, `browser_profile/`, or `auth_state.json`.
 
 ### Tool Confirmation
 
-`chat_runner.py` defines `READ_TOOLS` — a set of known read-only MCP tools that auto-execute without confirmation. Any tool not in that set prompts the user in chat before running. Per-server overrides (`confirm_tools`) in `config.yaml` can force confirmation on specific tools.
+`chat_runner.py` defines `READ_TOOLS` — a set of known read-only MCP tools that auto-execute without confirmation. Any tool not in that set prompts the user in chat before running. Per-server overrides (`confirm_tools`) in the bot's `roster/<name>/config.yaml` can force confirmation on specific tools.
 
 ### Participant-based Auto-leave
 

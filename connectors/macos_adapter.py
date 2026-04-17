@@ -41,6 +41,8 @@ class MacOSAdapter(MeetingConnector):
         self._observer_installed = False
         self._caption_callback = None  # fn(speaker, text, timestamp); set via set_caption_callback
         self._js_time_offset = None    # performance.now() → wall-clock calibration
+        self._resolved_url = None
+        self._url_resolved = threading.Event()
 
     # ------------------------------------------------------------------
     # MeetingConnector interface
@@ -48,10 +50,16 @@ class MacOSAdapter(MeetingConnector):
 
     def join(self, meeting_url):
         """Start a browser session and join the meeting. Returns immediately;
-        browser runs in a background thread until leave() is called."""
+        browser runs in a background thread until leave() is called.
+
+        Pass meeting_url=None to open a fresh meet.new and resolve the URL
+        at runtime — the caller can then retrieve it via wait_for_resolved_url().
+        """
         self._leave_event.clear()
         self._browser_closed.clear()
         self.join_status = JoinStatus()
+        self._resolved_url = None
+        self._url_resolved.clear()
         self._browser_thread = threading.Thread(
             target=self._browser_session,
             args=(meeting_url,),
@@ -59,7 +67,18 @@ class MacOSAdapter(MeetingConnector):
             name="MacOSAdapter-browser",
         )
         self._browser_thread.start()
-        log.info(f"MacOSAdapter: joining {meeting_url}")
+        log.info(f"MacOSAdapter: joining {meeting_url or '<meet.new>'}")
+
+    def wait_for_resolved_url(self, timeout=45):
+        """Block until the browser thread has resolved the meeting URL.
+
+        Returns the URL on success, None on timeout. For meet.new flows, this
+        is the real meet.google.com URL produced by redirect. For direct-URL
+        flows, this returns immediately with the URL passed to join().
+        """
+        if self._url_resolved.wait(timeout=timeout):
+            return self._resolved_url
+        return None
 
     def send_chat(self, message):
         """Post a message to the Google Meet chat panel.
@@ -436,7 +455,24 @@ class MacOSAdapter(MeetingConnector):
                         log.warning(f"MacOSAdapter: expose_function failed: {e}")
 
                 try:
-                    page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                    if meeting_url is None:
+                        log.info("MacOSAdapter: opening meet.new for fresh meeting")
+                        page.goto("https://meet.new", wait_until="domcontentloaded", timeout=30000)
+                        try:
+                            page.wait_for_url(
+                                lambda u: "meet.google.com/" in u and not u.rstrip("/").endswith(("meet.new", "/new")),
+                                timeout=30000,
+                            )
+                        except Exception as e:
+                            log.error(f"MacOSAdapter: meet.new did not redirect to a meeting URL: {e}")
+                            js.signal_failure("meet_new_no_redirect")
+                            return
+                        meeting_url = page.url
+                        log.info(f"MacOSAdapter: meet.new resolved to {meeting_url}")
+                    else:
+                        page.goto(meeting_url, wait_until="domcontentloaded", timeout=30000)
+                    self._resolved_url = meeting_url
+                    self._url_resolved.set()
                     t_nav = time.monotonic()
                     log.info(f"TIMING navigation={t_nav - t_browser:.1f}s")
                     # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s

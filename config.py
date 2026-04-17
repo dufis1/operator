@@ -1,11 +1,34 @@
 import os
+import sys
 import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
 _ROOT = Path(__file__).parent
-_config = yaml.safe_load((_ROOT / "config.yaml").read_text())
+
+BOT_NAME = os.environ.get("OPERATOR_BOT", "").strip()
+if not BOT_NAME:
+    sys.stderr.write(
+        "ERROR: OPERATOR_BOT env var is not set.\n"
+        "Run via the CLI: `operator <name> [url]` or `./operator <name> [url]`.\n"
+    )
+    raise SystemExit(2)
+
+BOT_DIR = _ROOT / "roster" / BOT_NAME
+_cfg_path = BOT_DIR / "config.yaml"
+if not _cfg_path.exists():
+    available = sorted(
+        p.name for p in (_ROOT / "roster").iterdir()
+        if p.is_dir() and (p / "config.yaml").exists()
+    )
+    sys.stderr.write(
+        f"ERROR: no config found at {_cfg_path}.\n"
+        f"Available bots: {', '.join(available) if available else '(none)'}\n"
+    )
+    raise SystemExit(2)
+
+_config = yaml.safe_load(_cfg_path.read_text())
 
 # Agent
 AGENT_NAME           = _config["agent"]["name"]

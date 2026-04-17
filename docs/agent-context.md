@@ -17,7 +17,25 @@
 
 ## Current Status
 
-**Phase:** Phase 15.5.2b + 15.5.2c **LIVE-VALIDATED**. Bundle ship-ready. Phase 15.5 replanned (session 113): three blocks — 15.5.3 runtime architecture (~2.5h) → 15.5.4 face system + profile banner (~4h) → 15.5.5 wizard as creation flow (~4h). Old 15.5.3 (wizard-copies-config) and old 15.5.4 (`--preset` flag) retired; their intent is absorbed into the new three-block shape.
+**Phase:** Phase 15.5.3 **CODE-COMPLETE** (session 113). Runtime architecture refactor shipped; live validation deferred to session 114. Previous (15.5.2b + 15.5.2c) remain LIVE-VALIDATED. Phase 15.5 three-block plan: 15.5.3 runtime architecture ✅ code → 15.5.4 face system + profile banner (~4h) → 15.5.5 wizard as creation flow (~4h).
+
+**What just happened (session 113, April 16, 2026):** Implemented the runtime architecture refactor in one pass; live validation deferred.
+
+- **Positional CLI** in `__main__.py`: `operator <name> [url]` / `operator setup` / `operator list` / bare `operator`. `_run_bot` sets `os.environ["OPERATOR_BOT"] = name` before any `import config`, so config.py reads `roster/<name>/config.yaml` directly.
+- **Root `config.yaml` deleted.** `config.py` now fails loudly with an available-bot list when `OPERATOR_BOT` is unset.
+- **`meet.new` auto-launch** wired into `MacOSAdapter`: if `meeting_url is None`, browser opens `https://meet.new`, waits for Google's redirect to a real slug, captures it, fires a `threading.Event`. `__main__` calls `connector.wait_for_resolved_url(timeout=45)` and then late-binds `MeetingRecord` + captions.
+- **`./operator` bash wrapper** at repo root (symlink-safe; activates venv; `exec python __main__.py "$@"`). Symlinked to `~/.local/bin/operator` so bare `operator <name>` works from any directory (PATH already set up from prior `claude` install).
+- **Dead code removed:** `pipeline/calendar_poller.py` (planned `run_polling` method never existed on `ChatRunner`, confirmed safe per handoff notes).
+- **Doc + test migration:** CLAUDE.md (Run block, Configuration section, Layer Overview), 4 roster READMEs (pm/engineer/designer/root), tests/15_5_1_testing.md / 15_5_2_testing.md / 15_5_2b_testing.md (prep steps flipped from "cp root config" to "edit roster/<bot>/config.yaml"), tests/11_3_a_testing.md / 11_3_b_testing.md / 11_4_testing.md (qualified `config.yaml` → `roster/<bot>/config.yaml`). Error strings in pipeline/mcp_client.py, debug/flaky_mcp_server.py, roster/engineer/delegate_to_claude_code.py updated.
+- **Test suite compat:** added `os.environ.setdefault("OPERATOR_BOT", "pm")` to tests/test_chat_hardening.py, test_mcp_client.py, test_mcp_shutdown.py, test_912_tool_timeout.py, and three scripts/*.py. Relaxed the `bot_name.lower() == "operator"` assertion in test_chat_hardening.py (test now loads PM bundle).
+
+**Open items:**
+- **Live validation of 15.5.3** deferred to session 114 — exercise `./operator pm` (meet.new path), `./operator engineer <url>` (positional path), `operator list`, bare `operator` error path, confirm `OPERATOR_BOT` error is clear when unset.
+- **Demo GIF** in `roster/*/README.md` still a placeholder — user has deprioritized.
+
+**Next action:** Phase 15.5.4 — face system + profile banner. Deterministic pixel-art face generator (half-block Unicode + ANSI 256-color, 16×20, seed = hash(bot name)). Generate + hand-curate portraits for engineer / pm / designer, commit as `roster/*/portrait.txt`. First-run auto-write hook. Startup banner on every `operator <name>` run = face + identity + loadout. `--plain` ASCII-only fallback. See roadmap row 15.5.4.
+
+---
 
 **What just happened (session 112, April 16, 2026):** Walked `tests/15_5_2b_testing.md` T1–T7 against fresh Meet `cyv-utza-jxp`. The "soft" catalog restriction on Figma's official MCP turned out to be hard. Fell back to GLips mid-session, re-ran, all tests passed, then promoted GLips to bundle default with full doc update.
 

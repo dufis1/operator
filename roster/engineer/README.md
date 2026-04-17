@@ -19,18 +19,16 @@ worktree and reports back.
 ## Setup
 
 ```bash
-# 1. Copy the config
-cp roster/engineer/config.yaml ./config.yaml
-
-# 2. Fill in your API keys
+# 1. Fill in your API keys
 cp roster/engineer/.env.example .env
 # Edit .env with your keys
 
-# 3. Update your display name in config.yaml
+# 2. Update your display name in roster/engineer/config.yaml
 #    agent.user_display_name: "Your Name"
 
-# 4. Run
-python __main__.py https://meet.google.com/xxx-yyyy-zzz
+# 3. Run — direct URL or auto-open meet.new
+./operator engineer https://meet.google.com/xxx-yyyy-zzz
+./operator engineer
 ```
 
 ## Worktree cleanup

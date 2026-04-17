@@ -17,17 +17,11 @@ enabling them requires swapping the MCP server.
 
 ## Prep
 
-1. Back up the current root config and swap in the Designer config:
+1. Edit `roster/designer/config.yaml` → set `agent.user_display_name` to your
+   Google Meet display name (the template ships with `"Your Name"`). The
+   runtime loads the bot's config directly — no root `config.yaml` to swap.
 
-   ```bash
-   cp config.yaml config.yaml.bak
-   cp roster/designer/config.yaml config.yaml
-   ```
-
-2. Edit `config.yaml` → set `agent.user_display_name` to your Google Meet
-   display name (the template ships with `"Your Name"`).
-
-3. Verify prerequisites:
+2. Verify prerequisites:
 
    ```bash
    grep ANTHROPIC_API_KEY .env       # required
@@ -38,26 +32,26 @@ enabling them requires swapping the MCP server.
    The config maps `${FIGMA_TOKEN}` → `FIGMA_API_KEY` in the server's env, so
    a missing or empty `FIGMA_TOKEN` surfaces at T1 as a handshake failure.
 
-4. **Turn captions ON in Google Meet before joining** (CC button in the Meet
+3. **Turn captions ON in Google Meet before joining** (CC button in the Meet
    toolbar). Bundle's config expects captions; without them, T2 + T6 fail.
 
-5. Pick a fresh meeting URL: `https://meet.google.com/xxx-yyyy-zzz`. Use a
+4. Pick a fresh meeting URL: `https://meet.google.com/xxx-yyyy-zzz`. Use a
    new one each run — stale slugs get bounced.
 
-6. Have a Figma file URL ready with a substantive multi-node frame (not a
+5. Have a Figma file URL ready with a substantive multi-node frame (not a
    single-node wrapper image). The `Plant-shop-curved-carousel-(Community)`
    file works well: copy it to your account from Figma Community, then use
    `https://www.figma.com/design/<yourFileKey>/Plant-shop-curved-carousel?node-id=1-2`.
    A frame with 5+ child nodes, auto-layout, and real typography exercises
    T3's grounded-critique check well.
 
-7. Terminal A — start Operator:
+6. Terminal A — start Operator:
 
    ```bash
-   source venv/bin/activate && python __main__.py https://meet.google.com/xxx-yyyy-zzz
+   ./operator designer https://meet.google.com/xxx-yyyy-zzz
    ```
 
-8. Terminal B — stream logs:
+7. Terminal B — stream logs:
 
    ```bash
    tail -f /tmp/operator.log
@@ -178,8 +172,8 @@ bundle, treat T4 as automatically passing and move to T5.
 
 **Fail signals:**
 - Generic, hedging response ("Design is subjective, but you might
-  consider…") → persona system prompt isn't biting. Re-check `config.yaml`
-  loaded the designer system_prompt, not a stale one.
+  consider…") → persona system prompt isn't biting. Re-check
+  `roster/designer/config.yaml` loaded the designer system_prompt.
 - Reply is a 5-bullet structured critique → Designer over-reached for the
   skill instead of keeping it conversational. The skill should fire on
   "review" / "critique" / "feedback", not on "gut check."
@@ -237,8 +231,8 @@ hero product." Then in chat:
 ## Power-ups — swap in a different Figma MCP server
 
 The default GLips server covers T1–T3, T5, T6, T7. To exercise write
-operations (T4), swap `mcp_servers.figma` in `config.yaml` for one of these
-and re-run the relevant subset:
+operations (T4), swap `mcp_servers.figma` in `roster/designer/config.yaml`
+for one of these and re-run the relevant subset:
 
 **Grab `cursor-talk-to-figma-mcp`** — ~25 mutation tools (`create_frame`,
 `set_text_content`, `move_node`, etc.). Requires installing their Figma
@@ -300,14 +294,9 @@ gate is still closed.
 ## Cleanup (Operator runs this after the live test passes)
 
 ```bash
-# Restore the original root config
-cp config.yaml.bak config.yaml
-rm config.yaml.bak
-
-# Verify any read_tools name corrections from T1 are mirrored from the live
-# config back into roster/designer/config.yaml so the bundle ships accurate.
-diff <(yq '.mcp_servers.figma.read_tools' config.yaml) \
-     <(yq '.mcp_servers.figma.read_tools' roster/designer/config.yaml) || true
+# Revert any temporary changes in roster/designer/config.yaml if you don't
+# want them committed (e.g. display name, or a swapped-in write-capable
+# mcp_servers.figma block from the Power-ups section).
 
 # Optional — undo the T4 edit in Figma's UI.
 # Optional — wipe the test meeting's JSONL:

@@ -20,18 +20,19 @@ is Claude-specific. Swap the model in `config.yaml` and the same skills work.
 ## Using a roster member
 
 ```bash
-# 1. Copy the roster member's config to the repo root (or point OPERATOR_CONFIG at it)
-cp roster/engineer/config.yaml ./config.yaml
-
-# 2. Fill in your API keys in .env
+# 1. Fill in your API keys in .env
 #    (see the roster member's README for which keys it needs)
 
-# 3. Run
-python __main__.py https://meet.google.com/xxx-yyyy-zzz
+# 2. Run — name the bot you want, optionally pass a Meet URL
+./operator engineer https://meet.google.com/xxx-yyyy-zzz
+./operator engineer                                      # auto-opens meet.new
+./operator list                                          # show all bots
 ```
 
-Each roster member's own `README.md` lists the keys, MCP servers, and any
-prerequisites it needs.
+Every run names the bot explicitly. Config lives in `roster/<name>/config.yaml`
+and is loaded at runtime — there is no ambient root `config.yaml`. Each roster
+member's own `README.md` lists the keys, MCP servers, and any prerequisites it
+needs.
 
 ---
 

@@ -3,14 +3,19 @@ Operator — AI Meeting Participant
 Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
 
 Usage:
-    python __main__.py              # macOS: calendar auto-join
-    python __main__.py <meet-url>   # Join a specific meeting (required on Linux)
-    python .                        # same as above from the repo root
+    operator <name> <url>     Run named roster bot in a specific Meet
+    operator <name>           Auto-open a new Meet, join as that bot
+    operator setup            Create a new roster bot (wizard)
+    operator list             Show available roster bots
+    operator                  Print usage + roster list
 """
-import argparse
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+_ROOT = Path(__file__).parent
+_ROSTER_DIR = _ROOT / "roster"
 
 
 # ── Prevent Ctrl+C from killing child processes ────────────────────
@@ -129,48 +134,125 @@ def _print_mcp_startup_banner(mcp):
     print(f"MCP: {loaded}/{total} servers loaded ({', '.join(parts)}){suffix}", file=_sys.stderr)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        prog="operator",
-        description="Operator — AI meeting participant",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "macOS: meeting URL is not required — Operator monitors your calendar\n"
-            "       via Google Calendar and joins automatically.\n\n"
-            "Linux: meeting URL is required."
-        ),
+def _available_bots():
+    if not _ROSTER_DIR.exists():
+        return []
+    return sorted(
+        p.name for p in _ROSTER_DIR.iterdir()
+        if p.is_dir() and (p / "config.yaml").exists()
     )
-    parser.add_argument(
-        "meeting_url",
-        nargs="?",
-        metavar="MEET_URL",
-        help="Google Meet URL to join (required on Linux)",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Kill any existing Operator session and start a new one",
-    )
-    parser.add_argument(
-        "--check-mcp",
-        action="store_true",
-        help="Validate MCP server config: start each server, list tools, then exit. No meeting join.",
-    )
-    args = parser.parse_args()
 
-    if args.check_mcp:
-        sys.exit(_check_mcp())
+
+def _bot_tagline(name):
+    readme = _ROSTER_DIR / name / "README.md"
+    if not readme.exists():
+        return ""
+    lines = readme.read_text().splitlines()
+    seen_h1 = False
+    for line in lines:
+        stripped = line.strip()
+        if not seen_h1:
+            if stripped.startswith("# "):
+                seen_h1 = True
+            continue
+        if stripped and not stripped.startswith("#"):
+            return stripped
+    return ""
+
+
+def _print_usage():
+    print("Usage:")
+    print("  operator <name> [url]     Run a roster bot in a Meet")
+    print("  operator <name>           Auto-open a new Meet, join as that bot")
+    print("  operator setup            Create a new roster bot (wizard)")
+    print("  operator list             Show available bots")
+    print()
+    bots = _available_bots()
+    if bots:
+        print("Available bots:")
+        for b in bots:
+            tag = _bot_tagline(b)
+            print(f"  {b:<12} {tag}")
+
+
+def _run_list():
+    bots = _available_bots()
+    if not bots:
+        print("No roster bots found.")
+        return 0
+    for b in bots:
+        tag = _bot_tagline(b)
+        print(f"  {b:<12} {tag}")
+    return 0
+
+
+def _run_setup(rest):
+    print("operator setup — wizard not yet implemented (Phase 15.5.5).")
+    print("For now, create a new bot by copying roster/pm/ and editing it.")
+    return 0
+
+
+def main():
+    argv = sys.argv[1:]
+
+    if not argv or argv[0] in ("-h", "--help"):
+        _print_usage()
+        return 0
+
+    first = argv[0]
+
+    if first == "setup":
+        return _run_setup(argv[1:])
+    if first == "list":
+        return _run_list()
+
+    if first.startswith("-"):
+        print(f"Unknown option: {first}\n")
+        _print_usage()
+        return 2
+
+    if first not in _available_bots():
+        print(f"Unknown bot or subcommand: {first!r}\n")
+        _print_usage()
+        return 2
+
+    return _run_bot(first, argv[1:])
+
+
+def _run_bot(name, rest):
+    url = None
+    force = False
+    check_mcp = False
+    for arg in rest:
+        if arg == "--force":
+            force = True
+        elif arg == "--check-mcp":
+            check_mcp = True
+        elif arg.startswith("-"):
+            print(f"Unknown flag: {arg}")
+            return 2
+        elif url is None:
+            url = arg
+        else:
+            print(f"Unexpected argument: {arg}")
+            return 2
+
+    # MUST be set before any `import config` fires in the pipeline modules.
+    os.environ["OPERATOR_BOT"] = name
+
+    if check_mcp:
+        return _check_mcp()
 
     if sys.platform == "darwin":
-        _run_macos(args.meeting_url, force=args.force)
+        _run_macos(url, force=force)
     else:
-        _run_linux(args.meeting_url, force=args.force)
+        _run_linux(url, force=force)
+    return 0
 
 
 def _run_macos(meeting_url=None, force=False):
-    """Run on macOS — calendar polling or direct URL."""
+    """Run on macOS — direct URL or meet.new auto-launch."""
     import logging
-    import queue
     import signal
     import threading as _threading
     import time as _time
@@ -205,29 +287,27 @@ def _run_macos(meeting_url=None, force=False):
     skills = load_skills(config.SKILLS_PATHS)
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
 
-    # Captions → MeetingRecord wiring.
-    #
-    # The JS bridge (window.__onCaption) is exposed by MacOSAdapter at browser
-    # startup whenever config.CAPTIONS_ENABLED is true, so set_caption_callback
-    # is safe to call before OR after connector.join(). Direct-URL mode wires
-    # the finalizer up-front here. Calendar mode wires per-meeting once a URL
-    # arrives via the calendar queue (see runner.run_polling), reusing the
-    # already-exposed bridge.
-    meeting_record = None
-    transcript_finalizer = None
-    if config.CAPTIONS_ENABLED and meeting_url:
+    # Captions → MeetingRecord wiring. The JS bridge (window.__onCaption) is
+    # exposed by MacOSAdapter at browser startup whenever config.CAPTIONS_ENABLED
+    # is true, so set_caption_callback is safe to call before OR after
+    # connector.join(). meet.new mode late-binds after the URL resolves.
+    def _wire_meeting_record(url):
+        if not config.CAPTIONS_ENABLED:
+            return None, None
         from pipeline.meeting_record import MeetingRecord, slug_from_url
         from pipeline.transcript import TranscriptFinalizer
-        slug = slug_from_url(meeting_url)
-        meeting_record = MeetingRecord(slug=slug, meta={"meet_url": meeting_url})
-        llm.set_record(meeting_record)
-        transcript_finalizer = TranscriptFinalizer(
-            meeting_record, silence_seconds=config.CAPTION_SILENCE_SECONDS
-        )
-        connector.set_caption_callback(transcript_finalizer.on_caption_update)
+        slug = slug_from_url(url)
+        record = MeetingRecord(slug=slug, meta={"meet_url": url})
+        llm.set_record(record)
+        finalizer = TranscriptFinalizer(record, silence_seconds=config.CAPTION_SILENCE_SECONDS)
+        connector.set_caption_callback(finalizer.on_caption_update)
         log.info("captions enabled — transcript will be appended to meeting record")
-    elif config.CAPTIONS_ENABLED:
-        log.info("captions enabled — bridge will expose at browser startup; calendar runner wires per-meeting finalizer")
+        return record, finalizer
+
+    meeting_record = None
+    transcript_finalizer = None
+    if meeting_url:
+        meeting_record, transcript_finalizer = _wire_meeting_record(meeting_url)
 
     # Start MCP connection in background while browser joins
     _mcp_result = {"client": None}
@@ -249,6 +329,18 @@ def _run_macos(meeting_url=None, force=False):
         mcp_thread = None
 
     connector.join(meeting_url)
+
+    # meet.new mode: wait for the browser to redirect and publish the real URL.
+    if meeting_url is None:
+        meeting_url = connector.wait_for_resolved_url(timeout=45)
+        if not meeting_url:
+            log.error("meet.new did not produce a meeting URL — exiting")
+            connector.leave()
+            _kill_orphaned_children()
+            return
+        log.info(f"meet.new resolved to {meeting_url}")
+        print(f"Fresh meeting: {meeting_url}")
+        meeting_record, transcript_finalizer = _wire_meeting_record(meeting_url)
 
     mcp = None
     if mcp_thread:
@@ -273,7 +365,6 @@ def _run_macos(meeting_url=None, force=False):
         skills_progressive=config.SKILLS_PROGRESSIVE_DISCLOSURE,
     )
 
-    poller = None
     _shutdown_called = False
 
     def _shutdown(signum=None, frame=None):
@@ -296,8 +387,6 @@ def _run_macos(meeting_url=None, force=False):
             transcript_finalizer.stop()
         if mcp:
             mcp.shutdown()
-        if poller:
-            poller.stop()
         connector.leave()
         _kill_orphaned_children()
 
@@ -305,20 +394,10 @@ def _run_macos(meeting_url=None, force=False):
     signal.signal(signal.SIGINT, _shutdown)
 
     try:
-        if meeting_url:
-            log.info(f"Starting Operator — joining {meeting_url}")
-            runner.run(meeting_url)
-            if not runner._stop_event.is_set():
-                print(f"\n   Restart with: python __main__.py {meeting_url}\n")
-        else:
-            from pipeline.calendar_poller import CalendarPoller
-            meeting_queue = queue.Queue()
-            poller = CalendarPoller(
-                meeting_queue,
-                is_busy=lambda: runner._in_meeting,
-            )
-            poller.start()
-            runner.run_polling(meeting_queue)
+        log.info(f"Starting Operator — joining {meeting_url}")
+        runner.run(meeting_url)
+        if not runner._stop_event.is_set():
+            print(f"\n   Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}\n")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
@@ -339,9 +418,10 @@ def _run_linux(meeting_url, force=False):
     if not meeting_url:
         meeting_url = os.environ.get("MEETING_URL")
     if not meeting_url:
+        bot = os.environ.get("OPERATOR_BOT", "<name>")
         print("\n❌ A meeting URL is required on Linux:\n")
-        print("   python __main__.py <meet-url>")
-        print("   MEETING_URL=<url> python __main__.py\n")
+        print(f"   operator {bot} <meet-url>")
+        print(f"   MEETING_URL=<url> operator {bot}\n")
         sys.exit(1)
 
     display = os.environ.get("DISPLAY")
@@ -418,7 +498,7 @@ def _run_linux(meeting_url, force=False):
     try:
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            print(f"\n   Restart with: python __main__.py {meeting_url}\n")
+            print(f"\n   Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}\n")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
@@ -426,4 +506,4 @@ def _run_linux(meeting_url, force=False):
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
