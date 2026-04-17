@@ -55,16 +55,28 @@ def test_meeting_record_tail_roundtrip(tmp_dir=None):
         r.append("Bob", "sup")
         entries = r.tail(10)
         chat = [e for e in entries if e.get("kind") == "chat"]
-        meta = [e for e in entries if e.get("kind") == "meta"]
-        assert len(chat) == 3 and len(meta) == 1
-        assert meta[0]["meet_url"] == "https://meet.google.com/test-slug"
+        assert len(chat) == 3
         assert chat[0]["sender"] == "Alice" and chat[0]["text"] == "hi"
         assert chat[2]["sender"] == "Bob" and chat[2]["text"] == "sup"
-        # Reopening must NOT rewrite the header
+        # Meta header is written once on first open; verify by reading raw.
+        raw_first = (Path(tmp) / "test-slug.jsonl").read_text().splitlines()
+        meta_lines = [ln for ln in raw_first if '"kind": "meta"' in ln]
+        assert len(meta_lines) == 1
+        assert "https://meet.google.com/test-slug" in meta_lines[0]
+        # Reopening must NOT rewrite the header, and must NOT replay the
+        # prior session's entries via tail() — the LLM would echo stale
+        # answers instead of calling tools. Only this run's own appends
+        # are visible to tail().
         r2 = MeetingRecord(slug="test-slug", root=Path(tmp))
         entries2 = r2.tail(10)
-        assert sum(1 for e in entries2 if e.get("kind") == "meta") == 1
-        assert [e["text"] for e in entries2 if e.get("kind") == "chat"] == ["hi", "hello", "sup"]
+        assert sum(1 for e in entries2 if e.get("kind") == "meta") <= 1
+        assert [e["text"] for e in entries2 if e.get("kind") == "chat"] == []
+        r2.append("Carol", "fresh")
+        assert [e["text"] for e in r2.tail(10) if e.get("kind") == "chat"] == ["fresh"]
+        # The raw JSONL still holds the prior session — tail just scopes it.
+        raw = (Path(tmp) / "test-slug.jsonl").read_text().splitlines()
+        assert any('"text": "hi"' in ln for ln in raw)
+        assert sum(1 for ln in raw if '"session_start"' in ln) == 2
     print("  meeting record roundtrip: PASS")
 
 

@@ -74,6 +74,15 @@ class MeetingRecord:
                     f.write(json.dumps(header, ensure_ascii=False) + "\n")
             except OSError as e:
                 log.warning(f"MeetingRecord header write failed: {e}")
+        # Session-boundary marker. tail() only replays entries after the
+        # most recent marker, so the LLM never sees prior runs' assistant
+        # answers and stops short-circuiting tool calls by echoing them.
+        boundary = {"kind": "session_start", "timestamp": time.time()}
+        try:
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(boundary, ensure_ascii=False) + "\n")
+        except OSError as e:
+            log.warning(f"MeetingRecord session_start write failed: {e}")
         log.info(f"MeetingRecord opened {self.path}")
 
     def append(self, sender: str, text: str, kind: str = "chat",
@@ -96,7 +105,12 @@ class MeetingRecord:
         return entry
 
     def tail(self, n: int) -> list[dict]:
-        """Return the last n entries, oldest first."""
+        """Return the last n entries from the current session, oldest first.
+
+        Scoped to entries after the most recent `session_start` marker —
+        prior sessions leaked their assistant replies into the LLM prompt
+        and caused the model to echo stale answers instead of calling tools.
+        """
         if n <= 0:
             return []
         if self.path is None or not self.path.exists():
@@ -108,13 +122,18 @@ class MeetingRecord:
         except OSError as e:
             log.warning(f"MeetingRecord tail read failed: {e}")
             return []
-        entries: list[dict] = []
-        for line in lines[-n:]:
+        parsed: list[dict] = []
+        for line in lines:
             line = line.strip()
             if not line:
                 continue
             try:
-                entries.append(json.loads(line))
+                parsed.append(json.loads(line))
             except json.JSONDecodeError:
                 log.warning(f"MeetingRecord skipping malformed line: {line[:80]!r}")
-        return entries
+        start_idx = 0
+        for i in range(len(parsed) - 1, -1, -1):
+            if parsed[i].get("kind") == "session_start":
+                start_idx = i + 1
+                break
+        return parsed[start_idx:][-n:]
