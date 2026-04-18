@@ -7,8 +7,12 @@ completion format, and maps OpenAI's context_length_exceeded error into
 the provider-agnostic ContextOverflowError.
 """
 import json
+import logging
+import time
 
 import openai
+
+log = logging.getLogger(__name__)
 
 from pipeline.providers.base import (
     LLMProvider,
@@ -71,12 +75,27 @@ class OpenAIProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
             kwargs["parallel_tool_calls"] = False
+        t_start = time.monotonic()
         try:
             response = self._client.chat.completions.create(**kwargs)
         except openai.BadRequestError as e:
             if getattr(e, "code", None) == "context_length_exceeded":
                 raise ContextOverflowError() from e
             raise
+
+        elapsed = time.monotonic() - t_start
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            inp = getattr(usage, "prompt_tokens", 0) or 0
+            out_tok = getattr(usage, "completion_tokens", 0) or 0
+            # OpenAI surfaces cached prefix tokens via prompt_tokens_details.cached_tokens.
+            details = getattr(usage, "prompt_tokens_details", None)
+            cache_read = getattr(details, "cached_tokens", 0) if details else 0
+            cache_pct = (cache_read * 100 // inp) if inp else 0
+            log.info(
+                f"TIMING llm_call={elapsed:.1f}s "
+                f"TOKENS in={inp} cache_read={cache_read} out={out_tok} cache_hit={cache_pct}%"
+            )
 
         choice = response.choices[0]
         message = choice.message

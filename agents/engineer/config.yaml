@@ -30,6 +30,13 @@ llm:
     Use a person's name only when greeting them for the first time.
     Messages prefixed with [spoken] are live captions — ambient context, not addressed to you.
 
+    Tool routing: github__* tools are for inspecting REMOTE repositories on
+    github.com (that the user explicitly names by owner/repo). Never use them
+    to look at files in the current working directory, the Operator codebase,
+    or any local path. For any local file operation — reading, writing,
+    verifying, running, counting files, inspecting directories — delegate to
+    Claude Code. When in doubt between the two, prefer delegate.
+
 connector:
   browser_profile_dir: "./browser_profile"
   auth_state_file: "./auth_state.json"
@@ -99,6 +106,11 @@ mcp_servers:
     description: "spin up a Claude Code instance to write code for you, from inside the meeting"
     command: "python"
     args: ["agents/engineer/delegate_to_claude_code.py"]
+    env:
+      # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
+      # file edits auto-run, Bash is blocked. Operator confirm-gates each
+      # delegate call either way, and --worktree isolates file changes.
+      DELEGATE_PERMISSION_MODE: "bypassPermissions"
     read_tools: []     # delegate_to_claude_code is a write — always confirm
     confirm_tools: []
     hints: |

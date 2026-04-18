@@ -56,7 +56,7 @@ _PM_CONFIG = _AGENTS_DIR / "pm" / "config.yaml"
 
 # Subcommand verbs the CLI reserves — a from-scratch bot can't use them as
 # a name because `operator <reserved>` would never dispatch to the bot.
-RESERVED_NAMES = {"setup", "list"}
+RESERVED_NAMES = {"setup", "list", "try"}
 # Lowercase start-with-letter, alphanumeric + dash/underscore, up to 32 chars.
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 

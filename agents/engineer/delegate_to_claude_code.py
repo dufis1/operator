@@ -19,6 +19,7 @@ Already wired under agents/engineer/config.yaml → mcp_servers.delegate:
 
 import asyncio
 import json
+import os
 import shutil
 
 from mcp.server import Server
@@ -78,7 +79,13 @@ async def call_tool(name: str, arguments: dict):
             )
         ]
 
-    cmd = [claude_path, "-p", task, "--worktree", "--output-format", "json"]
+    # bypassPermissions = Claude Code auto-approves every tool (incl. Bash). Safe
+    # default here because the Operator layer already confirm-gates each delegate
+    # call, and --worktree isolates file changes to a throwaway branch. Users who
+    # want a tighter sandbox can set DELEGATE_PERMISSION_MODE=acceptEdits in their
+    # agent config (file edits auto-run, Bash is blocked).
+    permission_mode = os.environ.get("DELEGATE_PERMISSION_MODE", "bypassPermissions")
+    cmd = [claude_path, "-p", task, "--worktree", "--permission-mode", permission_mode, "--output-format", "json"]
 
     try:
         proc = await asyncio.create_subprocess_exec(

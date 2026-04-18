@@ -23,7 +23,10 @@ is Claude-specific. Swap the model in `config.yaml` and the same skills work.
 # 1. Fill in your API keys in .env
 #    (see the agent's README for which keys it needs)
 
-# 2. Run — name the bot you want, optionally pass a Meet URL
+# 2. (Optional) Test-drive it in terminal before joining a Meet
+operator try engineer                                  # chat in-terminal, no Meet
+
+# 3. Run — name the bot you want, optionally pass a Meet URL
 operator engineer https://meet.google.com/xxx-yyyy-zzz
 operator engineer                                      # auto-opens meet.new
 operator list                                          # show all bots

@@ -417,6 +417,7 @@ class ChatRunner:
     def _execute_and_respond(self, tc):
         """Execute a tool call in a background thread with heartbeat + timeout, then feed result to LLM."""
         log.info(f"ChatRunner: auto-executing {tc['name']}")
+        t_exec_start = time.monotonic()
         result_holder = [None]
         error_holder = [None]
         done_event = threading.Event()
@@ -449,29 +450,36 @@ class ChatRunner:
 
         if timed_out:
             log.error(f"ChatRunner: tool {tc['name']} timed out after {hard_timeout}s")
-            self._send(f"That took too long — no response after {hard_timeout}s. Try again.")
             self._record_mcp_outcome(tc["name"], success=False)
-            try:
-                self._llm.send_tool_result(
-                    tc["id"], tc["name"], f"Error: tool call timed out after {hard_timeout}s")
-            except Exception:
-                pass
+            self._handle_tool_failure(
+                tc,
+                f"The tool call timed out after {hard_timeout} seconds with no response. "
+                f"Tell the user plainly that it timed out, note that this often means the "
+                f"service is slow or the task is too large, and suggest a narrower request.",
+                fallback=f"That took too long — no response after {hard_timeout}s. Try a narrower request, or retry.",
+            )
             return
 
         if error_holder[0]:
             e = error_holder[0]
             log.error(f"ChatRunner: tool execution failed: {e}")
-            self._send("Sorry, that tool call failed. Check the logs for details.")
             self._record_mcp_outcome(tc["name"], success=False)
-            try:
-                self._llm.send_tool_result(tc["id"], tc["name"], f"Error: {e}")
-            except Exception:
-                pass
+            self._handle_tool_failure(
+                tc,
+                f"The tool call failed with this error: {e}\n\n"
+                f"Tell the user what went wrong in one short sentence (reference the "
+                f"specific cause from the error — 404, auth, network, missing arg, etc.), "
+                f"and suggest one concrete next step. Do not say 'check the logs'.",
+                fallback=f"That tool call failed: {str(e)[:200]}",
+            )
             return
 
         self._record_mcp_outcome(tc["name"], success=True)
 
         tool_result = result_holder[0]
+        tool_elapsed = time.monotonic() - t_exec_start
+        result_size = len(tool_result) if isinstance(tool_result, str) else 0
+        log.info(f"TIMING tool_exec={tool_elapsed:.1f}s name={tc['name']} result_bytes={result_size}")
 
         # Feed result back to LLM — it may summarize or request another tool
         try:
@@ -482,6 +490,25 @@ class ChatRunner:
             self._send("Tool succeeded but I couldn't summarize the result.")
             return
 
+        self._dispatch_result(result)
+
+    def _handle_tool_failure(self, tc, error_signpost: str, fallback: str):
+        """Let the LLM author the user-facing failure message.
+
+        Signposts the tool result with the error + instructions (plain summary +
+        suggested next step) and dispatches the follow-up. If the follow-up LLM
+        call itself fails (rate limit, network), falls back to a terse one-liner
+        so the user is never left silent.
+        """
+        try:
+            tools = self._tools_for_llm()
+            result = self._llm.send_tool_result(
+                tc["id"], tc["name"], error_signpost, tools=tools,
+            )
+        except Exception as llm_err:
+            log.error(f"ChatRunner: LLM error-summary call failed: {llm_err}")
+            self._send(fallback)
+            return
         self._dispatch_result(result)
 
     def _send(self, text):

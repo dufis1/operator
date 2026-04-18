@@ -5,6 +5,7 @@ Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
 Usage:
     operator <name> <url>     Run named agent in a specific Meet
     operator <name>           Auto-open a new Meet, join as that bot
+    operator try <name>       Terminal test-drive (no Meet)
     operator setup            Create a new agent (wizard)
     operator list             Show available agents
     operator                  Print usage + agent list
@@ -228,6 +229,7 @@ def _print_usage():
     print("Usage:")
     print("  operator <name> [url]     Run an agent in a Meet")
     print("  operator <name>           Auto-open a new Meet, join as that bot")
+    print("  operator try <name>       Terminal test-drive (no Meet)")
     print("  operator setup            Create a new agent (wizard)")
     print("  operator list             Show available bots")
     print()
@@ -273,6 +275,12 @@ def main():
         return _run_setup(argv[1:])
     if first == "list":
         return _run_list()
+    if first == "try":
+        if len(argv) < 2:
+            print("Usage: operator try <name>\n")
+            _print_usage()
+            return 2
+        return _run_try(argv[1])
 
     if first.startswith("-"):
         print(f"Unknown option: {first}\n")
@@ -285,6 +293,111 @@ def main():
         return 2
 
     return _run_bot(first, argv[1:])
+
+
+def _run_try(name):
+    """Terminal test-drive — boot the full pipeline (LLM + MCP + skills) against
+    a stdin/stdout connector instead of a Meet. Mirrors _run_macos up to the
+    browser join, but synchronous MCP startup (no browser to overlap with) and
+    a plain 'chat ready' banner on stderr.
+    """
+    if name not in _available_bots():
+        print(f"Unknown bot: {name!r}\n")
+        _print_usage()
+        return 2
+
+    # Must land before any `import config`.
+    os.environ["OPERATOR_BOT"] = name
+
+    import logging
+    import signal
+    import time as _time
+
+    logging.basicConfig(
+        filename="/tmp/operator.log",
+        level=logging.DEBUG,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+    )
+    # Keep stderr clean — terminal UX is the chat itself. Logs stay in /tmp/operator.log.
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
+
+    log = logging.getLogger("operator")
+
+    import config
+    from connectors.terminal import TerminalConnector
+    from pipeline.chat_runner import ChatRunner
+    from pipeline.llm import LLMClient
+    from pipeline.meeting_record import MeetingRecord
+    from pipeline.providers import build_provider
+    from pipeline.skills import load_skills
+
+    skills = load_skills(config.SKILLS_PATHS)
+    _print_startup_banner(skills, plain=False)
+
+    llm = LLMClient(build_provider())
+    llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
+
+    mcp = None
+    if config.MCP_SERVERS:
+        from pipeline.mcp_client import MCPClient
+        mcp = MCPClient()
+        try:
+            mcp.connect_all()
+            llm.inject_mcp_hints(config.MCP_SERVERS)
+            loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
+            llm.inject_mcp_status(loaded, mcp.failed_servers)
+            gh_login = mcp.resolve_github_user()
+            if gh_login:
+                llm.inject_github_user(gh_login)
+        except Exception as e:
+            log.error(f"MCP client startup failed: {e}")
+            mcp = None
+
+    connector = TerminalConnector(bot_name=config.AGENT_NAME)
+    slug = f"terminal-{int(_time.time())}"
+    record = MeetingRecord(slug=slug, meta={"mode": "terminal", "bot": name})
+    llm.set_record(record)
+
+    print("\nchat ready — type to message, /quit or Ctrl+D to exit\n", file=sys.stderr)
+
+    runner = ChatRunner(
+        connector,
+        llm,
+        mcp_client=mcp,
+        meeting_record=record,
+        skills=skills,
+        skills_progressive=config.SKILLS_PROGRESSIVE_DISCLOSURE,
+    )
+
+    _shutdown_called = False
+
+    def _shutdown(signum=None, frame=None):
+        nonlocal _shutdown_called
+        if _shutdown_called:
+            return
+        _shutdown_called = True
+        if signum:
+            log.info(f"Received signal {signum} — shutting down")
+        runner.stop()
+        if mcp:
+            mcp.shutdown()
+        connector.leave()
+        _kill_orphaned_children()
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+
+    try:
+        runner.run(meeting_url=None)
+    except KeyboardInterrupt:
+        log.info("Interrupted — exiting terminal test-drive")
+    finally:
+        _shutdown()
+        print("Goodbye.", file=sys.stderr)
+    return 0
 
 
 def _run_bot(name, rest):

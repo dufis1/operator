@@ -7,6 +7,7 @@ Anthropic's Messages API format, and maps Anthropic's "prompt is too
 long" BadRequestError into the provider-agnostic ContextOverflowError.
 """
 import logging
+import time
 
 import anthropic
 
@@ -140,6 +141,7 @@ class AnthropicProvider(LLMProvider):
             # tool_use blocks would leave later ids orphaned and trip a 400.
             # Mirror OpenAI's parallel_tool_calls=False. Revisit post-MVP.
             kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
+        t_start = time.monotonic()
         try:
             response = self._client.messages.create(**kwargs)
         except anthropic.BadRequestError as e:
@@ -158,6 +160,21 @@ class AnthropicProvider(LLMProvider):
                 itpm, reset,
             )
             raise
+
+        elapsed = time.monotonic() - t_start
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+            cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            inp = getattr(usage, "input_tokens", 0) or 0
+            out_tok = getattr(usage, "output_tokens", 0) or 0
+            total_in = inp + cache_read + cache_create
+            cache_pct = (cache_read * 100 // total_in) if total_in else 0
+            log.info(
+                f"TIMING llm_call={elapsed:.1f}s "
+                f"TOKENS in={inp} cache_read={cache_read} cache_create={cache_create} "
+                f"out={out_tok} cache_hit={cache_pct}%"
+            )
 
         return _anthropic_response_to_neutral(response)
 

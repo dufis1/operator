@@ -164,7 +164,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 13.1 | Config audit & cleanup — remove dead keys, ensure every key is necessary, document what each controls | ✅ (session 123) | ~2h |
+| 13.1 | Config audit & cleanup — remove dead keys, ensure every key is necessary, document what each controls | ⬜ (session 124: user flagged as incomplete — revisit before Phase 13 kickoff) | ~2h |
 | 13.2 | Log cleanup — structured, consistent log levels; clean stdout for normal operation (no debug spam, no stack traces for expected errors), verbose debug stays in `/tmp/operator.log` | ⬜ | ~2h |
 
 **Phase total: ~4h**
