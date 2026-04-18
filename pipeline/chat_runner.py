@@ -202,8 +202,13 @@ class ChatRunner:
 
                 # Persist every observed chat message to the meeting record —
                 # this is the single source of truth the LLM replays from.
+                # When a tool confirmation is pending, this message is a reply
+                # to the harness ("ok"/"no"), not a turn in the real conversation.
+                # Tag it `confirmation` so it's audited but filtered out of the
+                # LLM prompt (pipeline/llm.py only replays kind in {chat, caption}).
+                msg_kind = "confirmation" if self._pending_tool_call else "chat"
                 if self._record is not None:
-                    self._record.append(sender=sender, text=text, kind="chat")
+                    self._record.append(sender=sender, text=text, kind=msg_kind)
 
                 # If we're waiting for tool confirmation, any message is a response
                 if self._pending_tool_call:
@@ -337,7 +342,7 @@ class ChatRunner:
             msg += f" via {display_server}"
         msg += f" with: {arg_summary}. OK?"
         log.info(f"ChatRunner: requesting confirmation for {name}")
-        self._send(msg)
+        self._send(msg, kind="confirmation")
 
     def _handle_confirmation(self, text):
         """Process user's yes/no response to a pending tool call."""
@@ -511,11 +516,18 @@ class ChatRunner:
             return
         self._dispatch_result(result)
 
-    def _send(self, text):
-        """Send a chat message, append it to the meeting record, and track it as our own."""
+    def _send(self, text, kind: str = "chat"):
+        """Send a chat message, append it to the meeting record, and track it as our own.
+
+        `kind` is persisted to the record but filtered by `pipeline/llm.py` when
+        building the LLM prompt (only `chat` and `caption` are replayed).
+        Harness plumbing — tool-confirmation prompts — passes `kind="confirmation"`
+        so it's audited but invisible to the model (prevents the model from
+        mimicking the harness's own wording back at the user).
+        """
         self._own_messages.add(text)
         if self._record is not None:
-            self._record.append(sender=config.AGENT_NAME, text=text, kind="chat")
+            self._record.append(sender=config.AGENT_NAME, text=text, kind=kind)
         try:
             self._connector.send_chat(text)
         except Exception as e:
