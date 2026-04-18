@@ -169,7 +169,7 @@ def _prompt_name() -> str:
         ok, reason = _validate_name(raw)
         if ok:
             return raw.lower()
-        console.print(f"  [red]✗ {reason}[/red]")
+        console.print(f"  ✗ {reason}")
 
 
 def _bot_tagline(name: str) -> str:
@@ -234,20 +234,16 @@ def _preset_preview(name: str, tagline: str) -> RenderableType:
 
 def _from_scratch() -> WizardState:
     name = _prompt_name()
-    display = Prompt.ask("  [bold]display name[/bold] (shown in the banner)", default=name.capitalize())
-    trigger = Prompt.ask("  [bold]trigger phrase[/bold]", default="@operator")
-    tagline = Prompt.ask("  [bold]tagline[/bold] (one line, under ~60 chars)", default="")
-    user_display = Prompt.ask(
-        "  [bold]your display name[/bold] (as it appears in Google Meet)",
-        default="Your Name",
-    )
+    tagline = Prompt.ask("  [bold]tagline[/bold]", default="", show_default=False)
+    display = name
+    trigger = f"@{name}"
 
     cfg = _load_yaml(_PM_CONFIG)
     cfg.setdefault("agent", {})
     cfg["agent"]["name"] = display
     cfg["agent"]["trigger_phrase"] = trigger
     cfg["agent"]["tagline"] = tagline
-    cfg["agent"]["user_display_name"] = user_display
+    cfg["agent"].pop("user_display_name", None)
 
     # From-scratch baseline: every MCP block starts disabled. The user
     # flips on what they want in Step 2.
@@ -375,11 +371,11 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
             continue
         if not _is_valid_skill_source(resolved):
             console.print(
-                f"    [red]✗ {resolved} is not a SKILL.md folder, a parent of one, or a .md file[/red]"
+                f"    ✗ {resolved} is not a SKILL.md folder, a parent of one, or a .md file"
             )
             continue
         state.user_sources.append(resolved)
-        console.print(f"    [green]✓ added[/green] {resolved}")
+        console.print(f"    ✓ added {resolved}")
 
 
 def _is_valid_skill_source(path: Path) -> bool:
@@ -459,7 +455,7 @@ def _step4_api_keys(needed: set[str]) -> None:
         return
 
     _append_env(_ENV_FILE, new_values)
-    console.print(f"  [green]✓ appended {len(new_values)} key(s) to .env[/green]")
+    console.print(f"  ✓ appended {len(new_values)} key(s) to .env")
 
 
 def _parse_env(path: Path) -> dict[str, str]:
@@ -551,7 +547,7 @@ def _step5_write(state: WizardState) -> Path:
     if backup and backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
 
-    console.print(f"  [green]✓ agents/{state.name}/[/green]")
+    console.print(f"  ✓ agents/{state.name}/")
     return target
 
 
@@ -601,7 +597,7 @@ def _reveal(state: WizardState) -> None:
         state.name, _AGENTS_DIR / state.name / "portrait.txt",
     )
     console.print()
-    console.print("[bold magenta]✨ bot reveal 🎁[/bold magenta]")
+    console.print("[bold]✨ bot reveal 🎁[/bold]")
     console.print(state.card(title=f"Meet {state.name}"))
 
 
@@ -611,7 +607,7 @@ def _reveal(state: WizardState) -> None:
 def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
-    console.print("[bold magenta]Operator setup wizard[/bold magenta]")
+    console.print("[bold]Operator setup wizard[/bold]")
     console.print("[dim]Five steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
@@ -627,19 +623,19 @@ def run(argv: list[str]) -> int:
         _step4_api_keys(envs)
 
         console.print()
-        console.input("  [bold magenta]Press Enter to reveal your bot ✨🎁[/bold magenta] ")
+        console.input("  [bold]Press Enter to reveal your bot ✨🎁[/bold] ")
 
         console.clear()
         _step5_write(state)
         _reveal(state)
     except (KeyboardInterrupt, PickerCancelled, WizardCancel):
-        console.print("\n[yellow]Cancelled.[/yellow]")
+        console.print("\nCancelled.")
         return 1
     except Exception as e:
-        console.print(f"\n[red]✗ setup failed: {e}[/red]")
+        console.print(f"\n✗ setup failed: {e}")
         raise
 
-    console.print(f"\n[bold green]Done.[/bold green] Try it: [bold]operator {state.name}[/bold]\n")
+    console.print(f"\n[bold]Done.[/bold] Try it: [bold]operator {state.name}[/bold]\n")
     return 0
 
 

@@ -75,7 +75,7 @@ def _render_rows(
         if checked is not None:
             check_glyph = "[✓] " if checked[i] else "[ ] "
         line = Text()
-        line.append(cursor_glyph, style="bold cyan" if is_cursor else "")
+        line.append(cursor_glyph, style="bold" if is_cursor else "")
         line.append(check_glyph)
         line.append(ch.label, style="bold" if is_cursor else "")
         body.append(line)
