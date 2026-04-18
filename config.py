@@ -33,7 +33,6 @@ _config = yaml.safe_load(_cfg_path.read_text())
 # Agent
 AGENT_NAME           = _config["agent"]["name"]
 TRIGGER_PHRASE       = _config["agent"].get("trigger_phrase", "@operator")
-USER_DISPLAY_NAME    = _config["agent"].get("user_display_name", "")
 CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
 ALONE_EXIT_GRACE_SECONDS = _config["agent"].get("alone_exit_grace_seconds", 60)
 FIRST_CONTACT_HINT   = _config["agent"].get("first_contact_hint", "")

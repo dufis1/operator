@@ -114,6 +114,7 @@ class WizardState:
         mcps: list[str] | None = None,
         skills: list[str] | None = None,
         title: str = "Your build",
+        rainbow: bool = False,
     ) -> RenderableType:
         return build_card.render(
             name=self.display_name or self.name or "(unnamed)",
@@ -122,6 +123,7 @@ class WizardState:
             power_ups=mcps if mcps is not None else self.equipped_mcps(),
             skills=skills if skills is not None else self.equipped_skills(),
             title=title,
+            rainbow=rainbow,
         )
 
 
@@ -243,7 +245,6 @@ def _from_scratch() -> WizardState:
     cfg["agent"]["name"] = display
     cfg["agent"]["trigger_phrase"] = trigger
     cfg["agent"]["tagline"] = tagline
-    cfg["agent"].pop("user_display_name", None)
 
     # From-scratch baseline: every MCP block starts disabled. The user
     # flips on what they want in Step 2.
@@ -598,7 +599,7 @@ def _reveal(state: WizardState) -> None:
     )
     console.print()
     console.print("[bold]✨ bot reveal 🎁[/bold]")
-    console.print(state.card(title=f"Meet {state.name}"))
+    console.print(state.card(title=f"Meet {state.name}", rainbow=True))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────

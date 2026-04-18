@@ -28,10 +28,7 @@ access to any Figma file your personal access token can see.
 cp agents/designer/.env.example .env
 # Edit .env with ANTHROPIC_API_KEY and FIGMA_TOKEN
 
-# 2. Update your display name in agents/designer/config.yaml
-#    agent.user_display_name: "Your Name"
-
-# 3. Run — direct URL or auto-open meet.new
+# 2. Run — direct URL or auto-open meet.new
 operator designer https://meet.google.com/xxx-yyyy-zzz
 operator designer
 ```

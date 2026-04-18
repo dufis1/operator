@@ -23,10 +23,7 @@ worktree and reports back.
 cp agents/engineer/.env.example .env
 # Edit .env with your keys
 
-# 2. Update your display name in agents/engineer/config.yaml
-#    agent.user_display_name: "Your Name"
-
-# 3. Run — direct URL or auto-open meet.new
+# 2. Run — direct URL or auto-open meet.new
 operator engineer https://meet.google.com/xxx-yyyy-zzz
 operator engineer
 ```

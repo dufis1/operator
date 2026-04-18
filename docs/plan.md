@@ -29,7 +29,7 @@ Before building the wizard we normalize how "available but not wired" MCPs are e
 
 Two modes:
 
-- **Start from scratch.** Wizard prompts for `agent.name`, `trigger_phrase`, `user_display_name`, `tagline`. Writes to a new `agents/<name>/`. A collision on `<name>` (directory already exists) re-prompts for a different name — state is preserved, wizard does not quit.
+- **Start from scratch.** Wizard prompts for `agent.name` and `tagline`; `trigger_phrase` auto-derives as `@<name>`. Writes to a new `agents/<name>/`. A collision on `<name>` (directory already exists) re-prompts for a different name — state is preserved, wizard does not quit.
 - **Build on a preset.** Render the roster as a picker (face + name + tagline, same visuals as `operator list`). User picks one. **Name and identity are inherited from the preset** — no rename prompt. The wizard operates in edit-in-place mode and rewrites `agents/<preset-name>/`. Also doubles as a "reconfigure an existing bot" tool.
 
 ### Step 2 — Power-ups (MCPs)

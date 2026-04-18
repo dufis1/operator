@@ -12,11 +12,7 @@ Ctrl+C shutdown) are only smoke-checked.
 
 ## Prep
 
-1. Edit `agents/pm/config.yaml` → set `agent.user_display_name` to your
-   Google Meet display name (the template ships with `"Your Name"`). The
-   runtime loads the bot's config directly — no root `config.yaml` to swap.
-
-2. Verify prerequisites:
+1. Verify prerequisites:
 
    ```bash
    ls github-mcp-server                           # GH MCP binary at repo root
@@ -24,10 +20,10 @@ Ctrl+C shutdown) are only smoke-checked.
    which npx                                      # Linear MCP uses npx + mcp-remote
    ```
 
-3. **Turn captions ON in Google Meet before joining** (CC button in the Meet
+2. **Turn captions ON in Google Meet before joining** (CC button in the Meet
    toolbar). Bundle's config expects captions; without them, T2/T6 will fail.
 
-4. Pick the fresh meeting URL: `https://meet.google.com/tfb-tpnb-kpw`.
+3. Pick the fresh meeting URL: `https://meet.google.com/tfb-tpnb-kpw`.
 
 5. Terminal A — start Operator:
 

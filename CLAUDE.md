@@ -86,7 +86,7 @@ Pipeline (platform-agnostic)
 ### Configuration
 
 Every run names an agent explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. Top-level blocks:
-- `agent` — `name`, `trigger_phrase`, `user_display_name`, `conversation_timeout`, `alone_exit_grace_seconds`, `first_contact_hint`
+- `agent` — `name`, `trigger_phrase`, `conversation_timeout`, `alone_exit_grace_seconds`, `first_contact_hint`, `tagline`
 - `llm` — `provider` (`openai` | `anthropic`), `model`, `system_prompt`, `history_messages` (tail size replayed from the meeting record), `max_tokens`, `tool_result_max_chars`, `tool_timeout_seconds`, `tool_heartbeat_seconds`
 - `connector` — `browser_profile_dir`, `auth_state_file`, `idle_timeout_seconds`
 - `mcp_servers` — per-server command, env, hints, and confirm-tool overrides

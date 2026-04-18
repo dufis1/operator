@@ -17,11 +17,7 @@ enabling them requires swapping the MCP server.
 
 ## Prep
 
-1. Edit `agents/designer/config.yaml` → set `agent.user_display_name` to your
-   Google Meet display name (the template ships with `"Your Name"`). The
-   runtime loads the bot's config directly — no root `config.yaml` to swap.
-
-2. Verify prerequisites:
+1. Verify prerequisites:
 
    ```bash
    grep ANTHROPIC_API_KEY .env       # required
@@ -32,13 +28,13 @@ enabling them requires swapping the MCP server.
    The config maps `${FIGMA_TOKEN}` → `FIGMA_API_KEY` in the server's env, so
    a missing or empty `FIGMA_TOKEN` surfaces at T1 as a handshake failure.
 
-3. **Turn captions ON in Google Meet before joining** (CC button in the Meet
+2. **Turn captions ON in Google Meet before joining** (CC button in the Meet
    toolbar). Bundle's config expects captions; without them, T2 + T6 fail.
 
-4. Pick a fresh meeting URL: `https://meet.google.com/xxx-yyyy-zzz`. Use a
+3. Pick a fresh meeting URL: `https://meet.google.com/xxx-yyyy-zzz`. Use a
    new one each run — stale slugs get bounced.
 
-5. Have a Figma file URL ready with a substantive multi-node frame (not a
+4. Have a Figma file URL ready with a substantive multi-node frame (not a
    single-node wrapper image). The `Plant-shop-curved-carousel-(Community)`
    file works well: copy it to your account from Figma Community, then use
    `https://www.figma.com/design/<yourFileKey>/Plant-shop-curved-carousel?node-id=1-2`.

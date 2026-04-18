@@ -10,11 +10,7 @@ MCP generally) are only smoke-checked.
 
 ## Prep
 
-1. Edit `agents/engineer/config.yaml` → set `agent.user_display_name` to your
-   Google Meet display name (the template ships with `"Your Name"`). The new
-   runtime loads the bot's config directly — no root `config.yaml` to swap.
-
-2. Verify prerequisites:
+1. Verify prerequisites:
 
    ```bash
    which claude                # Claude Code CLI on PATH + authenticated
@@ -22,15 +18,15 @@ MCP generally) are only smoke-checked.
    grep -E "ANTHROPIC_API_KEY|GITHUB_TOKEN" .env   # both keys present
    ```
 
-3. Pick a fresh meeting URL so the JSONL starts empty.
+2. Pick a fresh meeting URL so the JSONL starts empty.
 
-4. Terminal A — start Operator:
+3. Terminal A — start Operator:
 
    ```bash
    operator engineer <meet-url>
    ```
 
-5. Terminal B — stream logs:
+4. Terminal B — stream logs:
 
    ```bash
    tail -f /tmp/operator.log
