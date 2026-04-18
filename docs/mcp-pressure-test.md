@@ -1,6 +1,6 @@
 # MCP Pressure Test — Living Document
 
-*Last updated: April 12, 2026 (session 77 — hint validation complete)*
+*Last updated: April 18, 2026 (session 128 — dropped Slack + Brave Search after upstream deprecation)*
 
 Running record of tool discovery, test results, and hints derived for each MCP server.
 Update in place as tests are executed. Hints column feeds directly into `config.yaml` per-server `hints` fields (step 10.11).
@@ -16,8 +16,10 @@ Update in place as tests are executed. Hints column feeds directly into `config.
 | Linear | Remote HTTP via `mcp-remote` | OAuth (token cached) | 31 | Active |
 | GitHub | Local binary (`github-mcp-server` v0.32.0) | PAT (`GITHUB_TOKEN`) | 41 | Active |
 | Notion | stdio via npx | API key (`NOTION_API_KEY`) | — | **Needs auth** |
-| Slack | stdio via npx | Bot token + Team ID | — | **Needs auth** |
-| Brave Search | stdio via npx | API key (`BRAVE_API_KEY`) | — | **Needs auth** |
+| Figma | stdio via npx (GLips) | PAT (`FIGMA_TOKEN`) | 2 | Active (designer) |
+| Delegate | local Python script | — (Claude Code CLI) | 2 | Active (engineer) |
+
+*Slack and Brave Search were dropped from the baseline in session 128 — both upstream `@modelcontextprotocol` packages were deprecated mid-2025. Revisit as a post-launch power-up once actively-maintained community forks are evaluated.*
 
 ---
 
@@ -272,62 +274,3 @@ GitHub hints:
 *To be filled in after testing.*
 
 ---
-
-## Slack (tools TBD)
-
-> **Status: Needs auth.** Enable `slack` block in `config.yaml`, create a Slack App at `api.slack.com/apps`, add `SLACK_BOT_TOKEN` and `SLACK_TEAM_ID` to `.env`, then call `list_tools()`.
-
-### Tool Inventory
-
-*Not yet populated — pending auth setup.*
-
-### Test Matrix
-
-| ID | Description | Type | Status | Fail Mode | Hint Derived |
-|----|-------------|------|--------|-----------|--------------|
-| S1 | List all tools — read vs. write breakdown | Discovery | ⬜ | | |
-| S2 | "Send a message to #general" | Direct | ⬜ | | |
-| S3 | "Tell the team about this" (no channel specified) | Indirect | ⬜ | | |
-| S4 | "DM Sarah about the decision" | Indirect | ⬜ | | |
-| S5 | "Reply in the thread" vs. new message distinction | Edge | ⬜ | | |
-| S6 | Wrong/misspelled channel name | Edge | ⬜ | | |
-| S7 | Channel lookup — by name or requires ID? | Edge | ⬜ | | |
-| S8 | Large message (near Slack's char limit) | Edge | ⬜ | | |
-
-### Fail Modes Found
-
-*Not yet tested.*
-
-### Hints (draft)
-
-*To be filled in after testing.*
-
----
-
-## Brave Search (tools TBD)
-
-> **Status: Needs auth.** Enable `brave_search` block in `config.yaml`, add `BRAVE_API_KEY` to `.env`, then call `list_tools()`.
-
-### Tool Inventory
-
-*Not yet populated — pending auth setup.*
-
-### Test Matrix
-
-| ID | Description | Type | Status | Fail Mode | Hint Derived |
-|----|-------------|------|--------|-----------|--------------|
-| B1 | List all tools — how many, what names? | Discovery | ⬜ | | |
-| B2 | "Search for X" (direct, targeted query) | Direct | ⬜ | | |
-| B3 | "What's the current price of X?" | Indirect | ⬜ | | |
-| B4 | "Find recent news about Y" | Indirect | ⬜ | | |
-| B5 | Very broad query — result size stress | Edge | ⬜ | | |
-| B6 | Very specific niche query returning no results | Edge | ⬜ | | |
-| B7 | Query that needs follow-up (LLM uses result to make another call) | Chained | ⬜ | | |
-
-### Fail Modes Found
-
-*Not yet tested.*
-
-### Hints (draft)
-
-*To be filled in after testing.*

@@ -64,11 +64,58 @@ transcript:
   captions_enabled: false
   silence_seconds: 0.7
 
-# MCP servers — every server engineer could wire is spelled out with an explicit
-# `enabled` flag. `config.py` skips `enabled: false` blocks at load time.
-# Disabled blocks are cloned from pm's baseline so the setup wizard can flip
-# them on without re-authoring env/hints/tools.
+# MCP servers — all shipped bots declare the same full-union scaffold; they
+# differ only in which servers are `enabled: true` by default. `config.py`
+# skips `enabled: false` blocks at load time, so disabled ones are inert at
+# runtime but ready for the `operator setup` wizard to toggle on. Versions
+# are pinned so runtime behavior stays stable through launch; bump
+# deliberately when upstream ships a fix or feature you want.
 mcp_servers:
+  delegate:
+    enabled: true
+    description: "spin up a Claude Code instance to write code for you, from inside the meeting"
+    command: "python"
+    args: ["agents/engineer/delegate_to_claude_code.py"]
+    env:
+      # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
+      # file edits auto-run, Bash is blocked. Operator confirm-gates each
+      # delegate call either way, and --worktree isolates file changes.
+      DELEGATE_PERMISSION_MODE: "bypassPermissions"
+    read_tools: []     # delegate_to_claude_code is a write — always confirm
+    confirm_tools: []
+    hints: |
+      delegate_to_claude_code requires repo_path (absolute local path to a git repo). On the first delegation in a chat, ask the user which repo to work in — do not guess.
+      Reuse the same repo_path for follow-ups (edits, verification, extensions) — Claude Code resumes the sandbox and conversation automatically. Switch repo_path only when the user names a different repo.
+      The task string should be a clear, self-contained instruction. Include file paths, function names, or repo context when the user has provided them.
+      Tool result footer includes [workdir: ...] and [repo: ...] lines — mention the workdir when reporting back so the user knows changes are sandboxed, not in their working tree.
+      After a successful delegation, offer to land the changes with land_worktree_changes (same repo_path) — it applies the sandbox diff into the user's working tree.
+      land_worktree_changes only works after a delegate_to_claude_code call for the same repo_path this chat.
+
+  figma:
+    enabled: false
+    description: "read frames, components, and exports from your Figma files (read-only)"
+    # GLips community server (https://github.com/GLips/Figma-Context-MCP) — Figma PAT,
+    # read-only. Chosen as the default after the official server's OAuth dynamic-client
+    # registration returned 403 (Figma's MCP catalog gate is hard, not soft).
+    # If Operator is added to Figma's catalog, swap to the official server — see README.
+    command: "npx"
+    args: ["-y", "figma-developer-mcp@0.10.1", "--stdio"]
+    env:
+      FIGMA_API_KEY: "${FIGMA_TOKEN}"    # personal access token from figma.com/settings
+    # GLips exposes two read tools — both auto-execute.
+    read_tools:
+      - get_figma_data
+      - download_figma_images
+    confirm_tools: []
+    hints: |
+      Always pass the file key from a Figma URL the user provides; do not invent file keys.
+      A Figma URL looks like figma.com/design/<fileKey>/<name>?node-id=<nodeId>. Extract fileKey from the path and nodeId from the query string. node-id "2-2" in a URL becomes "2:2" in the API.
+      When the user says "the login screen" or "the carousel", confirm which file they mean before fetching — don't guess across files.
+      Prefer the smallest-scoped fetch: a single node-id over a whole-file fetch. Whole-file fetches return enormous payloads.
+      For images, request PNG at 1x unless the user asks for a higher resolution; downloaded image data inflates the tool result.
+      When summarizing a frame: layout shape (vertical stack, grid, etc.) + dominant typography + 1-2 spacing or hierarchy observations. Do not narrate every node.
+      If get_figma_data returns a thin payload (e.g. a single RECTANGLE when the user expected a multi-node frame), say so plainly and ask for a different node-id or the layers panel — do not fabricate structure that isn't in the result.
+
   github:
     enabled: true
     description: "read and write code, PRs, and issues across your GitHub repos"
@@ -112,31 +159,11 @@ mcp_servers:
       For multi-step tasks (e.g. list directory then read a file), chain tool calls without pausing to narrate intermediate steps.
       When summarizing: filename + 1-2 sentences on actual content. No search narration. Never describe a file's likely contents — read it first.
 
-  delegate:
-    enabled: true
-    description: "spin up a Claude Code instance to write code for you, from inside the meeting"
-    command: "python"
-    args: ["agents/engineer/delegate_to_claude_code.py"]
-    env:
-      # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
-      # file edits auto-run, Bash is blocked. Operator confirm-gates each
-      # delegate call either way, and --worktree isolates file changes.
-      DELEGATE_PERMISSION_MODE: "bypassPermissions"
-    read_tools: []     # delegate_to_claude_code is a write — always confirm
-    confirm_tools: []
-    hints: |
-      delegate_to_claude_code requires repo_path (absolute local path to a git repo). On the first delegation in a chat, ask the user which repo to work in — do not guess.
-      Reuse the same repo_path for follow-ups (edits, verification, extensions) — Claude Code resumes the sandbox and conversation automatically. Switch repo_path only when the user names a different repo.
-      The task string should be a clear, self-contained instruction. Include file paths, function names, or repo context when the user has provided them.
-      Tool result footer includes [workdir: ...] and [repo: ...] lines — mention the workdir when reporting back so the user knows changes are sandboxed, not in their working tree.
-      After a successful delegation, offer to land the changes with land_worktree_changes (same repo_path) — it applies the sandbox diff into the user's working tree.
-      land_worktree_changes only works after a delegate_to_claude_code call for the same repo_path this chat.
-
   linear:
     enabled: false
     description: "file, query, and update Linear tickets the moment decisions land"
     command: "npx"
-    args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+    args: ["-y", "mcp-remote@0.1.38", "https://mcp.linear.app/mcp"]
     read_tools:
       - list_issues
       - get_issue
@@ -164,6 +191,7 @@ mcp_servers:
       Always set includeArchived=false unless the user explicitly asks for archived issues.
       When the user specifies a state, use state types (unstarted, started, backlog, completed, canceled) not display names.
       For issue detail, use get_issue not list_issues — list_issues truncates descriptions.
+      When creating an issue from a spoken commitment, include the speaker as assignee if their Linear identity is known; otherwise leave unassigned and mention it in chat.
       Scope list_issues with teamId or projectId when the user names a team or project — unscoped queries return too many results.
       Prefer save_issue over create_issue + update_issue pairs; it's idempotent.
 
@@ -171,32 +199,9 @@ mcp_servers:
     enabled: false
     description: "read and write Notion pages and databases"
     command: "npx"
-    args: ["-y", "@notionhq/notion-mcp-server"]
+    args: ["-y", "@notionhq/notion-mcp-server@2.2.1"]
     env:
       NOTION_API_KEY: "${NOTION_API_KEY}"       # create at notion.so/profile/integrations
-    read_tools: []
-    confirm_tools: []
-    hints: ""    # fill in after pressure testing
-
-  slack:
-    enabled: false
-    description: "post messages and read channels in your Slack workspace"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-slack"]
-    env:
-      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"     # Bot User OAuth Token from api.slack.com/apps
-      SLACK_TEAM_ID: "${SLACK_TEAM_ID}"         # Workspace ID from Settings > About
-    read_tools: []
-    confirm_tools: []
-    hints: ""    # fill in after pressure testing
-
-  brave_search:
-    enabled: false
-    description: "live web search — fresh facts pulled into the meeting"
-    command: "npx"
-    args: ["-y", "@modelcontextprotocol/server-brave-search"]
-    env:
-      BRAVE_API_KEY: "${BRAVE_API_KEY}"         # api.search.brave.com
     read_tools: []
     confirm_tools: []
     hints: ""    # fill in after pressure testing
