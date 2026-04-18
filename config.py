@@ -91,6 +91,11 @@ def _resolve_env_vars(env_dict, server_name):
 
 MCP_SERVERS = {}
 for _name, _srv in _config.get("mcp_servers", {}).items():
+    # Blocks with `enabled: false` are declared but dormant — kept in config so
+    # the setup wizard can toggle them on without re-authoring env/hints/tools.
+    # Default is enabled when the field is absent (backward-compat).
+    if not _srv.get("enabled", True):
+        continue
     MCP_SERVERS[_name] = {
         "command": _srv["command"],
         "args": _srv.get("args", []),

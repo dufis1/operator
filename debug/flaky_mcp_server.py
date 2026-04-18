@@ -5,7 +5,7 @@ Exposes a single tool, `check_weather`, that always raises. Use it to watch
 Operator trip the server after 3 failures, announce once in chat, and hide
 the tool from the LLM for the rest of the session.
 
-Add this to the active bot's roster/<name>/config.yaml under mcp_servers:
+Add this to the active bot's agents/<name>/config.yaml under mcp_servers:
 
   flaky:
     command: "python"
