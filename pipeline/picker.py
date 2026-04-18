@@ -38,13 +38,14 @@ class Choice:
     label    — main text shown on the left
     sublabel — dim text shown next to label (e.g. tagline)
     value    — opaque payload returned to the caller
-    preview  — multi-line text rendered in the right pane (single-select only)
+    preview  — rendered in the right pane (single-select only).
+               Plain string or any Rich RenderableType (Group/Align/etc.).
     """
 
     label: str
     sublabel: str = ""
     value: Any = None
-    preview: str | None = None
+    preview: "str | RenderableType | None" = None
 
 
 class PickerCancelled(Exception):
@@ -64,7 +65,9 @@ def _render_rows(
 ) -> Text:
     """Build the choice list as a single Rich Text block."""
     body = Text()
-    body.append(f"{title}\n\n", style="bold")
+    if title:
+        body.append(f"{title}\n\n", style="bold")
+    sub_indent = "      " if checked is not None else "  "
     for i, ch in enumerate(choices):
         is_cursor = i == cursor
         cursor_glyph = "▶ " if is_cursor else "  "
@@ -75,10 +78,14 @@ def _render_rows(
         line.append(cursor_glyph, style="bold cyan" if is_cursor else "")
         line.append(check_glyph)
         line.append(ch.label, style="bold" if is_cursor else "")
-        if ch.sublabel:
-            line.append(f"   {ch.sublabel}", style="dim")
         body.append(line)
         body.append("\n")
+        if ch.sublabel:
+            sub = Text()
+            sub.append(sub_indent)
+            sub.append(ch.sublabel, style="dim")
+            body.append(sub)
+            body.append("\n")
     if hint:
         body.append(f"\n{hint}", style="dim")
     return body
@@ -98,9 +105,9 @@ def _layout(
     if right_pane is not None:
         right = right_pane(cursor, checked)
     elif choices[cursor].preview is not None:
-        right = Panel(
-            Text(choices[cursor].preview), border_style="dim", padding=(0, 2),
-        )
+        preview = choices[cursor].preview
+        inner: RenderableType = Text(preview) if isinstance(preview, str) else preview
+        right = Panel(inner, border_style="dim", padding=(0, 2))
     if right is None:
         return rows
     table = Table.grid(padding=(0, 4))

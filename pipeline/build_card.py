@@ -7,7 +7,7 @@ Layout:
     │  ▄▄▄▄▄▄                                   │
     │  █ ⊙⊙ █     researcher                    │
     │  █ ‿‿ █     turns decisions into Linear   │
-    │  ▀▀▀▀▀▀     based on pm                   │
+    │  ▀▀▀▀▀▀                                   │
     │                                           │
     │  power-ups:  ⚡ linear   ⚡ github         │
     │  skills:     ★ standup-summary             │
@@ -37,21 +37,18 @@ def render(
     *,
     name: str,
     tagline: str,
-    based_on: str,
     portrait: str,
     power_ups: list[str],
     skills: list[str],
     title: str = "Your build",
 ) -> RenderableType:
     """Build the card as a Rich Panel renderable."""
-    # ── Top half — portrait | name/tagline/base ───────────────────────────
+    # ── Top half — portrait | name/tagline ────────────────────────────────
     portrait_text = Text(portrait, style="bold")
     meta = Text()
     meta.append(name or "(unnamed)", style="bold")
     meta.append("\n")
     meta.append(tagline or "(no tagline yet)", style="dim italic" if not tagline else "")
-    meta.append("\n")
-    meta.append(f"based on {based_on}", style="dim")
 
     top = Table.grid(padding=(0, 3))
     top.add_column()
@@ -82,4 +79,4 @@ def render(
         skills_line.append("—", style="dim")
 
     body = Group(top, Text(""), power_line, skills_line)
-    return Panel(body, title=title, border_style="cyan", padding=(1, 2))
+    return Panel(body, title=title, border_style="bright_magenta", padding=(1, 2), width=40)

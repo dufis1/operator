@@ -40,8 +40,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from rich.console import Console, RenderableType
+from rich.align import Align
+from rich.console import Console, Group, RenderableType
 from rich.prompt import Confirm, Prompt
+from rich.text import Text
 
 from pipeline import build_card, face
 from pipeline.picker import Choice, PickerCancelled, select_many, select_one
@@ -116,7 +118,6 @@ class WizardState:
         return build_card.render(
             name=self.display_name or self.name or "(unnamed)",
             tagline=self.tagline,
-            based_on=self.based_on,
             portrait=self.portrait,
             power_ups=mcps if mcps is not None else self.equipped_mcps(),
             skills=skills if skills is not None else self.equipped_skills(),
@@ -184,7 +185,7 @@ def _bot_tagline(name: str) -> str:
 
 
 def _step1_fighter_select() -> WizardState:
-    console.print("[bold]1. Fighter select[/bold]\n")
+    console.print("[bold]1. Choose your base agent[/bold]\n")
     bots = _existing_bots()
 
     choices: list[Choice] = [
@@ -204,21 +205,31 @@ def _step1_fighter_select() -> WizardState:
             preview=_preset_preview(bot, tag),
         ))
 
-    picked = select_one("Choose your base agent", choices, console=console)
+    picked = select_one("", choices, console=console)
     console.print()
     if picked.value == "__custom__":
         return _from_scratch()
     return _edit_preset(picked.value)
 
 
-def _custom_preview() -> str:
-    return f"{build_card.PLACEHOLDER_PORTRAIT}\n\nCustom\nBuild from scratch."
+def _custom_preview() -> RenderableType:
+    return Group(
+        Align.center(Text(build_card.PLACEHOLDER_PORTRAIT, style="bold")),
+        Text(""),
+        Align.center(Text("Custom", style="bold")),
+        Align.center(Text("Build from scratch.", style="dim")),
+    )
 
 
-def _preset_preview(name: str, tagline: str) -> str:
+def _preset_preview(name: str, tagline: str) -> RenderableType:
     portrait_path = _AGENTS_DIR / name / "portrait.txt"
     portrait = face.load_or_render(name, portrait_path)
-    return f"{portrait}\n\n{name}\n{tagline or '(no tagline)'}"
+    return Group(
+        Align.center(Text(portrait, style="bold")),
+        Text(""),
+        Align.center(Text(name, style="bold")),
+        Align.center(Text(tagline or "(no tagline)", style="dim")),
+    )
 
 
 def _from_scratch() -> WizardState:
@@ -290,7 +301,7 @@ def _step2_mcps(state: WizardState) -> None:
         return
 
     names = list(servers.keys())
-    choices = [Choice(label=n, sublabel=_mcp_subtitle(servers[n])) for n in names]
+    choices = [Choice(label=n) for n in names]
     initial = [bool(servers[n].get("enabled", False)) for n in names]
 
     def right_pane(_cursor, checked):
@@ -298,7 +309,7 @@ def _step2_mcps(state: WizardState) -> None:
         return state.card(mcps=enabled)
 
     final = select_many(
-        "Equip your MCPs",
+        "",
         choices,
         initial_checked=initial,
         right_pane=right_pane,
@@ -308,34 +319,54 @@ def _step2_mcps(state: WizardState) -> None:
         servers[n]["enabled"] = bool(final[i])
 
 
-def _mcp_subtitle(server: dict) -> str:
-    """Short one-line hint — first non-empty line of the server's `hints`."""
-    hints = (server.get("hints") or "").strip()
-    if not hints:
-        return ""
-    first = hints.split("\n", 1)[0].strip()
-    return first[:60]
-
-
 # ── Step 3 — Skills ───────────────────────────────────────────────────────
 
 
 def _step3_skills(state: WizardState, base_dir: Path) -> None:
-    """Mutates state.user_sources and state.bundled_skill_dirs in place."""
-    console.print("\n[bold]3. Skills[/bold]")
+    """Mutates state.user_sources and state.bundled_skill_dirs in place.
 
-    # 3a — user's own paths (text input loop, no live card)
-    default_user = Path.home() / ".claude" / "skills"
-    default_hint = str(default_user) if default_user.is_dir() else ""
+    Bundled-skills picker first (from pm for new bots, preset itself for edit),
+    then a plain y/n for adding the user's own skills. If yes, path-input loop.
+    """
+    console.print("[bold]3. Add-ons (Skills)[/bold]\n")
+    console.print(f"  Your [bold]{state.name}[/bold] agent comes with the following:\n")
 
-    console.print("  Add your own skills — enter a path to a folder with SKILL.md files,")
-    console.print("  a single SKILL.md-style folder, or a single .md file.")
-    console.print("  Blank input ends the list.")
-    first_default = default_hint
+    bundled_dir = base_dir / "skills"
+    candidates: list[Path] = []
+    if bundled_dir.is_dir():
+        candidates = sorted(
+            p for p in bundled_dir.iterdir()
+            if p.is_dir() and (p / "SKILL.md").is_file()
+        )
+
+    if candidates:
+        choices = [Choice(label=p.name, sublabel=_skill_subtitle(p)) for p in candidates]
+        initial = [True] * len(candidates)
+
+        def right_pane(_cursor, checked):
+            bundled_now = [candidates[i].name for i, on in enumerate(checked or []) if on]
+            return state.card(skills=bundled_now)
+
+        final = select_many(
+            "",
+            choices,
+            initial_checked=initial,
+            right_pane=right_pane,
+            console=console,
+        )
+        state.bundled_skill_dirs = [p for p, keep in zip(candidates, final) if keep]
+
+    console.print()
+    if not Confirm.ask("  Add your own skills?", default=False):
+        return
+
+    console.print()
     while True:
-        prompt_default = first_default
-        raw = Prompt.ask("    path", default=prompt_default).strip()
-        first_default = ""
+        raw = Prompt.ask(
+            "  Enter path to your SKILLS folder or single .md file",
+            default="",
+            show_default=False,
+        ).strip()
         if not raw:
             break
         resolved = Path(os.path.expanduser(raw)).resolve()
@@ -349,35 +380,6 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
             continue
         state.user_sources.append(resolved)
         console.print(f"    [green]✓ added[/green] {resolved}")
-
-    # 3b — bundled skills picker (live card on the right)
-    bundled_dir = base_dir / "skills"
-    if not bundled_dir.is_dir():
-        return
-    candidates = sorted(
-        p for p in bundled_dir.iterdir()
-        if p.is_dir() and (p / "SKILL.md").is_file()
-    )
-    if not candidates:
-        return
-
-    console.print(f"\n  Bundled skills from agents/{base_dir.name}/skills/:\n")
-    user_skill_names = _resolve_user_skill_names(state.user_sources)
-    choices = [Choice(label=p.name, sublabel=_skill_subtitle(p)) for p in candidates]
-    initial = [True] * len(candidates)
-
-    def right_pane(_cursor, checked):
-        bundled_now = [candidates[i].name for i, on in enumerate(checked or []) if on]
-        return state.card(skills=user_skill_names + bundled_now)
-
-    final = select_many(
-        "Equip bundled skills",
-        choices,
-        initial_checked=initial,
-        right_pane=right_pane,
-        console=console,
-    )
-    state.bundled_skill_dirs = [p for p, keep in zip(candidates, final) if keep]
 
 
 def _is_valid_skill_source(path: Path) -> bool:
@@ -412,7 +414,8 @@ def _resolve_user_skill_names(sources: list[Path]) -> list[str]:
 
 
 def _skill_subtitle(skill_dir: Path) -> str:
-    """Short description from SKILL.md frontmatter."""
+    """Description from SKILL.md frontmatter. Uncapped — long descriptions
+    wrap naturally in the picker's per-choice sublabel line."""
     md = skill_dir / "SKILL.md"
     try:
         text = md.read_text(encoding="utf-8")
@@ -422,7 +425,7 @@ def _skill_subtitle(skill_dir: Path) -> str:
                 fm = yaml.safe_load(parts[1]) or {}
                 desc = (fm.get("description") or "").strip()
                 if desc:
-                    return desc[:60]
+                    return desc
     except Exception:
         pass
     return ""
@@ -608,20 +611,25 @@ def _reveal(state: WizardState) -> None:
 def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
-    console.print("[bold cyan]Operator setup wizard[/bold cyan]")
+    console.print("[bold magenta]Operator setup wizard[/bold magenta]")
     console.print("[dim]Five steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
+
+        console.clear()
         _step2_mcps(state)
+
+        console.clear()
         _step3_skills(state, _base_dir(state))
+
+        console.clear()
         envs = _collect_env_refs(state)
         _step4_api_keys(envs)
 
         console.print()
-        if not Confirm.ask(f"  Write bundle to agents/{state.name}/?", default=True):
-            console.print("[yellow]Cancelled — nothing written.[/yellow]")
-            return 1
+        console.input("  [bold magenta]Press Enter to reveal your bot ✨🎁[/bold magenta] ")
 
+        console.clear()
         _step5_write(state)
         _reveal(state)
     except (KeyboardInterrupt, PickerCancelled, WizardCancel):
