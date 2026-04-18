@@ -3,19 +3,25 @@
 Builds a new `agents/<name>/` bundle, or rewrites an existing one in place,
 through a five-step guided TUI:
 
-  1. Fighter select   — from-scratch (pm baseline, user names it) OR
-                         preset (inherits name, edit-in-place).
-  2. Power-ups (MCPs) — numbered-list `[x]`/`[ ]` toggle against each MCP
-                         server block's `enabled` flag.
-  3. Skills           — user-supplied paths (folder or single `.md` wrapped
-                         in a stub folder) + base bot's bundled skills in
-                         the same toggle pattern.
+  1. Fighter select   — arrow-key gallery: "Custom" + each existing bot,
+                         right pane shows the highlighted bot's portrait.
+                         Custom drops into name/display/trigger/tagline
+                         text prompts; preset enters edit-in-place.
+  2. Power-ups (MCPs) — arrow-key multi-select against each MCP block's
+                         `enabled` flag. Right pane = persistent build
+                         card that updates live as the user toggles.
+  3. Skills           — user-supplied paths (folder or single `.md`),
+                         then arrow-key multi-select for the base bot's
+                         bundled skills. Build card stays on the right
+                         during the bundled-skills picker.
   4. API keys         — prompt for any `${VAR}` referenced by an enabled
                          MCP that isn't already in repo-root `.env`.
-  5. Atomic write     — build bundle in a sibling tempdir, `os.rename` into
-                         `agents/<name>/`. Edit-in-place first moves the
-                         current bundle to `agents/<name>.bak-<ts>/`, then
-                         swaps; `.bak` is deleted only on success.
+  5. Atomic write +   — build bundle in a sibling tempdir, `os.rename`
+     reveal             into `agents/<name>/`. Edit-in-place first moves
+                         the current bundle to `agents/<name>.bak-<ts>/`,
+                         then swaps; `.bak` is deleted only on success.
+                         On success the final card re-renders with the
+                         resolved real portrait — the gift to the user.
 
 All locked-in decisions are in `docs/plan.md`. The wizard never touches
 runtime code paths; `config.py` simply filters `enabled: false` blocks at
@@ -29,13 +35,16 @@ import shutil
 import sys
 import tempfile
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.prompt import Confirm, Prompt
 
-from pipeline import face
+from pipeline import build_card, face
+from pipeline.picker import Choice, PickerCancelled, select_many, select_one
 
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -47,7 +56,6 @@ _PM_CONFIG = _AGENTS_DIR / "pm" / "config.yaml"
 # a name because `operator <reserved>` would never dispatch to the bot.
 RESERVED_NAMES = {"setup", "list"}
 # Lowercase start-with-letter, alphanumeric + dash/underscore, up to 32 chars.
-# Matches the shape of existing bundled bots (pm, engineer, designer).
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 # Env-var references inside MCP env blocks look like "${VAR_NAME}".
@@ -57,11 +65,6 @@ console = Console()
 
 
 # ── YAML dumper — keep multi-line strings readable (block literal "|") ────
-#
-# yaml.safe_dump's default folding mangles the `hints: |` blocks. Override
-# the str representer so any string containing a newline round-trips as a
-# block literal. Comments are still lost (we're going through dict form),
-# but the hints stay readable for future hand-edits.
 def _str_representer(dumper, data):
     if "\n" in data:
         return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
@@ -73,6 +76,52 @@ yaml.add_representer(str, _str_representer, Dumper=yaml.SafeDumper)
 
 class WizardCancel(Exception):
     """User aborted the wizard."""
+
+
+# ── Wizard state — passed through every step ──────────────────────────────
+
+
+@dataclass
+class WizardState:
+    """Mutable wizard state. Accumulates as the user moves through steps."""
+
+    mode: str  # "new" | "edit"
+    name: str  # bot name (also dir name under agents/)
+    display_name: str
+    tagline: str
+    based_on: str  # baseline bot ("pm" for new, preset name for edit)
+    portrait: str  # placeholder in custom mode, real portrait in edit mode
+    bot_cfg: dict
+    user_sources: list[Path] = field(default_factory=list)
+    bundled_skill_dirs: list[Path] = field(default_factory=list)
+
+    def equipped_mcps(self) -> list[str]:
+        return [
+            n for n, s in (self.bot_cfg.get("mcp_servers") or {}).items()
+            if s.get("enabled")
+        ]
+
+    def equipped_skills(self) -> list[str]:
+        return _resolve_user_skill_names(self.user_sources) + [
+            d.name for d in self.bundled_skill_dirs
+        ]
+
+    def card(
+        self,
+        *,
+        mcps: list[str] | None = None,
+        skills: list[str] | None = None,
+        title: str = "Your build",
+    ) -> RenderableType:
+        return build_card.render(
+            name=self.display_name or self.name or "(unnamed)",
+            tagline=self.tagline,
+            based_on=self.based_on,
+            portrait=self.portrait,
+            power_ups=mcps if mcps is not None else self.equipped_mcps(),
+            skills=skills if skills is not None else self.equipped_skills(),
+            title=title,
+        )
 
 
 # ── Small helpers ─────────────────────────────────────────────────────────
@@ -108,7 +157,7 @@ def _validate_name(raw: str) -> tuple[bool, str]:
     if name in RESERVED_NAMES:
         return False, f"'{name}' is a reserved CLI subcommand"
     if name in _existing_bots():
-        return False, f"agents/{name}/ already exists — pick a different name or re-run and choose 'preset'"
+        return False, f"agents/{name}/ already exists — pick a different name or re-run and choose the preset"
     return True, ""
 
 
@@ -122,31 +171,57 @@ def _prompt_name() -> str:
         console.print(f"  [red]✗ {reason}[/red]")
 
 
-# ── Step 1 — fighter select ───────────────────────────────────────────────
+def _bot_tagline(name: str) -> str:
+    """Read tagline from agents/<name>/config.yaml."""
+    cfg_path = _AGENTS_DIR / name / "config.yaml"
+    try:
+        return (_load_yaml(cfg_path).get("agent") or {}).get("tagline", "") or ""
+    except Exception:
+        return ""
 
 
-def _step1_fighter_select() -> tuple[str, str, Path, dict]:
-    """
-    Returns
-    -------
-    mode : "new" | "edit"
-    name : target bot name (also the target directory under agents/)
-    base_dir : the agents/<x>/ directory whose bundled skills Step 3 will
-               offer — pm in from-scratch mode, the preset in edit mode
-    bot_cfg : parsed config.yaml dict ready to be mutated by later steps
-    """
-    console.print("[bold]1. Fighter select[/bold]")
-    console.print("  (1) Start from scratch — pm baseline, you name it")
-    console.print("  (2) Build on a preset  — pick an existing bot, edit in place")
-    pick = Prompt.ask("  choose", choices=["1", "2"], default="1")
-
-    if pick == "1":
-        return _from_scratch()
-    return _edit_preset()
+# ── Step 1 — fighter select (arrow-key gallery) ───────────────────────────
 
 
-def _from_scratch() -> tuple[str, str, Path, dict]:
+def _step1_fighter_select() -> WizardState:
+    console.print("[bold]1. Fighter select[/bold]\n")
+    bots = _existing_bots()
+
+    choices: list[Choice] = [
+        Choice(
+            label="Custom",
+            sublabel="build from scratch",
+            value="__custom__",
+            preview=_custom_preview(),
+        ),
+    ]
+    for bot in bots:
+        tag = _bot_tagline(bot)
+        choices.append(Choice(
+            label=bot,
+            sublabel=tag,
+            value=bot,
+            preview=_preset_preview(bot, tag),
+        ))
+
+    picked = select_one("Choose your base agent", choices, console=console)
     console.print()
+    if picked.value == "__custom__":
+        return _from_scratch()
+    return _edit_preset(picked.value)
+
+
+def _custom_preview() -> str:
+    return f"{build_card.PLACEHOLDER_PORTRAIT}\n\nCustom\nBuild from scratch."
+
+
+def _preset_preview(name: str, tagline: str) -> str:
+    portrait_path = _AGENTS_DIR / name / "portrait.txt"
+    portrait = face.load_or_render(name, portrait_path)
+    return f"{portrait}\n\n{name}\n{tagline or '(no tagline)'}"
+
+
+def _from_scratch() -> WizardState:
     name = _prompt_name()
     display = Prompt.ask("  [bold]display name[/bold] (shown in the banner)", default=name.capitalize())
     trigger = Prompt.ask("  [bold]trigger phrase[/bold]", default="@operator")
@@ -168,126 +243,88 @@ def _from_scratch() -> tuple[str, str, Path, dict]:
     for srv in cfg.get("mcp_servers", {}).values():
         srv["enabled"] = False
 
-    # pm is the base for bundled skills.
-    return "new", name, _AGENTS_DIR / "pm", cfg
+    return WizardState(
+        mode="new",
+        name=name,
+        display_name=display,
+        tagline=tagline,
+        based_on="pm",
+        portrait=build_card.PLACEHOLDER_PORTRAIT,
+        bot_cfg=cfg,
+    )
 
 
-def _edit_preset() -> tuple[str, str, Path, dict]:
-    bots = _existing_bots()
-    if not bots:
-        console.print("  [red]No existing bots found — falling back to from-scratch.[/red]\n")
-        return _from_scratch()
-
-    console.print()
-    for i, name in enumerate(bots, 1):
-        tag = _bot_tagline(name)
-        tag_str = f" — {tag}" if tag else ""
-        console.print(f"  ({i}) {name}{tag_str}")
-    choices = [str(i) for i in range(1, len(bots) + 1)]
-    pick = Prompt.ask("  pick", choices=choices, default="1")
-    name = bots[int(pick) - 1]
-
+def _edit_preset(name: str) -> WizardState:
     cfg_path = _AGENTS_DIR / name / "config.yaml"
     cfg = _load_yaml(cfg_path)
+    portrait_path = _AGENTS_DIR / name / "portrait.txt"
+    portrait = face.load_or_render(name, portrait_path)
+    agent = cfg.get("agent") or {}
     console.print(f"  [dim]editing agents/{name}/ in place[/dim]")
-    return "edit", name, _AGENTS_DIR / name, cfg
+    return WizardState(
+        mode="edit",
+        name=name,
+        display_name=agent.get("name", name),
+        tagline=agent.get("tagline", "") or "",
+        based_on=name,
+        portrait=portrait,
+        bot_cfg=cfg,
+    )
 
 
-def _bot_tagline(name: str) -> str:
-    """Read tagline from agents/<name>/config.yaml."""
-    cfg_path = _AGENTS_DIR / name / "config.yaml"
-    try:
-        return (_load_yaml(cfg_path).get("agent") or {}).get("tagline", "") or ""
-    except Exception:
-        return ""
+def _base_dir(state: WizardState) -> Path:
+    """Where bundled skills come from in step 3 — pm baseline for new bots,
+    the preset itself for edit-in-place."""
+    return _AGENTS_DIR / ("pm" if state.mode == "new" else state.name)
 
 
-# ── Step 2 — MCP toggle ───────────────────────────────────────────────────
+# ── Step 2 — MCP toggle (arrow-key multi-select with build card) ──────────
 
 
-def _step2_mcps(bot_cfg: dict) -> tuple[dict, set[str]]:
-    """
-    Toggle `enabled: true|false` on each MCP block via a numbered [x]/[ ]
-    list. Returns the mutated bot_cfg plus the set of env-var names
-    referenced by every now-enabled block (for Step 4).
-    """
-    console.print("\n[bold]2. Power-ups (MCPs)[/bold]")
-    servers = bot_cfg.get("mcp_servers") or {}
+def _step2_mcps(state: WizardState) -> None:
+    """Mutates state.bot_cfg['mcp_servers'][*]['enabled'] in place."""
+    console.print("\n[bold]2. Power-ups (MCPs)[/bold]\n")
+    servers = state.bot_cfg.get("mcp_servers") or {}
     if not servers:
         console.print("  [dim]No MCP servers declared in the base config.[/dim]")
-        return bot_cfg, set()
+        return
 
     names = list(servers.keys())
-    while True:
-        _render_toggle_list(names, [bool(servers[n].get("enabled", False)) for n in names])
-        raw = Prompt.ask(
-            "  toggle (comma-separated numbers, or Enter to accept)",
-            default="",
-        ).strip()
-        if not raw:
-            break
-        try:
-            picks = _parse_number_list(raw, len(names))
-        except ValueError as e:
-            console.print(f"  [red]✗ {e}[/red]")
-            continue
-        for idx in picks:
-            n = names[idx]
-            servers[n]["enabled"] = not bool(servers[n].get("enabled", False))
+    choices = [Choice(label=n, sublabel=_mcp_subtitle(servers[n])) for n in names]
+    initial = [bool(servers[n].get("enabled", False)) for n in names]
 
-    # Collect env vars referenced by enabled servers.
-    envs: set[str] = set()
-    for n in names:
-        if not servers[n].get("enabled"):
-            continue
-        for v in (servers[n].get("env") or {}).values():
-            if isinstance(v, str):
-                envs.update(_ENV_REF_RE.findall(v))
+    def right_pane(_cursor, checked):
+        enabled = [names[i] for i, on in enumerate(checked or []) if on]
+        return state.card(mcps=enabled)
 
-    return bot_cfg, envs
+    final = select_many(
+        "Equip your MCPs",
+        choices,
+        initial_checked=initial,
+        right_pane=right_pane,
+        console=console,
+    )
+    for i, n in enumerate(names):
+        servers[n]["enabled"] = bool(final[i])
 
 
-def _render_toggle_list(labels: list[str], checked: list[bool]) -> None:
-    # `[x]` would be swallowed by Rich's markup parser (no such style), so
-    # use a non-markup checked glyph. `[ ]` is safe — a space isn't a valid
-    # style name so Rich prints it literally.
-    for i, (label, is_on) in enumerate(zip(labels, checked), 1):
-        mark = "[✓]" if is_on else "[ ]"
-        console.print(f"  {i}. {mark} {label}")
-
-
-def _parse_number_list(raw: str, n: int) -> list[int]:
-    """Parse '1,3,5' → [0,2,4]. Rejects out-of-range or non-numeric entries."""
-    picks = []
-    for token in raw.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        if not token.isdigit():
-            raise ValueError(f"'{token}' is not a number")
-        idx = int(token) - 1
-        if idx < 0 or idx >= n:
-            raise ValueError(f"'{token}' is out of range (1–{n})")
-        picks.append(idx)
-    return picks
+def _mcp_subtitle(server: dict) -> str:
+    """Short one-line hint — first non-empty line of the server's `hints`."""
+    hints = (server.get("hints") or "").strip()
+    if not hints:
+        return ""
+    first = hints.split("\n", 1)[0].strip()
+    return first[:60]
 
 
 # ── Step 3 — Skills ───────────────────────────────────────────────────────
 
 
-def _step3_skills(base_dir: Path, mode: str) -> tuple[list[Path], list[Path]]:
-    """
-    Returns
-    -------
-    user_sources : list of paths the user added (each is either a folder
-                   with SKILL.md, or a single .md file the wizard will wrap)
-    bundled_dirs : list of skill folders from base_dir/skills/ the user
-                   elected to keep (all-checked default)
-    """
+def _step3_skills(state: WizardState, base_dir: Path) -> None:
+    """Mutates state.user_sources and state.bundled_skill_dirs in place."""
     console.print("\n[bold]3. Skills[/bold]")
 
-    # 3a — user's own paths
-    user_sources: list[Path] = []
+    # 3a — user's own paths (text input loop, no live card)
     default_user = Path.home() / ".claude" / "skills"
     default_hint = str(default_user) if default_user.is_dir() else ""
 
@@ -298,7 +335,7 @@ def _step3_skills(base_dir: Path, mode: str) -> tuple[list[Path], list[Path]]:
     while True:
         prompt_default = first_default
         raw = Prompt.ask("    path", default=prompt_default).strip()
-        first_default = ""  # only suggest ~/.claude/skills on the first iteration
+        first_default = ""
         if not raw:
             break
         resolved = Path(os.path.expanduser(raw)).resolve()
@@ -310,39 +347,37 @@ def _step3_skills(base_dir: Path, mode: str) -> tuple[list[Path], list[Path]]:
                 f"    [red]✗ {resolved} is not a SKILL.md folder, a parent of one, or a .md file[/red]"
             )
             continue
-        user_sources.append(resolved)
+        state.user_sources.append(resolved)
         console.print(f"    [green]✓ added[/green] {resolved}")
 
-    # 3b — bundled skills from the base bot
+    # 3b — bundled skills picker (live card on the right)
     bundled_dir = base_dir / "skills"
-    bundled_dirs: list[Path] = []
-    if bundled_dir.is_dir():
-        candidates = sorted(
-            p for p in bundled_dir.iterdir()
-            if p.is_dir() and (p / "SKILL.md").is_file()
-        )
-        if candidates:
-            console.print(f"\n  Bundled skills from agents/{base_dir.name}/skills/:")
-            labels = [_skill_label(p) for p in candidates]
-            checked = [True] * len(candidates)
-            while True:
-                _render_toggle_list(labels, checked)
-                raw = Prompt.ask(
-                    "    toggle (comma-separated numbers, or Enter to accept)",
-                    default="",
-                ).strip()
-                if not raw:
-                    break
-                try:
-                    picks = _parse_number_list(raw, len(candidates))
-                except ValueError as e:
-                    console.print(f"    [red]✗ {e}[/red]")
-                    continue
-                for idx in picks:
-                    checked[idx] = not checked[idx]
-            bundled_dirs = [p for p, keep in zip(candidates, checked) if keep]
+    if not bundled_dir.is_dir():
+        return
+    candidates = sorted(
+        p for p in bundled_dir.iterdir()
+        if p.is_dir() and (p / "SKILL.md").is_file()
+    )
+    if not candidates:
+        return
 
-    return user_sources, bundled_dirs
+    console.print(f"\n  Bundled skills from agents/{base_dir.name}/skills/:\n")
+    user_skill_names = _resolve_user_skill_names(state.user_sources)
+    choices = [Choice(label=p.name, sublabel=_skill_subtitle(p)) for p in candidates]
+    initial = [True] * len(candidates)
+
+    def right_pane(_cursor, checked):
+        bundled_now = [candidates[i].name for i, on in enumerate(checked or []) if on]
+        return state.card(skills=user_skill_names + bundled_now)
+
+    final = select_many(
+        "Equip bundled skills",
+        choices,
+        initial_checked=initial,
+        right_pane=right_pane,
+        console=console,
+    )
+    state.bundled_skill_dirs = [p for p, keep in zip(candidates, final) if keep]
 
 
 def _is_valid_skill_source(path: Path) -> bool:
@@ -352,15 +387,32 @@ def _is_valid_skill_source(path: Path) -> bool:
     if path.is_dir():
         if (path / "SKILL.md").is_file():
             return True
-        # parent-of-skill-folders layout (e.g. ~/.claude/skills)
         for child in path.iterdir():
             if child.is_dir() and (child / "SKILL.md").is_file():
                 return True
     return False
 
 
-def _skill_label(skill_dir: Path) -> str:
-    """Label like 'my-skill — one-line description from frontmatter'."""
+def _resolve_user_skill_names(sources: list[Path]) -> list[str]:
+    """Map user-supplied paths to the skill folder names they'll create
+    inside the new bundle's skills/ directory."""
+    names: list[str] = []
+    for src in sources:
+        if src.is_file() and src.suffix.lower() == ".md":
+            names.append(src.stem)
+            continue
+        if (src / "SKILL.md").is_file():
+            names.append(src.name)
+            continue
+        if src.is_dir():
+            for child in src.iterdir():
+                if child.is_dir() and (child / "SKILL.md").is_file():
+                    names.append(child.name)
+    return names
+
+
+def _skill_subtitle(skill_dir: Path) -> str:
+    """Short description from SKILL.md frontmatter."""
     md = skill_dir / "SKILL.md"
     try:
         text = md.read_text(encoding="utf-8")
@@ -370,21 +422,16 @@ def _skill_label(skill_dir: Path) -> str:
                 fm = yaml.safe_load(parts[1]) or {}
                 desc = (fm.get("description") or "").strip()
                 if desc:
-                    return f"{skill_dir.name} — {desc}"
+                    return desc[:60]
     except Exception:
         pass
-    return skill_dir.name
+    return ""
 
 
 # ── Step 4 — API keys ─────────────────────────────────────────────────────
 
 
 def _step4_api_keys(needed: set[str]) -> None:
-    """Prompt for any ${VAR} referenced by an enabled MCP that isn't in .env.
-
-    Appends new keys to repo-root `.env`. Never overwrites an existing key
-    — if a value is already present, it's left alone and reported.
-    """
     console.print("\n[bold]4. API keys[/bold]")
     if not needed:
         console.print("  [dim]Nothing to prompt for — no enabled MCP needs an env var.[/dim]")
@@ -413,11 +460,6 @@ def _step4_api_keys(needed: set[str]) -> None:
 
 
 def _parse_env(path: Path) -> dict[str, str]:
-    """Lightweight parser — KEY=VALUE per line, ignores comments and blanks.
-
-    Not a full .env parser (no quoting, no export/multiline) but matches the
-    shape of the project's existing .env; good enough to detect presence.
-    """
     out: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
@@ -431,17 +473,15 @@ def _parse_env(path: Path) -> dict[str, str]:
 
 
 def _append_env(path: Path, new_values: dict[str, str]) -> None:
-    """Append keys to .env. Creates the file if it doesn't exist."""
     lines = []
     if path.exists():
         existing_text = path.read_text(encoding="utf-8")
         if existing_text and not existing_text.endswith("\n"):
-            lines.append("")  # nudge the appended block onto a fresh line
+            lines.append("")
     else:
         existing_text = ""
     lines.append("# added by operator setup")
     for k, v in new_values.items():
-        # Single-quote values so shell-special chars don't need escaping.
         lines.append(f"{k}='{v}'")
     with path.open("a", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -450,100 +490,70 @@ def _append_env(path: Path, new_values: dict[str, str]) -> None:
 # ── Step 5 — atomic write ─────────────────────────────────────────────────
 
 
-def _step5_write(
-    mode: str,
-    name: str,
-    bot_cfg: dict,
-    user_sources: list[Path],
-    bundled_dirs: list[Path],
-) -> Path:
+def _step5_write(state: WizardState) -> Path:
     """Build bundle in a sibling tempdir, then rename into place.
 
     Edit-in-place mode first moves the existing `agents/<name>/` to
     `agents/<name>.bak-<ts>/`, renames the new bundle into place, and only
-    deletes the `.bak` once the swap succeeds. Any failure during build
-    unwinds cleanly and leaves the existing bundle (and `.bak`) intact.
+    deletes the `.bak` once the swap succeeds.
     """
     console.print("\n[bold]5. Writing bundle[/bold]")
     _AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Tempdir on the same volume as _AGENTS_DIR so os.rename is atomic.
-    tmp_parent = tempfile.mkdtemp(prefix=f".{name}.tmp-", dir=_AGENTS_DIR)
+    tmp_parent = tempfile.mkdtemp(prefix=f".{state.name}.tmp-", dir=_AGENTS_DIR)
     tmp = Path(tmp_parent)
 
-    target = _AGENTS_DIR / name
+    target = _AGENTS_DIR / state.name
     backup: Path | None = None
 
     try:
-        # Edit-in-place: seed the tempdir with the existing bundle so files
-        # the wizard doesn't know about (.env.example, delegate scripts,
-        # hand-written README, etc.) survive the rewrite. The wizard then
-        # overwrites only the files it owns (config.yaml, portrait, skills/).
-        if mode == "edit" and target.exists():
+        if state.mode == "edit" and target.exists():
             shutil.copytree(target, tmp, dirs_exist_ok=True)
-            # Skills are fully re-authored from user_sources + bundled_dirs —
-            # wipe the existing skills/ so deselections actually drop folders.
             existing_skills = tmp / "skills"
             if existing_skills.exists():
                 shutil.rmtree(existing_skills)
 
-        # Copy skills into tmp/skills/.
         skills_dir = tmp / "skills"
-        for src in user_sources:
+        for src in state.user_sources:
             _copy_user_skill(src, skills_dir)
-        for src in bundled_dirs:
+        for src in state.bundled_skill_dirs:
             dst = skills_dir / src.name
             if dst.exists():
-                # User-added skill with same folder name wins (already copied).
                 continue
             shutil.copytree(src, dst)
 
-        # Point the new bot at the local skills bundle only.
-        bot_cfg.setdefault("skills", {})
+        state.bot_cfg.setdefault("skills", {})
         if skills_dir.exists():
-            bot_cfg["skills"]["paths"] = [f"agents/{name}/skills"]
+            state.bot_cfg["skills"]["paths"] = [f"agents/{state.name}/skills"]
         else:
-            bot_cfg["skills"]["paths"] = []
-        bot_cfg["skills"].setdefault("progressive_disclosure", True)
+            state.bot_cfg["skills"]["paths"] = []
+        state.bot_cfg["skills"].setdefault("progressive_disclosure", True)
 
-        # config.yaml + portrait always (re)written; README stub only if the
-        # bundle doesn't already have one (edit-in-place preserves a
-        # hand-written README that got copied across from the seed).
-        _dump_yaml(bot_cfg, tmp / "config.yaml")
-        face.write_if_missing(name, tmp / "portrait.txt")
+        _dump_yaml(state.bot_cfg, tmp / "config.yaml")
+        face.write_if_missing(state.name, tmp / "portrait.txt")
         readme = tmp / "README.md"
         if not readme.exists():
-            _write_readme(readme, name, bot_cfg)
+            _write_readme(readme, state.name, state.bot_cfg)
 
-        # Swap into place.
-        if mode == "edit" and target.exists():
-            backup = _AGENTS_DIR / f"{name}.bak-{int(time.time())}"
+        if state.mode == "edit" and target.exists():
+            backup = _AGENTS_DIR / f"{state.name}.bak-{int(time.time())}"
             os.rename(target, backup)
         os.rename(tmp, target)
     except Exception:
-        # Build or rename failed. Nothing in `target` has changed (we only
-        # renamed it to `.bak` at the very end). If the `.bak` swap already
-        # happened, restore it.
         shutil.rmtree(tmp, ignore_errors=True)
         if backup and backup.exists() and not target.exists():
             os.rename(backup, target)
         raise
 
-    # Success: drop the backup if we made one.
     if backup and backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
 
-    console.print(f"  [green]✓ agents/{name}/[/green]")
+    console.print(f"  [green]✓ agents/{state.name}/[/green]")
     return target
 
 
 def _copy_user_skill(src: Path, skills_root: Path) -> None:
-    """Copy a user-supplied skill source into the new bundle.
-
-    - Single .md file        → skills_root/<stem>/SKILL.md
-    - Folder with SKILL.md   → skills_root/<folder-name>/
-    - Parent of such folders → each child with SKILL.md copied through
-    """
+    """Copy a user-supplied skill source into the new bundle."""
     skills_root.mkdir(parents=True, exist_ok=True)
     if src.is_file() and src.suffix.lower() == ".md":
         dst_dir = skills_root / src.stem
@@ -553,7 +563,6 @@ def _copy_user_skill(src: Path, skills_root: Path) -> None:
     if (src / "SKILL.md").is_file():
         shutil.copytree(src, skills_root / src.name, dirs_exist_ok=True)
         return
-    # Parent folder — walk one level.
     for child in src.iterdir():
         if child.is_dir() and (child / "SKILL.md").is_file():
             shutil.copytree(child, skills_root / child.name, dirs_exist_ok=True)
@@ -580,6 +589,19 @@ def _write_readme(path: Path, name: str, bot_cfg: dict) -> None:
     path.write_text(body, encoding="utf-8")
 
 
+# ── Reveal ────────────────────────────────────────────────────────────────
+
+
+def _reveal(state: WizardState) -> None:
+    """Final card render — placeholder portrait swaps for the real one."""
+    state.portrait = face.load_or_render(
+        state.name, _AGENTS_DIR / state.name / "portrait.txt",
+    )
+    console.print()
+    console.print("[bold magenta]✨ bot reveal 🎁[/bold magenta]")
+    console.print(state.card(title=f"Meet {state.name}"))
+
+
 # ── Entry point ───────────────────────────────────────────────────────────
 
 
@@ -587,28 +609,43 @@ def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
     console.print("[bold cyan]Operator setup wizard[/bold cyan]")
-    console.print("[dim]Five steps. Ctrl+C at any point cancels without writing.[/dim]\n")
+    console.print("[dim]Five steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
-        mode, name, base_dir, bot_cfg = _step1_fighter_select()
-        bot_cfg, envs = _step2_mcps(bot_cfg)
-        user_sources, bundled_dirs = _step3_skills(base_dir, mode)
+        state = _step1_fighter_select()
+        _step2_mcps(state)
+        _step3_skills(state, _base_dir(state))
+        envs = _collect_env_refs(state)
         _step4_api_keys(envs)
 
         console.print()
-        if not Confirm.ask(f"  Write bundle to agents/{name}/?", default=True):
+        if not Confirm.ask(f"  Write bundle to agents/{state.name}/?", default=True):
             console.print("[yellow]Cancelled — nothing written.[/yellow]")
             return 1
 
-        _step5_write(mode, name, bot_cfg, user_sources, bundled_dirs)
-    except (KeyboardInterrupt, WizardCancel):
+        _step5_write(state)
+        _reveal(state)
+    except (KeyboardInterrupt, PickerCancelled, WizardCancel):
         console.print("\n[yellow]Cancelled.[/yellow]")
         return 1
     except Exception as e:
         console.print(f"\n[red]✗ setup failed: {e}[/red]")
         raise
 
-    console.print(f"\n[bold green]Done.[/bold green] Try it: [bold]operator {name}[/bold]\n")
+    console.print(f"\n[bold green]Done.[/bold green] Try it: [bold]operator {state.name}[/bold]\n")
     return 0
+
+
+def _collect_env_refs(state: WizardState) -> set[str]:
+    """Re-derive env refs from state's currently-enabled MCPs."""
+    envs: set[str] = set()
+    servers = state.bot_cfg.get("mcp_servers") or {}
+    for n, srv in servers.items():
+        if not srv.get("enabled"):
+            continue
+        for v in (srv.get("env") or {}).values():
+            if isinstance(v, str):
+                envs.update(_ENV_REF_RE.findall(v))
+    return envs
 
 
 if __name__ == "__main__":

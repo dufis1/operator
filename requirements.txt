@@ -6,3 +6,4 @@ anthropic              # Claude (Sonnet/Opus) as an alternate LLM backend
 playwright             # controls headless/headed Chrome for joining Google Meet
 mcp                    # Model Context Protocol client for tool-use integration
 rich                   # TUI used by `operator setup` wizard
+readchar               # cross-platform key reads for the wizard's arrow-key pickers

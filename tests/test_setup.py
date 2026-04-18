@@ -139,48 +139,55 @@ def test_skill_copy_parent_walk():
 # ── 4. Atomic write — rollback on build failure ──────────────────────────
 
 
-def test_atomic_write_rollback_on_build_failure(monkeypatch=None):
+def _make_state(name: str, mode: str = "edit", **overrides) -> "wizard.WizardState":
+    """Build a minimally-valid WizardState for write/reveal tests."""
+    bot_cfg = overrides.pop("bot_cfg", None) or {
+        "agent": {"name": name.capitalize(), "trigger_phrase": "@operator"},
+        "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
+        "connector": {"browser_profile_dir": "./b", "auth_state_file": "./a"},
+        "mcp_servers": {},
+    }
+    defaults = dict(
+        mode=mode,
+        name=name,
+        display_name=name.capitalize(),
+        tagline="",
+        based_on="pm" if mode == "new" else name,
+        portrait="placeholder",
+        bot_cfg=bot_cfg,
+        user_sources=[],
+        bundled_skill_dirs=[],
+    )
+    defaults.update(overrides)
+    return wizard.WizardState(**defaults)
+
+
+def test_atomic_write_rollback_on_build_failure():
     """If build fails mid-flight, the target dir is untouched and no tmpdir lingers."""
-    # Redirect _AGENTS_DIR to a sandbox for the duration of this test.
     with tempfile.TemporaryDirectory() as tmp:
         sandbox = Path(tmp) / "agents"
         sandbox.mkdir()
         original_agents_dir = wizard._AGENTS_DIR
         wizard._AGENTS_DIR = sandbox
         try:
-            # Pre-seed target with a sentinel file we can re-check post-failure.
             target = sandbox / "victim"
             target.mkdir()
             (target / "sentinel.txt").write_text("keep-me", encoding="utf-8")
 
-            # Cause _step5_write to fail by passing a user_sources entry that
-            # doesn't exist — _copy_user_skill will raise.
+            # Bogus user source → _copy_user_skill raises mid-build.
             bogus = Path(tmp) / "nope"
-            bot_cfg = {
-                "agent": {"name": "Victim"},
-                "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
-                "connector": {"browser_profile_dir": "./b", "auth_state_file": "./a"},
-                "mcp_servers": {},
-            }
+            state = _make_state("victim", mode="edit", user_sources=[bogus])
 
             raised = False
             try:
-                wizard._step5_write(
-                    mode="edit",
-                    name="victim",
-                    bot_cfg=bot_cfg,
-                    user_sources=[bogus],
-                    bundled_dirs=[],
-                )
+                wizard._step5_write(state)
             except Exception:
                 raised = True
 
             assert raised, "expected exception on bogus source"
-            # Target restored, sentinel intact, no tempdir left behind.
             assert (target / "sentinel.txt").read_text(encoding="utf-8") == "keep-me"
             stray = [p for p in sandbox.iterdir() if p.name.startswith(".victim.tmp-")]
             assert not stray, f"tempdir not cleaned up: {stray}"
-            # No backup left behind either.
             baks = [p for p in sandbox.iterdir() if p.name.startswith("victim.bak-")]
             assert not baks, f"backup left behind: {baks}"
         finally:
@@ -201,36 +208,18 @@ def test_edit_in_place_swap_cleans_backup():
         try:
             target = sandbox / "preset"
             target.mkdir()
-            # `.env.example` is a sibling the wizard doesn't own — edit-in-place
-            # must preserve it through the swap.
             (target / ".env.example").write_text("KEY=val", encoding="utf-8")
-            # A pre-existing README should survive too — hand-written prose is
-            # more valuable than the wizard's stub.
             (target / "README.md").write_text("# Hand-written\n", encoding="utf-8")
-            # Stale skill folder should be wiped — skills are fully re-authored.
             (target / "skills").mkdir()
             (target / "skills" / "deselected").mkdir()
 
-            bot_cfg = {
-                "agent": {"name": "Preset", "trigger_phrase": "@operator"},
-                "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
-                "connector": {"browser_profile_dir": "./b", "auth_state_file": "./a"},
-                "mcp_servers": {},
-            }
-            out = wizard._step5_write(
-                mode="edit", name="preset", bot_cfg=bot_cfg,
-                user_sources=[], bundled_dirs=[],
-            )
+            state = _make_state("preset", mode="edit")
+            out = wizard._step5_write(state)
             assert out == target
-            # Owned files rewritten.
             assert (target / "config.yaml").is_file()
-            # Sibling preserved.
             assert (target / ".env.example").read_text(encoding="utf-8") == "KEY=val"
-            # Hand-written README preserved (wizard didn't stub over it).
             assert "Hand-written" in (target / "README.md").read_text(encoding="utf-8")
-            # Stale skill wiped (skills are fully re-authored).
             assert not (target / "skills" / "deselected").exists()
-            # No backup lingering on success.
             baks = [p for p in sandbox.iterdir() if p.name.startswith("preset.bak-")]
             assert not baks, f"backup not cleaned: {baks}"
         finally:
@@ -255,16 +244,12 @@ def test_from_scratch_write_creates_bundle():
                 "connector": {"browser_profile_dir": "./b", "auth_state_file": "./a"},
                 "mcp_servers": {"notion": {"enabled": True, "command": "npx", "args": []}},
             }
-            out = wizard._step5_write(
-                mode="new", name="fresh", bot_cfg=bot_cfg,
-                user_sources=[], bundled_dirs=[],
-            )
+            state = _make_state("fresh", mode="new", bot_cfg=bot_cfg)
+            out = wizard._step5_write(state)
             assert out.is_dir()
             assert (out / "config.yaml").is_file()
             assert (out / "portrait.txt").is_file()
             assert (out / "README.md").is_file()
-            # skills.paths points at the local (non-existent) folder safely
-            # — but since we passed no skills, skills.paths should be [].
             loaded = wizard._load_yaml(out / "config.yaml")
             assert loaded["skills"]["paths"] == []
         finally:
@@ -289,21 +274,140 @@ def test_env_append_preserves_existing():
     print("  env append preserves existing: PASS")
 
 
-# ── 8. Number-list parser ────────────────────────────────────────────────
+# ── 8. WizardState — equipped views + card render ────────────────────────
 
 
-def test_parse_number_list():
-    """Accepts '1,3,5', rejects out-of-range and non-numeric."""
-    assert wizard._parse_number_list("1,3,5", 5) == [0, 2, 4]
-    assert wizard._parse_number_list("", 5) == []
-    assert wizard._parse_number_list(" 2 ", 5) == [1]
-    for bad in ("0", "6", "abc", "1,x"):
+def test_wizard_state_equipped_views():
+    """equipped_mcps reflects `enabled` flags; equipped_skills concatenates
+    user-supplied names + bundled folder names."""
+    cfg = {
+        "mcp_servers": {
+            "linear": {"enabled": True},
+            "notion": {"enabled": False},
+            "github": {"enabled": True},
+        },
+    }
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        # Two bundled skill dirs and one user-added folder.
+        bundled1 = _make_skill_folder(root / "b", "alpha")
+        bundled2 = _make_skill_folder(root / "b", "beta")
+        user = _make_skill_folder(root / "u", "user-skill")
+
+        state = wizard.WizardState(
+            mode="new",
+            name="researcher",
+            display_name="Researcher",
+            tagline="t",
+            based_on="pm",
+            portrait="placeholder",
+            bot_cfg=cfg,
+            user_sources=[user],
+            bundled_skill_dirs=[bundled1, bundled2],
+        )
+        assert state.equipped_mcps() == ["linear", "github"]
+        assert state.equipped_skills() == ["user-skill", "alpha", "beta"]
+        # Card renders without raising; smoke test.
+        assert state.card() is not None
+        assert state.card(mcps=["only-this"]) is not None
+    print("  wizard state equipped views: PASS")
+
+
+# ── 9. _resolve_user_skill_names — three input shapes ────────────────────
+
+
+def test_resolve_user_skill_names():
+    """Resolves to: <stem> for .md, <name> for SKILL.md folder,
+    each child for parent walks."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        md = root / "lone.md"
+        md.write_text("---\nname: lone\ndescription: d\n---\n", encoding="utf-8")
+        folder = _make_skill_folder(root, "single-folder")
+        parent = root / "many"
+        parent.mkdir()
+        _make_skill_folder(parent, "child-a")
+        _make_skill_folder(parent, "child-b")
+
+        names = wizard._resolve_user_skill_names([md, folder, parent])
+        assert "lone" in names
+        assert "single-folder" in names
+        assert "child-a" in names
+        assert "child-b" in names
+    print("  resolve user skill names: PASS")
+
+
+# ── 10. Reveal — placeholder swaps for real portrait ─────────────────────
+
+
+def test_reveal_swaps_portrait():
+    """_reveal mutates state.portrait from placeholder to the real face."""
+    with tempfile.TemporaryDirectory() as tmp:
+        sandbox = Path(tmp) / "agents"
+        sandbox.mkdir()
+        original_agents_dir = wizard._AGENTS_DIR
+        wizard._AGENTS_DIR = sandbox
         try:
-            wizard._parse_number_list(bad, 5)
-            assert False, f"expected rejection for {bad!r}"
-        except ValueError:
-            pass
-    print("  number-list parser: PASS")
+            # Pre-create the portrait file that _reveal will read.
+            target = sandbox / "fresh"
+            target.mkdir()
+            from pipeline import face
+            (target / "portrait.txt").write_text(face.render("fresh") + "\n", encoding="utf-8")
+
+            from pipeline import build_card
+            state = _make_state("fresh", mode="new")
+            assert state.portrait == "placeholder"
+            state.portrait = build_card.PLACEHOLDER_PORTRAIT
+            wizard._reveal(state)
+            assert state.portrait != build_card.PLACEHOLDER_PORTRAIT
+            assert "█" in state.portrait, "expected real face glyphs after reveal"
+        finally:
+            wizard._AGENTS_DIR = original_agents_dir
+    print("  reveal swaps portrait: PASS")
+
+
+# ── 11. Picker — driven by injected key_source ───────────────────────────
+
+
+def test_picker_select_one_with_key_source():
+    """select_one navigates with UP/DOWN and returns the chosen Choice."""
+    import readchar
+    from pipeline.picker import Choice, select_one
+    choices = [Choice(label=f"item{i}", value=i) for i in range(3)]
+    keys = [readchar.key.DOWN, readchar.key.DOWN, readchar.key.ENTER]
+    picked = select_one("pick", choices, key_source=keys)
+    assert picked.value == 2
+    print("  picker select_one: PASS")
+
+
+def test_picker_select_many_with_key_source():
+    """select_many navigates with UP/DOWN, toggles with SPACE, confirms with ENTER."""
+    import readchar
+    from pipeline.picker import Choice, select_many
+    choices = [Choice(label=f"item{i}") for i in range(3)]
+    # Start at 0, toggle item0 on, move down, toggle item1 on, confirm.
+    keys = [
+        " ",
+        readchar.key.DOWN,
+        " ",
+        readchar.key.ENTER,
+    ]
+    out = select_many("pick", choices, key_source=keys)
+    assert out == [True, True, False]
+    print("  picker select_many: PASS")
+
+
+def test_picker_cancels_on_q():
+    """select_one raises PickerCancelled when 'q' is pressed."""
+    from pipeline.picker import Choice, PickerCancelled, select_one
+    choices = [Choice(label="x")]
+    raised = False
+    try:
+        select_one("pick", choices, key_source=["q"])
+    except PickerCancelled:
+        raised = True
+    assert raised, "expected PickerCancelled on 'q'"
+    print("  picker cancels on q: PASS")
 
 
 if __name__ == "__main__":
@@ -317,5 +421,10 @@ if __name__ == "__main__":
     test_edit_in_place_swap_cleans_backup()
     test_from_scratch_write_creates_bundle()
     test_env_append_preserves_existing()
-    test_parse_number_list()
+    test_wizard_state_equipped_views()
+    test_resolve_user_skill_names()
+    test_reveal_swaps_portrait()
+    test_picker_select_one_with_key_source()
+    test_picker_select_many_with_key_source()
+    test_picker_cancels_on_q()
     print("\nAll tests passed.")
