@@ -62,6 +62,7 @@ transcript:
 mcp_servers:
   linear:
     enabled: true
+    description: "file, query, and update Linear tickets the moment decisions land"
     command: "npx"
     args: ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
     # Tools that auto-execute without user confirmation. Anything not listed here confirms by default.
@@ -98,6 +99,7 @@ mcp_servers:
 
   github:
     enabled: true
+    description: "read and write code, PRs, and issues across your GitHub repos"
     command: "./github-mcp-server"
     args: ["stdio"]
     read_tools:
@@ -136,6 +138,7 @@ mcp_servers:
 
   notion:
     enabled: false
+    description: "read and write Notion pages and databases"
     command: "npx"
     args: ["-y", "@notionhq/notion-mcp-server"]
     env:
@@ -146,6 +149,7 @@ mcp_servers:
 
   slack:
     enabled: false
+    description: "post messages and read channels in your Slack workspace"
     command: "npx"
     args: ["-y", "@modelcontextprotocol/server-slack"]
     env:
@@ -157,6 +161,7 @@ mcp_servers:
 
   brave_search:
     enabled: false
+    description: "live web search — fresh facts pulled into the meeting"
     command: "npx"
     args: ["-y", "@modelcontextprotocol/server-brave-search"]
     env:

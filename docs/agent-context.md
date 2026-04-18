@@ -17,9 +17,23 @@
 
 ## Current Status
 
-**Phase:** Phase 13.1 (config audit) shipped in session 123 alongside a build-card polish pass. Remaining before launch: 13.2 log cleanup (~2h) → 15.6 security (~4.5h) → 14 package → 15 cross-platform → 16 launch. Budget: ~16h vs April 19 launch.
+**Phase:** Wizard step-2 MCP descriptions shipped (session 124). New **Phase 15.5.6 — `operator try <name>`** slotted next (~1h) as a terminal test-drive to end the Meet-roundtrip dev loop. Remaining before launch: 15.5.6 → 13 log cleanup + 13.1 gap check → 15.6 security (~4.5h) → 14 package → 15 cross-platform → 16 launch. Budget: ~23h vs April 19 launch.
 
-**What just happened (session 123, April 18, 2026):** Commit `60cadef`. Two workstreams, one commit.
+**What just happened (session 124, April 18, 2026):** No commit yet at the time of writing — code changes staged for the session-124 commit.
+
+- **MCP `description:` field added across all three bundles.** User flagged that "delegate" is the only MCP name in step 2 of the wizard that doesn't self-describe. Rather than hardcoding a lookup in `setup.py`, added an optional `description:` string to every `mcp_servers.<name>` block in `agents/engineer/config.yaml`, `agents/pm/config.yaml`, `agents/designer/config.yaml` (consistent wording per server across bundles — delegate = "spin up a Claude Code instance to write code for you, from inside the meeting", github = "read and write code, PRs, and issues across your GitHub repos", and so on for linear / notion / slack / brave_search / figma). `pipeline/setup.py:_step2_mcps` reads `servers[n].get("description")` into `Choice.sublabel`; the picker's `_render_rows` already indents sublabels six spaces under the `[✓]` glyph. Runtime ignores the field — `config.py` doesn't load it. `agents/README.md` Config reference table gained a `description` row under `mcp_servers:`. `tests/test_setup.py` 7/7 green; `operator list` clean.
+
+- **Roadmap gained Phase 15.5.6 — `operator try <name>`.** User called out that the Meet-every-change dev loop is inefficient and asked what users could also use to test their bots. The answer is the same `TerminalConnector` framed as user-facing product surface: right after `operator setup`, the user test-drives their bot in terminal to confirm API keys + MCPs + skills before joining a Meet. Quickstart becomes setup → try → join. Full implementation spec written to `docs/handoff.md` (gitignored) covering the `connectors/terminal.py` stdin/stdout connector, `__main__.py` dispatch, `RESERVED_NAMES` update in `pipeline/setup.py`, edge cases (stdin EOF, 1-on-1 threshold, captions no-op), and a 6-step test plan. Execution order updated in `roadmap.md`: 15.5.5 ✅ → 15.5.6 ▶ → 13 → 15.6 → 14 → 15 → 16. MVP total bumped from ~22h to ~23h remaining.
+
+- **Delegate live-test deferred.** The plan at session start was to live-test the engineer's `delegate_to_claude_code` path end-to-end against a real Meet (T1–T7 from `tests/15_5_1_testing.md`). Mid-session the user pointed out the Meet roundtrip is the real inefficiency and proposed a terminal harness first. Consequently, the live test folds into step 3 of the first `operator try engineer` run in session 125 — same LLM + MCP + confirm-gate code path, no regression between now and then (delegate was already live-tested T1–T7 PASS in session 109, nothing touched since).
+
+- **13.1 flagged "actually incomplete" by user.** Raised at session start but specifics weren't captured before scope shifted to 15.5.6. `config.py` and `agents/README.md` Config reference both look clean on inspection. Open question for session 125 (or whenever 13 starts) — ask the user what gap remains.
+
+**Next action:** **Phase 15.5.6 — `operator try <name>`** (~1h). Implementation spec in `docs/handoff.md`. Budget: ~23h vs April 19 launch.
+
+---
+
+**Previous (session 123, April 18, 2026):** Commit `60cadef`. Two workstreams, one commit.
 
 - **Build card — rainbow only at reveal + wrap fixes.** User flagged that the session-122 rainbow frame showed up on every step which diluted the reveal-as-gift beat. Added `rainbow: bool = False` to `build_card.render()` (and `WizardState.card()`). Steps 2 & 3 pass `rainbow=False` (default) → plain white `rich.panel.Panel`. Reveal passes `rainbow=True` → existing per-character ANSI frame. Two real bugs in the existing card renderer surfaced in the same session:
   1. **Tagline crashing the face.** `_compose_body` was zipping portrait lines with a raw `meta_lines = [name, tagline]`. A long tagline would overflow the 38-cell inner width and wrap unpredictably *across* the face rows (Rich's wrap splits mid-row). Fix: wrap the tagline into the right-hand meta column (width = `_INNER - 2 - portrait_w - 3`) via `_wrap_cells` *before* zipping with the portrait, so extra tagline lines extend vertically under the name without touching the face grid.

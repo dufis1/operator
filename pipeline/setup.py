@@ -298,7 +298,10 @@ def _step2_mcps(state: WizardState) -> None:
         return
 
     names = list(servers.keys())
-    choices = [Choice(label=n) for n in names]
+    choices = [
+        Choice(label=n, sublabel=(servers[n].get("description") or "").strip())
+        for n in names
+    ]
     initial = [bool(servers[n].get("enabled", False)) for n in names]
 
     def right_pane(_cursor, checked):
