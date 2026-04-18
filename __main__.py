@@ -256,9 +256,8 @@ def _run_list():
 
 
 def _run_setup(rest):
-    print("operator setup — wizard not yet implemented (Phase 15.5.5).")
-    print("For now, create a new bot by copying agents/pm/ and editing it.")
-    return 0
+    from pipeline.setup import run as _wizard_run
+    return _wizard_run(rest)
 
 
 def main():

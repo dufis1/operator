@@ -5,3 +5,4 @@ openai                 # GPT-4.1-mini for LLM responses and completeness checks
 anthropic              # Claude (Sonnet/Opus) as an alternate LLM backend
 playwright             # controls headless/headed Chrome for joining Google Meet
 mcp                    # Model Context Protocol client for tool-use integration
+rich                   # TUI used by `operator setup` wizard
