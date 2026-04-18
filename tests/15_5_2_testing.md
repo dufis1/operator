@@ -6,13 +6,13 @@ Run them in order. Keep `tail -f /tmp/operator.log` open in a second pane.
 This suite exercises what's NEW in the PM bundle: **Linear MCP** (first-run
 OAuth + read + write-with-confirmation), **`captions_enabled: true`** by
 default, the **two bundled skills** (`prd-from-discussion`, `standup-summary`)
-loaded from `roster/pm/skills/` via `progressive_disclosure`, and the bumped
+loaded from `agents/pm/skills/` via `progressive_disclosure`, and the bumped
 `max_tokens: 400`. Battle-tested paths (chat polling, JSONL, GitHub MCP,
 Ctrl+C shutdown) are only smoke-checked.
 
 ## Prep
 
-1. Edit `roster/pm/config.yaml` → set `agent.user_display_name` to your
+1. Edit `agents/pm/config.yaml` → set `agent.user_display_name` to your
    Google Meet display name (the template ships with `"Your Name"`). The
    runtime loads the bot's config directly — no root `config.yaml` to swap.
 
@@ -58,10 +58,10 @@ browser window for OAuth — complete the auth; the subprocess will wait.
 **Fail signals:**
 - Linear hangs on OAuth → complete auth in the browser; re-run if the
   subprocess timed out.
-- `SKILLS: path not found or not a directory: roster/pm/skills` → running
+- `SKILLS: path not found or not a directory: agents/pm/skills` → running
   from the wrong cwd; start Operator from the repo root.
 - Neither bundled skill appears in the SKILLS banner → the `skills.paths`
-  order broke; re-check `roster/pm/config.yaml`.
+  order broke; re-check `agents/pm/config.yaml`.
 
 ---
 
@@ -207,12 +207,12 @@ new PMs to view it in their first session." Then in chat:
 ## Cleanup
 
 ```bash
-# Revert your display name in roster/pm/config.yaml if you don't want it committed.
+# Revert your display name in agents/pm/config.yaml if you don't want it committed.
 # Optional — delete the T4 smoke-test ticket from Linear's UI.
 # Optional — wipe the test meeting's JSONL:
 # rm ~/.operator/history/tfb-tpnb-kpw.jsonl
 ```
 
 If T1–T7 all pass, the PM bundle is ship-ready for Phase 15.5.2. The
-"demo GIF" TODO in `roster/pm/README.md` can be recorded from a re-run of
+"demo GIF" TODO in `agents/pm/README.md` can be recorded from a re-run of
 T3 → T4 (Linear ticket materializing mid-chat — the hero framing).

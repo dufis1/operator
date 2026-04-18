@@ -17,7 +17,7 @@ enabling them requires swapping the MCP server.
 
 ## Prep
 
-1. Edit `roster/designer/config.yaml` → set `agent.user_display_name` to your
+1. Edit `agents/designer/config.yaml` → set `agent.user_display_name` to your
    Google Meet display name (the template ships with `"Your Name"`). The
    runtime loads the bot's config directly — no root `config.yaml` to swap.
 
@@ -78,7 +78,7 @@ via npx.
   or invalid. Regenerate a PAT at `figma.com/settings`, update `.env`, and
   relaunch. `npx` download issues are a less common cause; run
   `npx -y figma-developer-mcp --stdio --help` manually to surface them.
-- `SKILLS: path not found or not a directory: roster/designer/skills` →
+- `SKILLS: path not found or not a directory: agents/designer/skills` →
   running from the wrong cwd; start Operator from the repo root.
 
 The bundle's `read_tools` list (`get_figma_data`, `download_figma_images`)
@@ -173,7 +173,7 @@ bundle, treat T4 as automatically passing and move to T5.
 **Fail signals:**
 - Generic, hedging response ("Design is subjective, but you might
   consider…") → persona system prompt isn't biting. Re-check
-  `roster/designer/config.yaml` loaded the designer system_prompt.
+  `agents/designer/config.yaml` loaded the designer system_prompt.
 - Reply is a 5-bullet structured critique → Designer over-reached for the
   skill instead of keeping it conversational. The skill should fire on
   "review" / "critique" / "feedback", not on "gut check."
@@ -231,7 +231,7 @@ hero product." Then in chat:
 ## Power-ups — swap in a different Figma MCP server
 
 The default GLips server covers T1–T3, T5, T6, T7. To exercise write
-operations (T4), swap `mcp_servers.figma` in `roster/designer/config.yaml`
+operations (T4), swap `mcp_servers.figma` in `agents/designer/config.yaml`
 for one of these and re-run the relevant subset:
 
 **Grab `cursor-talk-to-figma-mcp`** — ~25 mutation tools (`create_frame`,
@@ -294,7 +294,7 @@ gate is still closed.
 ## Cleanup (Operator runs this after the live test passes)
 
 ```bash
-# Revert any temporary changes in roster/designer/config.yaml if you don't
+# Revert any temporary changes in agents/designer/config.yaml if you don't
 # want them committed (e.g. display name, or a swapped-in write-capable
 # mcp_servers.figma block from the Power-ups section).
 
@@ -304,6 +304,6 @@ gate is still closed.
 ```
 
 If T1–T7 all pass, the Designer bundle is ship-ready for Phase 15.5.2b. The
-"demo GIF" TODO in `roster/designer/README.md` can be recorded from a re-run
+"demo GIF" TODO in `agents/designer/README.md` can be recorded from a re-run
 of T2 → T3 (a Figma frame summary materializing in chat seconds after the
 spoken "let's look at the carousel" — the hero framing).

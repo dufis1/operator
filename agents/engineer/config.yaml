@@ -1,4 +1,4 @@
-# Engineer — engineering assistant roster member for Operator
+# Engineer — engineering assistant agent for Operator
 # Secrets (API keys) stay in .env — this file is safe to commit and share.
 
 agent:
@@ -91,7 +91,7 @@ mcp_servers:
 
   delegate:
     command: "python"
-    args: ["roster/engineer/delegate_to_claude_code.py"]
+    args: ["agents/engineer/delegate_to_claude_code.py"]
     read_tools: []     # delegate_to_claude_code is a write — always confirm
     confirm_tools: []
     hints: |

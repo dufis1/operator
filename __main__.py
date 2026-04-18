@@ -3,11 +3,11 @@ Operator — AI Meeting Participant
 Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
 
 Usage:
-    operator <name> <url>     Run named roster bot in a specific Meet
+    operator <name> <url>     Run named agent in a specific Meet
     operator <name>           Auto-open a new Meet, join as that bot
-    operator setup            Create a new roster bot (wizard)
-    operator list             Show available roster bots
-    operator                  Print usage + roster list
+    operator setup            Create a new agent (wizard)
+    operator list             Show available agents
+    operator                  Print usage + agent list
 """
 import os
 import subprocess
@@ -16,7 +16,7 @@ import webbrowser
 from pathlib import Path
 
 _ROOT = Path(__file__).parent
-_ROSTER_DIR = _ROOT / "roster"
+_AGENTS_DIR = _ROOT / "agents"
 
 
 # ── Prevent Ctrl+C from killing child processes ────────────────────
@@ -151,7 +151,7 @@ def _print_startup_banner(skills, plain=False):
     from pipeline import face
 
     bot_name = os.environ.get("OPERATOR_BOT", "")
-    portrait_path = _ROSTER_DIR / bot_name / "portrait.txt"
+    portrait_path = _AGENTS_DIR / bot_name / "portrait.txt"
 
     # First-run hook — contributor-added bot with no portrait gets one minted.
     # Skip in --plain mode so the ASCII fallback doesn't get persisted as the
@@ -187,10 +187,10 @@ def _print_startup_banner(skills, plain=False):
 
 
 def _available_bots():
-    if not _ROSTER_DIR.exists():
+    if not _AGENTS_DIR.exists():
         return []
     return sorted(
-        p.name for p in _ROSTER_DIR.iterdir()
+        p.name for p in _AGENTS_DIR.iterdir()
         if p.is_dir() and (p / "config.yaml").exists()
     )
 
@@ -198,7 +198,7 @@ def _available_bots():
 def _bot_tagline(name):
     # Prefer the explicit agent.tagline in config.yaml; fall back to the first
     # non-header line of README.md for older bots that pre-date the field.
-    cfg = _ROSTER_DIR / name / "config.yaml"
+    cfg = _AGENTS_DIR / name / "config.yaml"
     if cfg.exists():
         try:
             import yaml
@@ -208,7 +208,7 @@ def _bot_tagline(name):
                 return tag
         except Exception:
             pass
-    readme = _ROSTER_DIR / name / "README.md"
+    readme = _AGENTS_DIR / name / "README.md"
     if not readme.exists():
         return ""
     lines = readme.read_text().splitlines()
@@ -226,9 +226,9 @@ def _bot_tagline(name):
 
 def _print_usage():
     print("Usage:")
-    print("  operator <name> [url]     Run a roster bot in a Meet")
+    print("  operator <name> [url]     Run an agent in a Meet")
     print("  operator <name>           Auto-open a new Meet, join as that bot")
-    print("  operator setup            Create a new roster bot (wizard)")
+    print("  operator setup            Create a new agent (wizard)")
     print("  operator list             Show available bots")
     print()
     print("Flags:")
@@ -247,7 +247,7 @@ def _print_usage():
 def _run_list():
     bots = _available_bots()
     if not bots:
-        print("No roster bots found.")
+        print("No agents found.")
         return 0
     for b in bots:
         tag = _bot_tagline(b)
@@ -257,7 +257,7 @@ def _run_list():
 
 def _run_setup(rest):
     print("operator setup — wizard not yet implemented (Phase 15.5.5).")
-    print("For now, create a new bot by copying roster/pm/ and editing it.")
+    print("For now, create a new bot by copying agents/pm/ and editing it.")
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Deterministic glyph-face generator for roster bots.
+"""Deterministic glyph-face generator for agents.
 
 Each bot gets a 4-line face: a box frame with a 2-char eye glyph and 2-char
 mouth glyph. Assignment is seeded by sha256(name) so the same bot name

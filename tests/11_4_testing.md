@@ -27,7 +27,7 @@ Run them in order. Keep `tail -f /tmp/operator.log` open in a second pane.
    EOF
    ```
 
-2. Edit `roster/<bot>/config.yaml` → `skills:` block:
+2. Edit `agents/<bot>/config.yaml` → `skills:` block:
 
    ```yaml
    skills:
@@ -126,7 +126,7 @@ Run them in order. Keep `tail -f /tmp/operator.log` open in a second pane.
 
 ## T7 — Non-progressive mode inlines full bodies (no `load_skill` tool)
 
-**Steps:** Leave meeting. Edit `roster/<bot>/config.yaml`:
+**Steps:** Leave meeting. Edit `agents/<bot>/config.yaml`:
 
 ```yaml
 skills:
@@ -195,4 +195,4 @@ with numbers matching what you actually did.
 ```bash
 rm -rf /tmp/op-skills
 ```
-Revert the bot's `roster/<bot>/config.yaml` `skills:` block back to its defaults before moving on.
+Revert the bot's `agents/<bot>/config.yaml` `skills:` block back to its defaults before moving on.

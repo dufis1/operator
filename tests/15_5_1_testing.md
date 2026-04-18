@@ -10,7 +10,7 @@ MCP generally) are only smoke-checked.
 
 ## Prep
 
-1. Edit `roster/engineer/config.yaml` → set `agent.user_display_name` to your
+1. Edit `agents/engineer/config.yaml` → set `agent.user_display_name` to your
    Google Meet display name (the template ships with `"Your Name"`). The new
    runtime loads the bot's config directly — no root `config.yaml` to swap.
 
@@ -156,7 +156,7 @@ git worktree list
 ## Cleanup
 
 ```bash
-# Revert your display name in roster/engineer/config.yaml if you don't want
+# Revert your display name in agents/engineer/config.yaml if you don't want
 # it committed.
 
 # Optional — remove the test meeting's JSONL for a clean slate:
@@ -164,5 +164,5 @@ git worktree list
 ```
 
 If T1–T5 all pass and T6/T7 degrade gracefully, the engineer bundle is
-ship-ready for Phase 15.5.1. The "demo GIF" TODO in `roster/engineer/README.md`
+ship-ready for Phase 15.5.1. The "demo GIF" TODO in `agents/engineer/README.md`
 can be recorded from a re-run of T3 → T4.

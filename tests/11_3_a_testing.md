@@ -14,7 +14,7 @@ Here's a precise test sheet for everything touched today. Run against a fresh me
 - First-ever message from person A with `@operator hey`: Operator's reply should greet them by first name once.
 - Second message from A: Operator should NOT greet again (hint is suppressed after first use).
 - A third participant B joins and sends `@operator hi`: B gets greeted by name once.
-- To prove it's config-driven: edit `agent.first_contact_hint` in `roster/<bot>/config.yaml` (e.g. set it to `""`) and restart — no greeting. Set it back.
+- To prove it's config-driven: edit `agent.first_contact_hint` in `agents/<bot>/config.yaml` (e.g. set it to `""`) and restart — no greeting. Set it back.
 
 **4. History replay (the core of 11.3a)**
 - In a multi-turn conversation, ask something that depends on earlier context (e.g., "what was my first question?"). Operator should answer using the JSONL tail, not ask again.

@@ -6,11 +6,11 @@ as a subprocess, returns the result. Confirmation-gated as a write tool.
 
 Prerequisite: `claude` CLI installed and authenticated.
 
-Already wired under roster/engineer/config.yaml → mcp_servers.delegate:
+Already wired under agents/engineer/config.yaml → mcp_servers.delegate:
 
   delegate:
     command: "python"
-    args: ["roster/engineer/delegate_to_claude_code.py"]
+    args: ["agents/engineer/delegate_to_claude_code.py"]
     hints: |
       Use delegate_to_claude_code when the user asks you to write, modify,
       or review code. The task string should be a clear, self-contained

@@ -48,7 +48,7 @@ def _classify_startup_failure(exc: Exception, srv_config: dict) -> str:
     if isinstance(inner, FileNotFoundError):
         return (
             f"the command '{cmd}' was not found — "
-            f"check the 'command' field in the bot's roster/<name>/config.yaml, or ensure the binary is on PATH"
+            f"check the 'command' field in the bot's agents/<name>/config.yaml, or ensure the binary is on PATH"
         )
     if isinstance(inner, TimeoutError):
         return (

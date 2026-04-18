@@ -15,11 +15,11 @@ if not BOT_NAME:
     )
     raise SystemExit(2)
 
-BOT_DIR = _ROOT / "roster" / BOT_NAME
+BOT_DIR = _ROOT / "agents" / BOT_NAME
 _cfg_path = BOT_DIR / "config.yaml"
 if not _cfg_path.exists():
     available = sorted(
-        p.name for p in (_ROOT / "roster").iterdir()
+        p.name for p in (_ROOT / "agents").iterdir()
         if p.is_dir() and (p / "config.yaml").exists()
     )
     sys.stderr.write(

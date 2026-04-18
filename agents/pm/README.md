@@ -22,10 +22,10 @@ turn "I'll ship X by Friday" into a real Linear ticket with an owner.
 
 ```bash
 # 1. Fill in your API keys
-cp roster/pm/.env.example .env
+cp agents/pm/.env.example .env
 # Edit .env with your keys
 
-# 2. Update your display name in roster/pm/config.yaml
+# 2. Update your display name in agents/pm/config.yaml
 #    agent.user_display_name: "Your Name"
 
 # 3. Run — direct URL or auto-open meet.new

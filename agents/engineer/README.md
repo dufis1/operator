@@ -20,10 +20,10 @@ worktree and reports back.
 
 ```bash
 # 1. Fill in your API keys
-cp roster/engineer/.env.example .env
+cp agents/engineer/.env.example .env
 # Edit .env with your keys
 
-# 2. Update your display name in roster/engineer/config.yaml
+# 2. Update your display name in agents/engineer/config.yaml
 #    agent.user_display_name: "Your Name"
 
 # 3. Run — direct URL or auto-open meet.new

@@ -1,4 +1,4 @@
-# PM — product / standup assistant roster member for Operator
+# PM — product / standup assistant agent for Operator
 # Secrets (API keys) stay in .env — this file is safe to commit and share.
 
 agent:
@@ -47,7 +47,7 @@ skills:
   progressive_disclosure: true
   paths:
     - ~/.claude/skills
-    - roster/pm/skills
+    - agents/pm/skills
 
 # Captions on by default — PM's value depends on hearing commitments, blockers,
 # and decisions as they're spoken. Turn captions on in Meet before joining.

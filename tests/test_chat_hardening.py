@@ -166,7 +166,7 @@ def test_sender_filtering():
     """Bot's own messages should be filtered by sender name."""
     bot_name = config.AGENT_NAME
 
-    assert bot_name  # non-empty; the actual value comes from the active roster bot
+    assert bot_name  # non-empty; the actual value comes from the active agent
     assert bot_name.lower() == bot_name.lower()
     assert "Alice".lower() != bot_name.lower()
 

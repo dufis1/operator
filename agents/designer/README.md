@@ -25,10 +25,10 @@ access to any Figma file your personal access token can see.
 
 ```bash
 # 1. Fill in your API keys
-cp roster/designer/.env.example .env
+cp agents/designer/.env.example .env
 # Edit .env with ANTHROPIC_API_KEY and FIGMA_TOKEN
 
-# 2. Update your display name in roster/designer/config.yaml
+# 2. Update your display name in agents/designer/config.yaml
 #    agent.user_display_name: "Your Name"
 
 # 3. Run — direct URL or auto-open meet.new
@@ -72,7 +72,7 @@ Two alternatives, each with tradeoffs:
   added, this becomes the best option: no plugin, no bridge, write
   operations included.
 
-Swap either in by editing `mcp_servers.figma` in `roster/designer/config.yaml`.
+Swap either in by editing `mcp_servers.figma` in `agents/designer/config.yaml`.
 
 ## Demo
 
