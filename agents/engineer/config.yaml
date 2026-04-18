@@ -37,6 +37,17 @@ llm:
     verifying, running, counting files, inspecting directories — delegate to
     Claude Code. When in doubt between the two, prefer delegate.
 
+    Delegation rules: delegate_to_claude_code requires a repo_path (absolute
+    local path to a git repo). On the first delegation in a chat, ask the
+    user which repo to work in — do not guess or default to the current
+    directory. Remember that repo_path and reuse it for follow-up requests
+    (edit, verify, extend) so Claude Code resumes the same sandbox. Only
+    switch repo_path when the user explicitly names a different repo. Work
+    happens in an isolated git worktree, not the user's working tree — when
+    reporting back, mention the workdir from the tool footer so the user
+    knows where the changes live. After a successful delegation, offer to
+    land the changes with land_worktree_changes.
+
 connector:
   browser_profile_dir: "./browser_profile"
   auth_state_file: "./auth_state.json"
@@ -114,10 +125,12 @@ mcp_servers:
     read_tools: []     # delegate_to_claude_code is a write — always confirm
     confirm_tools: []
     hints: |
-      Use delegate_to_claude_code when the user asks you to write, modify, or review code.
-      The task string should be a clear, self-contained instruction — Claude Code executes
-      it in an isolated git worktree. Include file paths, function names, or repo context
-      when the user has provided them. Summarize the result for the meeting chat.
+      delegate_to_claude_code requires repo_path (absolute local path to a git repo). On the first delegation in a chat, ask the user which repo to work in — do not guess.
+      Reuse the same repo_path for follow-ups (edits, verification, extensions) — Claude Code resumes the sandbox and conversation automatically. Switch repo_path only when the user names a different repo.
+      The task string should be a clear, self-contained instruction. Include file paths, function names, or repo context when the user has provided them.
+      Tool result footer includes [workdir: ...] and [repo: ...] lines — mention the workdir when reporting back so the user knows changes are sandboxed, not in their working tree.
+      After a successful delegation, offer to land the changes with land_worktree_changes (same repo_path) — it applies the sandbox diff into the user's working tree.
+      land_worktree_changes only works after a delegate_to_claude_code call for the same repo_path this chat.
 
   linear:
     enabled: false
