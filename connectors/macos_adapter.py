@@ -351,7 +351,7 @@ class MacOSAdapter(MeetingConnector):
 
         Returns "admitted", "cancelled", or "timeout".
         """
-        timeout_seconds = config.IDLE_TIMEOUT_SECONDS
+        timeout_seconds = config.LOBBY_WAIT_SECONDS
         deadline = time.time() + timeout_seconds
         wait_start = time.time()
         last_status_log = wait_start

@@ -4,8 +4,6 @@
 agent:
   name: "Engineer"
   trigger_phrase: "@operator"
-  conversation_timeout: 20
-  alone_exit_grace_seconds: 60
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "spins up Claude Code worktrees while you meet"
 
@@ -13,10 +11,6 @@ llm:
   provider: "anthropic"
   model: "claude-sonnet-4-5"
   history_messages: 40
-  max_tokens: 150
-  tool_result_max_chars: 50000
-  tool_timeout_seconds: 600        # Claude Code delegations can run 3–10 min on real tasks; heartbeat keeps chat informed
-  tool_heartbeat_seconds: 8
   system_prompt: >
     You are Engineer, an engineering assistant participating in a meeting via chat.
     You have access to GitHub tools and can delegate coding tasks to Claude Code,
@@ -48,11 +42,6 @@ llm:
     knows where the changes live. After a successful delegation, offer to
     land the changes with land_worktree_changes.
 
-connector:
-  browser_profile_dir: "./browser_profile"
-  auth_state_file: "./auth_state.json"
-  idle_timeout_seconds: 600
-
 # Skills — loads your Claude Code skills so the bot knows your team conventions.
 # Point at ~/.claude/skills to bring your existing skills into meetings.
 skills:
@@ -62,7 +51,6 @@ skills:
 
 transcript:
   captions_enabled: false
-  silence_seconds: 0.7
 
 # MCP servers — all shipped bots declare the same full-union scaffold; they
 # differ only in which servers are `enabled: true` by default. `config.py`
@@ -76,6 +64,9 @@ mcp_servers:
     description: "spin up a Claude Code instance to write code for you, from inside the meeting"
     command: "python"
     args: ["agents/engineer/delegate_to_claude_code.py"]
+    # Claude Code delegations can run 3–10 min on real tasks; override the
+    # global 60s TOOL_TIMEOUT_SECONDS for this MCP only. Heartbeat still keeps chat informed.
+    tool_timeout_seconds: 600
     env:
       # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
       # file edits auto-run, Bash is blocked. Operator confirm-gates each

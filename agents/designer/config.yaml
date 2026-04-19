@@ -4,8 +4,6 @@
 agent:
   name: "Designer"
   trigger_phrase: "@operator"
-  conversation_timeout: 20
-  alone_exit_grace_seconds: 60
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "opens your Figma and pulls no punches"
 
@@ -13,10 +11,6 @@ llm:
   provider: "anthropic"
   model: "claude-sonnet-4-5"
   history_messages: 40
-  max_tokens: 400                  # design critique runs longer than 1-3 sentences when structured
-  tool_result_max_chars: 50000
-  tool_timeout_seconds: 60
-  tool_heartbeat_seconds: 8
   system_prompt: >
     You are Designer, a design-review partner participating in a meeting via chat.
     You have opinions. You care about hierarchy, whitespace, typography, and
@@ -41,11 +35,6 @@ llm:
     off") and decisions ("we're going with the dark variant") — but do not
     respond unless addressed.
 
-connector:
-  browser_profile_dir: "./browser_profile"
-  auth_state_file: "./auth_state.json"
-  idle_timeout_seconds: 600
-
 # Skills — bundled designer skill (design-review-feedback) + user's own skills.
 # Order: user skills first, bundle second, so bundled skills override user copies
 # by the same name (last-wins). Flip the order if you prefer the opposite.
@@ -60,7 +49,6 @@ skills:
 # Turn captions on in Meet before joining.
 transcript:
   captions_enabled: true
-  silence_seconds: 0.7
 
 # MCP servers — all shipped bots declare the same full-union scaffold; they
 # differ only in which servers are `enabled: true` by default. `config.py`

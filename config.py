@@ -30,11 +30,11 @@ if not _cfg_path.exists():
 
 _config = yaml.safe_load(_cfg_path.read_text())
 
+# ── User-facing config (read from agents/<name>/config.yaml) ──────────────
+
 # Agent
 AGENT_NAME           = _config["agent"]["name"]
 TRIGGER_PHRASE       = _config["agent"].get("trigger_phrase", "@operator")
-CONVERSATION_TIMEOUT = _config["agent"]["conversation_timeout"]
-ALONE_EXIT_GRACE_SECONDS = _config["agent"].get("alone_exit_grace_seconds", 60)
 FIRST_CONTACT_HINT   = _config["agent"].get("first_contact_hint", "")
 AGENT_TAGLINE        = _config["agent"].get("tagline", "")
 
@@ -42,16 +42,7 @@ AGENT_TAGLINE        = _config["agent"].get("tagline", "")
 LLM_PROVIDER           = _config["llm"]["provider"]
 LLM_MODEL              = _config["llm"]["model"]
 HISTORY_MESSAGES       = _config["llm"].get("history_messages", 40)
-MAX_TOKENS             = _config["llm"].get("max_tokens", 150)
-TOOL_RESULT_MAX_CHARS  = _config["llm"].get("tool_result_max_chars", 50000)
-TOOL_TIMEOUT_SECONDS   = _config["llm"].get("tool_timeout_seconds", 60)
-TOOL_HEARTBEAT_SECONDS = _config["llm"].get("tool_heartbeat_seconds", 8)
 SYSTEM_PROMPT          = _config["llm"]["system_prompt"]
-
-# Connector
-BROWSER_PROFILE_DIR  = _config["connector"]["browser_profile_dir"]
-AUTH_STATE_FILE      = _config["connector"]["auth_state_file"]
-IDLE_TIMEOUT_SECONDS = _config["connector"].get("idle_timeout_seconds", 600)
 
 # Skills
 _skills = _config.get("skills") or {}
@@ -61,9 +52,23 @@ SKILLS_PROGRESSIVE_DISCLOSURE = _skills.get("progressive_disclosure", True)
 # Transcript (captions)
 _transcript = _config.get("transcript", {})
 CAPTIONS_ENABLED        = _transcript.get("captions_enabled", False)
-CAPTION_SILENCE_SECONDS = _transcript.get("silence_seconds", 0.7)
 
-# MCP Servers
+# ── INTERNAL TUNING ───────────────────────────────────────────────────────
+# These used to live in each bot's config.yaml; they're tuned-once internals
+# that shipped identical across bots. Edit here to change runtime behavior
+# globally. A single per-MCP-server override exists: `tool_timeout_seconds`
+# under an mcp_servers[<name>] block wins over TOOL_TIMEOUT_SECONDS below.
+ALONE_EXIT_GRACE_SECONDS = 60      # once we've seen a peer and they leave, exit after this many seconds
+LOBBY_WAIT_SECONDS       = 600     # max wait in Meet waiting room for host to admit us
+CAPTION_SILENCE_SECONDS  = 0.7     # dead-air gap before a buffered caption chunk commits to history
+MAX_TOKENS               = 1000    # runaway guard on LLM output; "be brief" system-prompt does the real shaping
+TOOL_RESULT_MAX_CHARS    = 50000   # truncate a single tool result above this length before feeding to the LLM
+TOOL_TIMEOUT_SECONDS     = 60      # per-tool-call hard timeout; overridable per-MCP in config.yaml
+TOOL_HEARTBEAT_SECONDS   = 8       # how often to post "still working..." during a long tool call
+BROWSER_PROFILE_DIR      = "./browser_profile"   # persistent Chrome profile (cookies, Google login)
+AUTH_STATE_FILE          = "./auth_state.json"   # Playwright storageState JSON for quick re-auth
+
+# ── MCP servers ───────────────────────────────────────────────────────────
 import logging as _logging
 _mcp_log = _logging.getLogger("config.mcp")
 
@@ -95,7 +100,7 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
     # Default is enabled when the field is absent (backward-compat).
     if not _srv.get("enabled", True):
         continue
-    MCP_SERVERS[_name] = {
+    _block = {
         "command": _srv["command"],
         "args": _srv.get("args", []),
         "env": _resolve_env_vars(_srv.get("env", {}), _name),
@@ -106,6 +111,10 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         # the read tool names here; the pipeline carries no per-MCP defaults.
         "read_tools": set(_srv.get("read_tools", [])),
     }
+    # Optional per-server hard timeout override (e.g. delegate runs minutes).
+    if "tool_timeout_seconds" in _srv:
+        _block["tool_timeout_seconds"] = _srv["tool_timeout_seconds"]
+    MCP_SERVERS[_name] = _block
 
 # Secrets from .env
 OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")

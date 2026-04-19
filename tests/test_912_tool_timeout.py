@@ -41,6 +41,7 @@ def make_runner(tool_delay_seconds, heartbeat=1, timeout=4):
     llm = MagicMock()
     mcp = MagicMock()
     mcp.get_openai_tools.return_value = []
+    mcp.tool_timeout_for.return_value = None
     llm.send_tool_result.return_value = {"type": "text", "content": "Done."}
 
     def slow_tool(name, args):

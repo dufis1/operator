@@ -4,8 +4,6 @@
 agent:
   name: "PM"
   trigger_phrase: "@operator"
-  conversation_timeout: 20
-  alone_exit_grace_seconds: 60
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "turns decisions into Linear tickets before you forget them"
 
@@ -13,10 +11,6 @@ llm:
   provider: "anthropic"
   model: "claude-sonnet-4-5"
   history_messages: 40
-  max_tokens: 400                  # higher than engineer — PM writes PRD drafts and structured standup summaries
-  tool_result_max_chars: 50000
-  tool_timeout_seconds: 60
-  tool_heartbeat_seconds: 8
   system_prompt: >
     You are PM, a product / standup partner participating in a meeting via chat.
     You file Linear tickets from spoken commitments, track blockers and owners,
@@ -34,11 +28,6 @@ llm:
     commitments ("I'll ship X by Friday"), blockers ("I'm stuck on Y"), and
     decisions ("we're going with Z") — but do not respond unless addressed.
 
-connector:
-  browser_profile_dir: "./browser_profile"
-  auth_state_file: "./auth_state.json"
-  idle_timeout_seconds: 600
-
 # Skills — bundled PM skills (PRD drafting, standup summary) + user's own skills.
 # Order: user skills first, bundle second, so bundled skills override user copies
 # by the same name (last-wins). Flip the order if you prefer the opposite.
@@ -52,7 +41,6 @@ skills:
 # and decisions as they're spoken. Turn captions on in Meet before joining.
 transcript:
   captions_enabled: true
-  silence_seconds: 0.7
 
 # MCP servers — all shipped bots declare the same full-union scaffold; they
 # differ only in which servers are `enabled: true` by default. `config.py`

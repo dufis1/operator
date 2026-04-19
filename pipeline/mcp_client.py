@@ -208,6 +208,18 @@ class MCPClient:
         info = self._tools.get(tool_name)
         return info["server_name"] if info else None
 
+    def tool_timeout_for(self, tool_name: str) -> int | None:
+        """Return per-server tool_timeout_seconds override, or None to use the global default.
+
+        Lets a slow MCP (e.g. delegate running a multi-minute Claude Code task)
+        carry its own timeout in the bot's config.yaml without bumping the
+        global default for quick read tools.
+        """
+        server_name = self.server_for_tool(tool_name)
+        if not server_name:
+            return None
+        return config.MCP_SERVERS.get(server_name, {}).get("tool_timeout_seconds")
+
     def resolve_github_user(self) -> str | None:
         """Call github__get_me to resolve the authenticated GitHub login.
 

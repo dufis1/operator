@@ -144,7 +144,6 @@ def _make_state(name: str, mode: str = "edit", **overrides) -> "wizard.WizardSta
     bot_cfg = overrides.pop("bot_cfg", None) or {
         "agent": {"name": name.capitalize(), "trigger_phrase": "@operator"},
         "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
-        "connector": {"browser_profile_dir": "./b", "auth_state_file": "./a"},
         "mcp_servers": {},
     }
     defaults = dict(
@@ -241,7 +240,6 @@ def test_from_scratch_write_creates_bundle():
             bot_cfg = {
                 "agent": {"name": "Fresh", "trigger_phrase": "@operator", "tagline": "t"},
                 "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
-                "connector": {"browser_profile_dir": "./b", "auth_state_file": "./a"},
                 "mcp_servers": {"notion": {"enabled": True, "command": "npx", "args": []}},
             }
             state = _make_state("fresh", mode="new", bot_cfg=bot_cfg)

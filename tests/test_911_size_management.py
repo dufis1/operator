@@ -164,6 +164,7 @@ def test_chatrunner_routes_context_overflow_from_tool_result():
     mcp = MagicMock()
     mcp.get_openai_tools.return_value = []
     mcp.execute_tool.return_value = "some result"
+    mcp.tool_timeout_for.return_value = None
 
     runner = ChatRunner(connector, llm, mcp)
     sent = []

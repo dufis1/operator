@@ -85,11 +85,14 @@ Pipeline (platform-agnostic)
 
 ### Configuration
 
-Every run names an agent explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. Top-level blocks:
-- `agent` — `name`, `trigger_phrase`, `conversation_timeout`, `alone_exit_grace_seconds`, `first_contact_hint`, `tagline`
-- `llm` — `provider` (`openai` | `anthropic`), `model`, `system_prompt`, `history_messages` (tail size replayed from the meeting record), `max_tokens`, `tool_result_max_chars`, `tool_timeout_seconds`, `tool_heartbeat_seconds`
-- `connector` — `browser_profile_dir`, `auth_state_file`, `idle_timeout_seconds`
-- `mcp_servers` — per-server command, env, hints, and confirm-tool overrides
+Every run names an agent explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks:
+- `agent` — `name`, `trigger_phrase`, `first_contact_hint`, `tagline`
+- `llm` — `provider` (`openai` | `anthropic`), `model`, `system_prompt`, `history_messages` (tail size replayed from the meeting record)
+- `skills` — `paths`, `progressive_disclosure`
+- `transcript` — `captions_enabled`
+- `mcp_servers` — per-server `command`, `args`, `env`, `hints`, `read_tools`, `confirm_tools`, and an optional `tool_timeout_seconds` override for slow servers like `delegate`
+
+Tuned-once internals (LLM max_tokens, tool-call timeout/heartbeat, tool-result truncation, Meet lobby wait, caption silence gap, browser profile path, `ALONE_EXIT_GRACE_SECONDS`) live in the `INTERNAL TUNING` block at the top of `config.py` — identical across bots, edit there to change globally.
 
 API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) live in a single `.env` at the repo root, shared across all bots. Never commit `.env`, `browser_profile/`, or `auth_state.json`.
 

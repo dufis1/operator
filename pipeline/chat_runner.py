@@ -73,7 +73,7 @@ class ChatRunner:
         # Wait for browser to actually join
         join_status = self._connector.join_status
         if join_status:
-            join_timeout = config.IDLE_TIMEOUT_SECONDS + 60
+            join_timeout = config.LOBBY_WAIT_SECONDS + 60
             if not join_status.ready.wait(timeout=join_timeout):
                 log.error(f"ChatRunner: join timed out ({join_timeout}s)")
                 self._connector.leave()
@@ -438,7 +438,7 @@ class ChatRunner:
         threading.Thread(target=_run_tool, daemon=True).start()
 
         heartbeat_interval = config.TOOL_HEARTBEAT_SECONDS
-        hard_timeout = config.TOOL_TIMEOUT_SECONDS
+        hard_timeout = self._mcp.tool_timeout_for(tc["name"]) or config.TOOL_TIMEOUT_SECONDS
         deadline = time.time() + hard_timeout
         timed_out = False
 

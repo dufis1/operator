@@ -116,8 +116,6 @@ stay comment-free on purpose.
 |---|---|---|---|
 | `name` | string | required | Display name shown in chat and in `operator list` (e.g. `PM`). |
 | `trigger_phrase` | string | `@operator` | Substring that marks a message as addressed to the bot in a multi-party meeting. Ignored in 1-on-1s (any message is treated as addressed). |
-| `conversation_timeout` | int (seconds) | required | Idle gap after which a conversation thread is considered finished and the bot drops first-contact context. |
-| `alone_exit_grace_seconds` | int (seconds) | `60` | Once the bot has seen at least one peer, then becomes alone, it leaves after this many seconds. |
 | `first_contact_hint` | string | `""` | Extra line appended to the system prompt the first turn the bot talks to a given person. Supports `{first_name}` substitution. |
 | `tagline` | string | `""` | One-liner shown in `operator list`, the setup wizard picker, and the build card. |
 
@@ -129,18 +127,6 @@ stay comment-free on purpose.
 | `model` | string | required | Provider-specific model ID (e.g. `claude-sonnet-4-5`, `gpt-4o`). |
 | `system_prompt` | string | required | The bot's persona and operating instructions. YAML block scalar (`\|`) is preferred so newlines render. |
 | `history_messages` | int | `40` | How many tail messages from the meeting's JSONL are replayed as chat history each turn. |
-| `max_tokens` | int | `150` | Upper bound on LLM output tokens per turn. |
-| `tool_result_max_chars` | int | `50000` | Tool results larger than this are truncated before being fed back to the LLM. |
-| `tool_timeout_seconds` | int (seconds) | `60` | Hard timeout for a single tool call. After this the call is cancelled and an error is returned to the model. |
-| `tool_heartbeat_seconds` | int (seconds) | `8` | How often the bot posts a "still working…" update in chat while a long tool call is in flight. |
-
-### `connector:`
-
-| Field | Type | Default | What it does |
-|---|---|---|---|
-| `browser_profile_dir` | path | required | Persistent Chrome profile directory so Google sign-in survives restarts. Never commit this. |
-| `auth_state_file` | path | required | Playwright `storageState` JSON for quick re-auth. Never commit this. |
-| `idle_timeout_seconds` | int (seconds) | `600` | If the browser session idles this long, the bot closes it. |
 
 ### `skills:`
 
@@ -154,7 +140,6 @@ stay comment-free on purpose.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `captions_enabled` | bool | `false` | Ingest Google Meet live captions as ambient context (each line tagged `[spoken]` in the prompt). Requires captions to be turned on in the Meet UI. |
-| `silence_seconds` | float (seconds) | `0.7` | Dead-air gap after which a buffered caption chunk is committed to history. Lower = faster reactivity, more fragmentation; higher = cleaner chunks, more lag. |
 
 ### `mcp_servers:`
 
@@ -172,6 +157,15 @@ re-authoring env/tools/hints.
 | `hints` | string | `""` | Free-form guidance about this server's tools, appended to the system prompt whenever tools from this server are available. |
 | `read_tools` | list of strings | `[]` | Tool names that auto-execute without user confirmation. Anything not in this list prompts the user in chat before running. |
 | `confirm_tools` | list of strings | `[]` | Overrides `read_tools` — tools named here always prompt for confirmation, even if also listed under `read_tools`. |
+| `tool_timeout_seconds` | int (seconds) | global `TOOL_TIMEOUT_SECONDS` | Optional per-server override for the hard tool-call timeout. Use when one server runs much longer than the rest (e.g. `delegate` spinning up a Claude Code worktree). |
+
+### Internal tuning
+
+Runtime knobs that are tuned once and shipped identical across bots live in
+the `INTERNAL TUNING` block at the top of [`config.py`](../config.py) —
+things like the LLM-output cap, tool-result truncation size, caption
+dead-air gap, Meet lobby-wait timeout, and the browser profile path. Edit
+there if you need to change behavior globally.
 
 ---
 
