@@ -38,14 +38,6 @@ with sync_playwright() as p:
 
     input("\n>>> Press Enter once you have finished logging in... ")
 
-    # Visit Calendar to establish its service-specific session cookies.
-    # Without this, the calendar poller gets redirected to login even
-    # though Meet works fine (different Google service scopes).
-    print("Establishing Calendar session...")
-    page.goto("https://calendar.google.com/calendar/u/0/r/day",
-              wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(5000)
-
     browser.storage_state(path=OUTPUT)
     browser.close()
 

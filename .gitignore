@@ -5,7 +5,6 @@ token.json
 
 # Browser profile — contains Google session cookies
 browser_profile/
-browser_profile_calendar/
 
 # Python
 __pycache__/

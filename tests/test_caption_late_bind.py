@@ -1,12 +1,13 @@
 """
 Caption late-bind behavior — set_caption_callback works before OR after join().
 
-Validates the late-bind design that unblocks calendar-polling captions:
-the JS bridge is exposed at browser startup whenever CAPTIONS_ENABLED is
-true, so a callback registered after the browser is already running still
-receives captions cleanly. Tests exercise the Python-side bridge stub
-directly (no Playwright launch) because that's the only piece the late-bind
-fix changes — the JS observer hasn't moved.
+Validates the late-bind design: the JS bridge is exposed at browser startup
+whenever CAPTIONS_ENABLED is true, so a callback registered after the browser
+is already running still receives captions cleanly. Useful when the meeting
+slug is only known post-navigation (e.g. opening `meet.new`), so the
+finalizer cannot be registered up front. Tests exercise the Python-side
+bridge stub directly (no Playwright launch) because that's the only piece
+the late-bind fix changes — the JS observer hasn't moved.
 """
 import os
 import sys
@@ -23,7 +24,8 @@ def _make_adapter():
 def test_caption_dropped_when_no_callback():
     adapter = _make_adapter()
     # Bridge stub must tolerate captions arriving before any callback is set —
-    # this is exactly what calendar mode does between browser-up and meeting-arrival.
+    # matches the window between browser-up and sink-registration when the
+    # meeting slug is only known post-navigation.
     adapter._on_caption_from_js("Alice", "hello world", 1000.0)
     print("PASS: no callback -> caption dropped silently")
 
@@ -52,8 +54,8 @@ def test_late_bind_after_first_caption():
 
 
 def test_swap_callback_routes_to_new_one():
-    """Switching meetings (calendar mode end-of-meeting -> next-meeting):
-    replacing the finalizer must route future captions to the new one."""
+    """Replacing the finalizer mid-session (e.g. end-of-meeting → next-meeting):
+    future captions must route to the new sink, not the old one."""
     adapter = _make_adapter()
     first, second = [], []
 

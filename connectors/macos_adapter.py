@@ -136,9 +136,9 @@ class MacOSAdapter(MeetingConnector):
         receives captions cleanly. Captions that arrive while no callback is
         registered are silently dropped. Pass None to unregister.
 
-        Late-bind enables calendar-polling mode, which only learns the meeting
-        URL — and thus can build a per-meeting MeetingRecord/finalizer — after
-        the browser is already running.
+        Late-bind lets callers register the finalizer after the meeting slug
+        is known — useful when the bot opens `meet.new` and the real slug is
+        only assigned post-navigation, not at browser-startup time.
         """
         self._caption_callback = fn
 
@@ -514,8 +514,9 @@ class MacOSAdapter(MeetingConnector):
                 # MutationObserver can find window.__onCaption the instant it
                 # attaches. Gated on the global captions_enabled flag (not on
                 # whether a callback is currently set) so callers can late-bind
-                # set_caption_callback after join() — calendar-polling mode
-                # only knows the meeting URL after the browser is up.
+                # set_caption_callback after join() — callers that open
+                # `meet.new` only know the real slug once the browser has
+                # navigated, so the finalizer is wired up post-hoc.
                 if config.CAPTIONS_ENABLED:
                     try:
                         page.expose_function("__onCaption", self._on_caption_from_js)
@@ -684,8 +685,8 @@ class MacOSAdapter(MeetingConnector):
 
                     # Enable captions + inject the observer when captions are
                     # enabled in config — independent of callback registration
-                    # so late-bound callbacks (calendar mode) receive captions
-                    # without restarting the browser. Graceful degrade: if
+                    # so late-bound callbacks receive captions without
+                    # restarting the browser. Graceful degrade: if
                     # captions can't be enabled (unsupported language,
                     # permissions, etc.) we still hold the meeting open for chat.
                     if config.CAPTIONS_ENABLED:
