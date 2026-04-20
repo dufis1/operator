@@ -328,6 +328,7 @@ def _run_try(name):
 
     import config
     from connectors.terminal import TerminalConnector
+    from pipeline import ui
     from pipeline.chat_runner import ChatRunner
     from pipeline.llm import LLMClient
     from pipeline.meeting_record import MeetingRecord
@@ -354,6 +355,7 @@ def _run_try(name):
                 llm.inject_github_user(gh_login)
         except Exception as e:
             log.error(f"MCP client startup failed: {e}")
+            ui.err("MCP startup failed")
             mcp = None
 
     connector = TerminalConnector(bot_name=config.AGENT_NAME)
@@ -396,7 +398,7 @@ def _run_try(name):
         log.info("Interrupted — exiting terminal test-drive")
     finally:
         _shutdown()
-        print("Goodbye.", file=sys.stderr)
+        ui.ok("Goodbye.")
     return 0
 
 
@@ -446,9 +448,8 @@ def _run_macos(meeting_url=None, force=False, plain=False):
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
-    _console = logging.StreamHandler(sys.stderr)
-    _console.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d %(message)s", datefmt="%H:%M:%S"))
-    logging.getLogger().addHandler(_console)
+    # Stderr stays reserved for the user-facing narrative (pipeline.ui).
+    # Detailed diagnostics live in /tmp/operator.log only.
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
@@ -458,6 +459,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
 
     import config
     from connectors.macos_adapter import MacOSAdapter
+    from pipeline import ui
     from pipeline.chat_runner import ChatRunner
     from pipeline.llm import LLMClient
     from pipeline.providers import build_provider
@@ -470,6 +472,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
     from pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
     _print_startup_banner(skills, plain=plain)
+    ui.say("Launching Chrome…")
 
     connector = MacOSAdapter(force=force)
     llm = LLMClient(build_provider())
@@ -523,11 +526,12 @@ def _run_macos(meeting_url=None, force=False, plain=False):
         meeting_url = connector.wait_for_resolved_url(timeout=45)
         if not meeting_url:
             log.error("meet.new did not produce a meeting URL — exiting")
+            ui.err("meet.new did not produce a meeting URL")
             connector.leave()
             _kill_orphaned_children()
             return
         log.info(f"meet.new resolved to {meeting_url}")
-        print(f"Fresh meeting: {meeting_url}")
+        ui.ok(f"Fresh meeting: {meeting_url}")
         # The bot joins in a headless Chrome — pop the Meet open in the
         # user's default browser so they can see and chat with the bot.
         try:
@@ -570,7 +574,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
             with open(reason_file) as _f:
                 reason = _f.read().strip()
             os.remove(reason_file)
-            print(f"\n⚠️  {reason}\n")
+            ui.warn(reason)
             log.info(reason)
         except FileNotFoundError:
             if signum:
@@ -590,11 +594,12 @@ def _run_macos(meeting_url=None, force=False, plain=False):
         log.info(f"Starting Operator — joining {meeting_url}")
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            print(f"\n   Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}\n")
+            ui.say(f"Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
         _shutdown()
+        ui.ok("Left meeting — goodbye.")
 
 
 def _run_linux(meeting_url, force=False, plain=False):
@@ -603,34 +608,36 @@ def _run_linux(meeting_url, force=False, plain=False):
     import signal
 
     logging.basicConfig(
-        level=logging.INFO,
+        filename="/tmp/operator.log",
+        level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
     log = logging.getLogger("operator")
 
     if not meeting_url:
         meeting_url = os.environ.get("MEETING_URL")
     if not meeting_url:
         bot = os.environ.get("OPERATOR_BOT", "<name>")
-        print("\n❌ A meeting URL is required on Linux:\n")
-        print(f"   operator {bot} <meet-url>")
-        print(f"   MEETING_URL=<url> operator {bot}\n")
+        print("A meeting URL is required on Linux:", file=sys.stderr)
+        print(f"   operator {bot} <meet-url>", file=sys.stderr)
+        print(f"   MEETING_URL=<url> operator {bot}", file=sys.stderr)
         sys.exit(1)
 
     display = os.environ.get("DISPLAY")
     if not display:
-        log.error(
-            "DISPLAY is not set. Start Xvfb first:\n"
-            "  Xvfb :99 -screen 0 1920x1080x24 &\n"
-            "  export DISPLAY=:99"
-        )
-        print("\n❌ DISPLAY is not set — start Xvfb first:\n")
-        print("   Xvfb :99 -screen 0 1920x1080x24 &")
-        print("   export DISPLAY=:99\n")
+        log.error("DISPLAY is not set")
+        print("DISPLAY is not set — start Xvfb first:", file=sys.stderr)
+        print("   Xvfb :99 -screen 0 1920x1080x24 &", file=sys.stderr)
+        print("   export DISPLAY=:99", file=sys.stderr)
         sys.exit(1)
     log.info(f"DISPLAY={display}")
 
     from connectors.linux_adapter import LinuxAdapter
+    from pipeline import ui
     from pipeline.chat_runner import ChatRunner
     from pipeline.llm import LLMClient
     from pipeline.providers import build_provider
@@ -639,6 +646,7 @@ def _run_linux(meeting_url, force=False, plain=False):
     from pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
     _print_startup_banner(skills, plain=plain)
+    ui.say("Launching Chromium…")
 
     log.info(f"Starting Operator (Linux) — joining {meeting_url}")
     connector = LinuxAdapter()
@@ -660,6 +668,7 @@ def _run_linux(meeting_url, force=False, plain=False):
                 llm.inject_github_user(gh_login)
         except Exception as e:
             log.error(f"MCP client startup failed: {e}")
+            ui.err("MCP startup failed")
             mcp = None
 
     runner = ChatRunner(
@@ -691,11 +700,12 @@ def _run_linux(meeting_url, force=False, plain=False):
     try:
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            print(f"\n   Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}\n")
+            ui.say(f"Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
         _shutdown()
+        ui.ok("Left meeting — goodbye.")
 
 
 if __name__ == "__main__":

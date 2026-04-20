@@ -11,6 +11,7 @@ import threading
 import time
 
 import config
+from pipeline import ui
 from pipeline.meeting_record import MeetingRecord, slug_from_url
 
 log = logging.getLogger(__name__)
@@ -92,11 +93,11 @@ class ChatRunner:
                 log.error(f"ChatRunner: join failed: {reason}")
                 if "session_expired" in reason:
                     log.error("Re-export session: python scripts/auth_export.py")
-                    print("\n❌ Not authenticated — run this to sign in:\n")
-                    print("   python scripts/auth_export.py\n")
+                    ui.err("Not authenticated — run: python scripts/auth_export.py")
                 elif "already_running" in reason:
-                    print("\n⚠️  Another Operator session is already running.")
-                    print("   Use --force to stop it and start a new one.\n")
+                    ui.warn("Another Operator session is already running. Use --force to stop it and start a new one.")
+                else:
+                    ui.err(f"Join failed: {reason}")
                 self._connector.leave()
                 return
             if join_status.session_recovered:
@@ -104,6 +105,7 @@ class ChatRunner:
                             "consider re-running scripts/auth_export.py")
 
         log.info("ChatRunner: joined")
+        ui.ok("Joined meeting — listening for chat.")
         if config.INTRO_ON_JOIN:
             threading.Thread(target=self._generate_intro, daemon=True).start()
         log.info("ChatRunner: starting chat loop")
@@ -149,7 +151,7 @@ class ChatRunner:
             # Detect unexpected browser session death (crash, page loss, etc.)
             if not self._connector.is_connected():
                 log.warning("ChatRunner: connector disconnected unexpectedly — exiting loop")
-                print("\n⚠️  Operator: meeting connection lost — chat loop stopped.")
+                ui.warn("Meeting connection lost — chat loop stopped.")
                 break
 
             # Post the self-intro the first iteration after generation completes,
@@ -202,7 +204,7 @@ class ChatRunner:
                         log.info(
                             f"ChatRunner: alone for {int(now - alone_since)}s — auto-leaving"
                         )
-                        print("\n👋 Operator: everyone left — dropping from the meeting.")
+                        ui.ok("Everyone left — dropping from the meeting.")
                         self._connector.leave()
                         return
 
