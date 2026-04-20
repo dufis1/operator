@@ -1,27 +1,34 @@
 """`operator setup` wizard — Phase 15.5.5.
 
 Builds a new `agents/<name>/` bundle, or rewrites an existing one in place,
-through a five-step guided TUI:
+through a seven-step guided TUI:
 
-  1. Fighter select   — arrow-key gallery: "Custom" + each existing bot,
-                         right pane shows the highlighted bot's portrait.
-                         Custom drops into name/display/trigger/tagline
-                         text prompts; preset enters edit-in-place.
-  2. Power-ups (MCPs) — arrow-key multi-select against each MCP block's
-                         `enabled` flag. Right pane = persistent build
-                         card that updates live as the user toggles.
-  3. Skills           — user-supplied paths (folder or single `.md`),
-                         then arrow-key multi-select for the base bot's
-                         bundled skills. Build card stays on the right
-                         during the bundled-skills picker.
-  4. API keys         — prompt for any `${VAR}` referenced by an enabled
-                         MCP that isn't already in repo-root `.env`.
-  5. Atomic write +   — build bundle in a sibling tempdir, `os.rename`
-     reveal             into `agents/<name>/`. Edit-in-place first moves
-                         the current bundle to `agents/<name>.bak-<ts>/`,
-                         then swaps; `.bak` is deleted only on success.
-                         On success the final card re-renders with the
-                         resolved real portrait — the gift to the user.
+  1. Fighter select    — arrow-key gallery: "Custom" + each existing bot,
+                          right pane shows the highlighted bot's portrait.
+                          Custom drops into name/display/trigger/tagline
+                          text prompts; preset enters edit-in-place.
+  2. Tools (MCPs)      — arrow-key multi-select against each MCP block's
+                          `enabled` flag. Right pane = persistent build
+                          card that updates live as the user toggles.
+  3. Playbooks (Skills) — user-supplied paths (folder or single `.md`),
+                          then arrow-key multi-select for the base bot's
+                          bundled skills.
+  4. Ground rules      — $EDITOR pops on a tempfile. Preset: inherit-with-
+                          cursor or start blank. Custom: always blank.
+  5. Personality       — same pattern as step 4.
+  6. API keys          — prompt for any `${VAR}` referenced by an enabled
+                          MCP that isn't already in repo-root `.env`.
+  7. Atomic write +    — build bundle in a sibling tempdir, `os.rename`
+     reveal              into `agents/<name>/`. Edit-in-place first moves
+                          the current bundle to `agents/<name>.bak-<ts>/`,
+                          then swaps; `.bak` is deleted only on success.
+                          On success the final card re-renders with the
+                          resolved real portrait — the gift to the user.
+
+Ground rules and personality are the two halves of the bot's system prompt
+(composed in `config.py` as personality first, ground_rules last). The
+wizard treats them as separate steps so users author them as the two
+distinct concerns they really are.
 
 All locked-in decisions are in `docs/plan.md`. The wizard never touches
 runtime code paths; `config.py` simply filters `enabled: false` blocks at
@@ -32,6 +39,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -251,6 +259,11 @@ def _from_scratch() -> WizardState:
     for srv in cfg.get("mcp_servers", {}).values():
         srv["enabled"] = False
 
+    # From-scratch also starts with blank personality + ground_rules — the
+    # user authors both in steps 4 and 5 (or leaves blank if they want).
+    cfg["personality"] = ""
+    cfg["ground_rules"] = ""
+
     return WizardState(
         mode="new",
         name=name,
@@ -291,7 +304,9 @@ def _base_dir(state: WizardState) -> Path:
 
 def _step2_mcps(state: WizardState) -> None:
     """Mutates state.bot_cfg['mcp_servers'][*]['enabled'] in place."""
-    console.print("\n[bold]2. Power-ups (MCPs)[/bold]\n")
+    console.print("\n[bold]2. Tools (MCPs)[/bold]")
+    console.print("  [dim]External systems your bot can reach — GitHub, Linear, Figma, etc.[/dim]")
+    console.print("  [dim]Toggle with SPACE, confirm with ENTER.[/dim]\n")
     servers = state.bot_cfg.get("mcp_servers") or {}
     if not servers:
         console.print("  [dim]No MCP servers declared in the base config.[/dim]")
@@ -328,7 +343,8 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
     Bundled-skills picker first (from pm for new bots, preset itself for edit),
     then a plain y/n for adding the user's own skills. If yes, path-input loop.
     """
-    console.print("[bold]3. Add-ons (Skills)[/bold]\n")
+    console.print("[bold]3. Playbooks (Skills)[/bold]")
+    console.print("  [dim]Specific procedures your bot knows — often compose the tools above.[/dim]\n")
     console.print(f"  Your [bold]{state.name}[/bold] agent comes with the following:\n")
 
     bundled_dir = base_dir / "skills"
@@ -431,11 +447,100 @@ def _skill_subtitle(skill_dir: Path) -> str:
     return ""
 
 
-# ── Step 4 — API keys ─────────────────────────────────────────────────────
+# ── Step 4 — Ground rules ─────────────────────────────────────────────────
 
 
-def _step4_api_keys(needed: set[str]) -> None:
-    console.print("\n[bold]4. API keys[/bold]")
+def _step4_ground_rules(state: WizardState) -> None:
+    """Edit the bot's always-true constraints via $EDITOR."""
+    console.print("[bold]4. Ground rules[/bold]")
+    console.print("  [dim]Always-true constraints — what the bot should do or avoid on every turn.[/dim]")
+    console.print("  [dim]Land last in the composed system prompt, so the model weights them heavily.[/dim]\n")
+    _edit_prompt_block(state, key="ground_rules", label="ground rules")
+
+
+# ── Step 5 — Personality ──────────────────────────────────────────────────
+
+
+def _step5_personality(state: WizardState) -> None:
+    """Edit the bot's voice/tone via $EDITOR."""
+    console.print("[bold]5. Personality[/bold]")
+    console.print("  [dim]Who the bot is — voice, tone, how it shows up in chat.[/dim]")
+    console.print("  [dim]Leads the composed system prompt.[/dim]\n")
+    _edit_prompt_block(state, key="personality", label="personality")
+
+
+def _edit_prompt_block(state: WizardState, *, key: str, label: str) -> None:
+    """Author a multi-line prompt block (ground_rules or personality).
+
+    From-scratch: blank $EDITOR pop — user can leave empty and nothing breaks.
+    Edit-preset: two-path — (a) inherit existing text and keep typing, or
+    (b) start from a blank editor.
+    """
+    current = (state.bot_cfg.get(key) or "").strip()
+
+    if state.mode == "new" or not current:
+        console.print(f"  [dim]Blank by default — leave empty if you don't want to customize.[/dim]")
+        console.print(f"  [dim]Your $EDITOR will open; save and exit when done.[/dim]\n")
+        input("  Press Enter to open editor… ")
+        new_text = _edit_in_editor(seed="", label=label)
+    else:
+        choices = [
+            Choice(
+                label=f"Inherit {state.name}'s {label} — edit with cursor",
+                sublabel=f"{_first_line(current)} …",
+                value="keep",
+            ),
+            Choice(
+                label="Start blank",
+                sublabel="write your own from scratch (or leave empty)",
+                value="blank",
+            ),
+        ]
+        picked = select_one("", choices, console=console)
+        console.print()
+        seed = current if picked.value == "keep" else ""
+        new_text = _edit_in_editor(seed=seed, label=label)
+
+    state.bot_cfg[key] = new_text
+    if new_text:
+        console.print(f"  ✓ {label} saved ({len(new_text)} chars)")
+    else:
+        console.print(f"  [dim]{label} left blank[/dim]")
+
+
+def _first_line(text: str, *, max_chars: int = 60) -> str:
+    """Best-effort preview of a multi-line block for the picker sublabel."""
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    if len(first) > max_chars:
+        return first[: max_chars - 1].rstrip() + "…"
+    return first
+
+
+def _edit_in_editor(*, seed: str, label: str) -> str:
+    """Pop $EDITOR on a tempfile containing `seed`. Return stripped final content.
+
+    Falls back to `vi` if neither $EDITOR nor $VISUAL is set.
+    """
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    fd, tmp_path = tempfile.mkstemp(prefix=f"operator-{label.replace(' ', '_')}-", suffix=".txt")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(seed)
+        subprocess.call([editor, tmp_path])
+        with open(tmp_path, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+# ── Step 6 — API keys ─────────────────────────────────────────────────────
+
+
+def _step6_api_keys(needed: set[str]) -> None:
+    console.print("\n[bold]6. API keys[/bold]")
     if not needed:
         console.print("  [dim]Nothing to prompt for — no enabled MCP needs an env var.[/dim]")
         return
@@ -490,17 +595,17 @@ def _append_env(path: Path, new_values: dict[str, str]) -> None:
         f.write("\n".join(lines) + "\n")
 
 
-# ── Step 5 — atomic write ─────────────────────────────────────────────────
+# ── Step 7 — atomic write ─────────────────────────────────────────────────
 
 
-def _step5_write(state: WizardState) -> Path:
+def _step7_write(state: WizardState) -> Path:
     """Build bundle in a sibling tempdir, then rename into place.
 
     Edit-in-place mode first moves the existing `agents/<name>/` to
     `agents/<name>.bak-<ts>/`, renames the new bundle into place, and only
     deletes the `.bak` once the swap succeeds.
     """
-    console.print("\n[bold]5. Writing bundle[/bold]")
+    console.print("\n[bold]7. Writing bundle[/bold]")
     _AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     tmp_parent = tempfile.mkdtemp(prefix=f".{state.name}.tmp-", dir=_AGENTS_DIR)
@@ -612,7 +717,7 @@ def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
     console.print("[bold]Operator setup wizard[/bold]")
-    console.print("[dim]Five steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
+    console.print("[dim]Seven steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
 
@@ -623,14 +728,20 @@ def run(argv: list[str]) -> int:
         _step3_skills(state, _base_dir(state))
 
         console.clear()
+        _step4_ground_rules(state)
+
+        console.clear()
+        _step5_personality(state)
+
+        console.clear()
         envs = _collect_env_refs(state)
-        _step4_api_keys(envs)
+        _step6_api_keys(envs)
 
         console.print()
         console.input("  [bold]Press Enter to reveal your bot ✨🎁[/bold] ")
 
         console.clear()
-        _step5_write(state)
+        _step7_write(state)
         _reveal(state)
     except (KeyboardInterrupt, PickerCancelled, WizardCancel):
         console.print("\nCancelled.")

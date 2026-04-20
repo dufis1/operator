@@ -85,12 +85,16 @@ Pipeline (platform-agnostic)
 
 ### Configuration
 
-Every run names an agent explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks:
-- `agent` — `name`, `trigger_phrase`, `first_contact_hint`, `tagline`
-- `llm` — `provider` (`openai` | `anthropic`), `model`, `system_prompt`, `history_messages` (tail size replayed from the meeting record)
-- `skills` — `paths`, `progressive_disclosure`
+Every run names an agent explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks (top-to-bottom ordering mirrors the setup wizard's four-layer view of a bot):
+- `agent` — `name`, `trigger_phrase`, `first_contact_hint`, `tagline`, `intro_on_join`
+- `llm` — `provider` (`openai` | `anthropic`), `model`, `history_messages` (tail size replayed from the meeting record)
 - `transcript` — `captions_enabled`
-- `mcp_servers` — per-server `command`, `args`, `env`, `hints`, `read_tools`, `confirm_tools`, and an optional `tool_timeout_seconds` override for slow servers like `delegate`
+- `mcp_servers` (wizard: **Tools**) — per-server `command`, `args`, `env`, `hints`, `read_tools`, `confirm_tools`, and an optional `tool_timeout_seconds` override for slow servers like `delegate`
+- `skills` (wizard: **Playbooks**) — `paths`, `progressive_disclosure`
+- `ground_rules` — always-true constraints (string). Composed *last* into the system prompt.
+- `personality` — who the bot is; voice, tone, disposition (string). Composed *first* into the system prompt.
+
+`config.py` joins `personality` + `ground_rules` with a blank line to produce `SYSTEM_PROMPT`. Keeping them as two top-level blocks (vs one `llm.system_prompt` blob) reflects that they're two distinct authoring concerns — voice/identity and always-on rules — and the wizard walks them as separate steps.
 
 Tuned-once internals (LLM max_tokens, tool-call timeout/heartbeat, tool-result truncation, Meet lobby wait, caption silence gap, browser profile path, `ALONE_EXIT_GRACE_SECONDS`) live in the `INTERNAL TUNING` block at the top of `config.py` — identical across bots, edit there to change globally.
 

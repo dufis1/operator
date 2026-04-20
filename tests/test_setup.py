@@ -143,7 +143,7 @@ def _make_state(name: str, mode: str = "edit", **overrides) -> "wizard.WizardSta
     """Build a minimally-valid WizardState for write/reveal tests."""
     bot_cfg = overrides.pop("bot_cfg", None) or {
         "agent": {"name": name.capitalize(), "trigger_phrase": "@operator"},
-        "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
+        "llm": {"provider": "anthropic", "model": "x"},
         "mcp_servers": {},
     }
     defaults = dict(
@@ -179,7 +179,7 @@ def test_atomic_write_rollback_on_build_failure():
 
             raised = False
             try:
-                wizard._step5_write(state)
+                wizard._step7_write(state)
             except Exception:
                 raised = True
 
@@ -213,7 +213,7 @@ def test_edit_in_place_swap_cleans_backup():
             (target / "skills" / "deselected").mkdir()
 
             state = _make_state("preset", mode="edit")
-            out = wizard._step5_write(state)
+            out = wizard._step7_write(state)
             assert out == target
             assert (target / "config.yaml").is_file()
             assert (target / ".env.example").read_text(encoding="utf-8") == "KEY=val"
@@ -239,11 +239,11 @@ def test_from_scratch_write_creates_bundle():
         try:
             bot_cfg = {
                 "agent": {"name": "Fresh", "trigger_phrase": "@operator", "tagline": "t"},
-                "llm": {"provider": "anthropic", "model": "x", "system_prompt": "p"},
+                "llm": {"provider": "anthropic", "model": "x"},
                 "mcp_servers": {"notion": {"enabled": True, "command": "npx", "args": []}},
             }
             state = _make_state("fresh", mode="new", bot_cfg=bot_cfg)
-            out = wizard._step5_write(state)
+            out = wizard._step7_write(state)
             assert out.is_dir()
             assert (out / "config.yaml").is_file()
             assert (out / "portrait.txt").is_file()

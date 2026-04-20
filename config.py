@@ -43,7 +43,15 @@ INTRO_ON_JOIN        = _config["agent"].get("intro_on_join", True)
 LLM_PROVIDER           = _config["llm"]["provider"]
 LLM_MODEL              = _config["llm"]["model"]
 HISTORY_MESSAGES       = _config["llm"].get("history_messages", 40)
-SYSTEM_PROMPT          = _config["llm"]["system_prompt"]
+
+# System prompt is authored as two top-level blocks — `personality` (who the
+# bot is, its voice) and `ground_rules` (always-true constraints). They're
+# concatenated here with personality first and ground_rules last; rules-last
+# gains adherence because LLMs weight end-of-prompt content more heavily.
+# Either block may be absent/empty — omitted blocks just drop out.
+PERSONALITY   = (_config.get("personality") or "").strip()
+GROUND_RULES  = (_config.get("ground_rules") or "").strip()
+SYSTEM_PROMPT = "\n\n".join(b for b in (PERSONALITY, GROUND_RULES) if b)
 
 # Skills
 _skills = _config.get("skills") or {}

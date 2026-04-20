@@ -65,11 +65,33 @@ Keep it short. Five sections:
 ### `config.yaml`
 
 Must be a complete, runnable Operator config (not a fragment). Every
-`agents/<name>/config.yaml` has the same six top-level blocks: `agent`,
-`llm`, `connector`, `skills`, `transcript`, `mcp_servers`. Full field
-reference is in [Config reference](#config-reference) below, and `engineer/`
-or `pm/` is a working template to start from. The agent should work on a
-fresh clone after the user fills in their API keys — no hidden dependencies.
+`agents/<name>/config.yaml` has the same top-level blocks, in this order:
+`agent`, `llm`, `transcript`, `mcp_servers`, `skills`, `ground_rules`,
+`personality`. That ordering mirrors the setup wizard's four-layer view
+of a bot — tools (MCPs) → playbooks (skills) → ground rules → personality
+— with the last two composing into the system prompt the model sees.
+Full field reference is in [Config reference](#config-reference) below,
+and `engineer/` or `pm/` is a working template to start from. The agent
+should work on a fresh clone after the user fills in their API keys —
+no hidden dependencies.
+
+### Anatomy of a bot
+
+Four layers, stacked:
+
+1. **Tools** (`mcp_servers:`) — external systems the bot can reach
+   (GitHub, Linear, Figma). Each MCP block plugs in capabilities.
+2. **Playbooks** (`skills:`) — specific procedures, usually composed of
+   tools, that the bot loads when a relevant request arrives.
+3. **Ground rules** (`ground_rules:`) — always-true constraints. Short
+   rules about what the bot should always do or never do. Concatenated
+   *last* into the system prompt so the model weights them heavily.
+4. **Personality** (`personality:`) — who the bot is. Voice, tone, how
+   it shows up in chat. Concatenated *first* into the system prompt.
+
+Ground rules and personality are two halves of the same system prompt —
+kept as separate top-level blocks so authors don't mix the two concerns
+while writing. `config.py` joins them with a blank line at load time.
 
 **Declare your MCP's read tools.** Each `mcp_servers.<name>` block takes a
 `read_tools:` list of tool names that auto-execute without user confirmation.
@@ -125,8 +147,19 @@ stay comment-free on purpose.
 |---|---|---|---|
 | `provider` | `openai` \| `anthropic` | required | Which provider backend to use. Switches the underlying SDK and tool-call format. |
 | `model` | string | required | Provider-specific model ID (e.g. `claude-sonnet-4-5`, `gpt-4o`). |
-| `system_prompt` | string | required | The bot's persona and operating instructions. YAML block scalar (`\|`) is preferred so newlines render. |
 | `history_messages` | int | `40` | How many tail messages from the meeting's JSONL are replayed as chat history each turn. |
+
+### `personality:` (top-level)
+
+| Type | Default | What it does |
+|---|---|---|
+| string | `""` | Who the bot is — voice, tone, and how it shows up in chat. Composed *first* into the system prompt. YAML block scalar (`\|`) is preferred so newlines render. |
+
+### `ground_rules:` (top-level)
+
+| Type | Default | What it does |
+|---|---|---|
+| string | `""` | Always-true constraints that bound every response. Composed *last* into the system prompt so the model weights them heavily. YAML block scalar (`\|`) is preferred so newlines render. |
 
 ### `skills:`
 
