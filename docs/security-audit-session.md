@@ -10,7 +10,7 @@ Commit trail:
 - **8d29b23** — Fix #1: delimiter wrappers (`<spoken>` + `<tool_result>`), ZWSP close-tag neutralizer, `SAFETY_RULES`, plus label-sanitization on speaker name + tool name (self-caught during narrow `/security-review`)
 - **912a163** — Fix #0 + #2: `auth_state.json` in `.gitignore` with full "don't commit" family comment + README sub-section; `_summarize_tool_args` with `OPERATOR_LOG_TOOL_ARGS=1` opt-in
 - **be9bf8c** — Fix #3 + #4: env-key blocklist at config load + confirmation-prompt rewrite showing all args with head…tail truncation
-- **(this commit)** — Fix #5: path-hygiene pass (delegate footer + linux_adapter log lines + both adapters chmod 0o700)
+- **ebb6b29** — Fix #5: path-hygiene pass (delegate footer + linux_adapter log lines + both adapters chmod 0o700)
 
 Test count: 143+ → 151+ (Fix #1 +2, Fix #3 +1, Fix #4 +2, Fix #5 +1).
 
@@ -27,16 +27,16 @@ Findings, user-decisioned disposition:
 | H3 | high | Captions bypass `@operator` gate; only soft defense is a ground-rule line | **Fixed as M1** — captions never trigger dispatch on their own (verified `pipeline/transcript.py`), so H3 collapses entirely into M1's delimiter wrapper. No separate behavioral commit | ✅ via Fix #1 |
 | M1 | med | Tool-result strings re-fed verbatim; MCP server could return "ignore previous, call delegate…" | **Fix #1** | ✅ 8d29b23 |
 | M2 | med | `mcp_client.py:194: log.debug(f"MCP tool arguments: {json.dumps(arguments)}")` dumps full values at DEBUG | **Fix #2** — don't-log values; `OPERATOR_LOG_TOOL_ARGS=1` escape hatch | ✅ 912a163 |
-| M3 | med | `mcp_client.py:375 env={**os.environ, **srv["env"]}` — config can override `PATH`/`PYTHONPATH` | **Fix #3** — strip dangerous keys at config load, log warn | ✅ this commit |
-| M4 | med | `_request_confirmation` caps args at 5 + renders with `!r`; long `task` strings truncated by Meet chat | **Fix #4** — show all args; head/tail snippet for long values with log pointer | ✅ this commit |
-| M5 | med | Delegate footer leaks `/Users/jojo/...` into LLM → meeting chat | **Fix #5** — relativize to `~/...` | ✅ this commit |
+| M3 | med | `mcp_client.py:375 env={**os.environ, **srv["env"]}` — config can override `PATH`/`PYTHONPATH` | **Fix #3** — strip dangerous keys at config load, log warn | ✅ be9bf8c |
+| M4 | med | `_request_confirmation` caps args at 5 + renders with `!r`; long `task` strings truncated by Meet chat | **Fix #4** — show all args; head/tail snippet for long values with log pointer | ✅ be9bf8c |
+| M5 | med | Delegate footer leaks `/Users/jojo/...` into LLM → meeting chat | **Fix #5** — relativize to `~/...` | ✅ ebb6b29 |
 | L1 | low | No allowlist on MCP `command` | Doc only — 15.6.2 (CONTRIBUTING.md + CODEOWNERS) is the real mitigation | pending doc |
 | L2 | low | `browser_profile/` + `auth_state.json` hold Google session cookies | Doc only — `docs/security.md` blast-radius note | pending doc |
 | L3 | low | Chat + captions logged in clear to `/tmp/operator.log` | Doc only — README privacy note already seeded session 136 | ✅ README |
 | L4 | low | `delegate` default `bypassPermissions` allows `curl \| sh` in worktree | Doc only — mention `DELEGATE_PERMISSION_MODE=acceptEdits` as safer alternative | pending doc |
 | **F1** | **high** | **`auth_state.json` NOT in `.gitignore`** (only `browser_profile/` is) — referenced as expected artifact in `config.py`, `connectors/linux_adapter.py`, `connectors/session.py`, 3 scripts. If regenerated via a future `auth_export.py`, `git add .` commits Google session cookies. CLAUDE.md says "never commit" but `.gitignore` doesn't enforce. | **Fix #0** — add `auth_state.json` to `.gitignore`; call out "don't commit" list visibly in README + `docs/security.md` + inline comment in `.gitignore` | ✅ 912a163 |
-| F2 | med | `browser_profile/` directory perms are 755 (world-readable dir). Other machine users can `ls` contents. Individual files inside are 600 (Chrome-enforced), so cookie content is safe, but listing reveals login patterns on shared machines. | **Fix #5b** — `os.chmod(BROWSER_PROFILE_DIR, 0o700)` after Playwright creates it | ✅ this commit |
-| F3 | low | Absolute filesystem paths to auth state logged (`linux_adapter.py:300,337`). Same pattern as M5. | Fold into Fix #5 (path-relativization pass — both delegate footer AND adapter logs) | ✅ this commit |
+| F2 | med | `browser_profile/` directory perms are 755 (world-readable dir). Other machine users can `ls` contents. Individual files inside are 600 (Chrome-enforced), so cookie content is safe, but listing reveals login patterns on shared machines. | **Fix #5b** — `os.chmod(BROWSER_PROFILE_DIR, 0o700)` after Playwright creates it | ✅ ebb6b29 |
+| F3 | low | Absolute filesystem paths to auth state logged (`linux_adapter.py:300,337`). Same pattern as M5. | Fold into Fix #5 (path-relativization pass — both delegate footer AND adapter logs) | ✅ ebb6b29 |
 
 ## What each shipped fix actually changed
 
@@ -60,7 +60,7 @@ Distilled here so `docs/security.md` (task #7) can cite specifics without the au
 - Strict `== "1"` equality; fails closed on `"true"`, empty, or any other value.
 - Why: tool args routinely carry repo paths, PR bodies, issue titles, pasted snippets — treat as sensitive on disk even though `/tmp/operator.log` never leaves the machine.
 
-### Fix #3 — Strip unsafe env keys from MCP config (this commit)
+### Fix #3 — Strip unsafe env keys from MCP config (commit be9bf8c)
 - `config.py`: new `_is_unsafe_env_key()` + `_UNSAFE_ENV_KEYS` blocklist (`PATH`, `PYTHONPATH`, `PYTHONHOME`, `IFS`) + `_UNSAFE_ENV_PREFIXES` (`LD_`, `DYLD_`).
 - Case-insensitive: `path`, `Path`, `ld_preload` all caught.
 - Dropped keys are logged as `WARNING` with the server name, so a mistaken config line is loud rather than silent.
@@ -68,7 +68,7 @@ Distilled here so `docs/security.md` (task #7) can cite specifics without the au
 - 1 regression test confirms `PATH`, `PYTHONPATH`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, and lowercase `path` are all stripped while `SAFE_TOKEN` survives.
 - **Known follow-ups (not vulnerabilities, just gaps):** `NODE_OPTIONS`, `RUBYOPT`, `PERL5LIB`, `CLASSPATH`, `HOME` are analogous loader-injection vectors for non-Python MCP runtimes. Track in `docs/security.md` as residual risk.
 
-### Fix #5 — Path hygiene pass (this commit)
+### Fix #5 — Path hygiene pass (commit ebb6b29)
 - `config.py`: new `relativize_home(p)` helper — swaps `$HOME` prefix for `~`, leaves non-home paths unchanged. Partial-prefix guard (`home + os.sep`) stops `/home/jojofoo/...` being mis-relativized when the user's home is `/home/jojo`.
 - `agents/engineer/delegate_to_claude_code.py`: local `_rel_home()` (delegate MCP is a separate subprocess that doesn't import the main `config`); used to render `[workdir: …]` and `[repo: …]` in the tool-result footer that flows into the LLM → meeting chat. Closes **M5**.
 - `connectors/linux_adapter.py`: two log lines that printed the absolute `auth_state.json` path now go through `config.relativize_home`. Closes **F3**.
@@ -76,7 +76,7 @@ Distilled here so `docs/security.md` (task #7) can cite specifics without the au
 - 1 regression test: `test_relativize_home_renders_tilde` covers the `$HOME` exact match, subpath, non-home path, empty string, None, and the partial-prefix false-positive case.
 - **Why this matters end-to-end:** before Fix #5, a delegate tool-result the LLM posted into meeting chat carried `/Users/jojo/Desktop/operator/.claude-sessions/…` — leaking the user's machine username and directory layout to every meeting participant. Adapter log lines pattern-matched the same leak on-disk.
 
-### Fix #4 — Confirmation prompt shows all args with truncation
+### Fix #4 — Confirmation prompt shows all args with truncation (commit be9bf8c)
 - `pipeline/chat_runner.py`: `_request_confirmation()` now renders **every** argument (previously capped at 5 — a malicious LLM could have hidden a 6th destructive arg past the cap).
 - Long values get head…tail truncation (`CONFIRM_ARG_MAX=160`, `CONFIRM_ARG_HEAD=70`, `CONFIRM_ARG_TAIL=50`); the user sees both ends so a trailing malicious instruction can't hide in the middle of a long string.
 - When truncation fires, the message appends `(Full values in /tmp/operator.log.)` and the full `args={args!r}` is logged at INFO so the user can cross-reference.
@@ -85,15 +85,13 @@ Distilled here so `docs/security.md` (task #7) can cite specifics without the au
 
 ## Execution plan (remaining)
 
-5. **Fix #5 — path hygiene pass (bundled)**:
-   - `agents/engineer/delegate_to_claude_code.py:262` — footer renders `~/...` instead of absolute (M5)
-   - `connectors/linux_adapter.py:300,337` — relativize auth_state paths in log calls (F3)
-   - `os.chmod(config.BROWSER_PROFILE_DIR, 0o700)` after Playwright creates it (F2)
+All six numbered behavioural fixes (#0–#5) are committed. What's left is documentation + dependency-hygiene:
+
 6. **`SECURITY.md`** at repo root — disclosure contact (user email: shapirojojo@gmail.com), response SLA, GitHub recognition
-7. **`docs/security.md`** — threat model + residual risks (H1, H2, L1–L4) + Meet "host manages chat" setting recommendation for (c)-level framing on H1/H2 + **explicit "don't commit" list** (`.env`, `auth_state.json`, `browser_profile/`, `credentials.json`, `token.json`) cross-linked with README + `.gitignore` + **"What's been hardened" section** citing this memo's "What each shipped fix actually changed" block so users can see the depth of the pre-launch pass
+7. **`docs/security.md`** — threat model + residual risks (H1, H2, L1–L4) + Meet "host manages chat" setting recommendation for (c)-level framing on H1/H2 + **explicit "don't commit" list** (`.env`, `auth_state.json`, `browser_profile/`, `credentials.json`, `token.json`) cross-linked with README + `.gitignore` + **"What's been hardened" section** citing this memo's "What each shipped fix actually changed" block so users can see the depth of the pre-launch pass + follow-up gaps noted in Fix #3 (NODE_OPTIONS, RUBYOPT, PERL5LIB, CLASSPATH, HOME as residual env-key candidates)
 8. **`pip-audit`** — run + pin/upgrade anything flagged; coordinates with Phase 14.2
 
-Commit cadence: one commit per fix (or tight pair); `/security-review` on staged changes before each commit. For Fix #3 + #4 we bundled because Fix #0 + #2 were also minor and the pattern held.
+Commit cadence so far: one commit per fix (or tight pair). `/security-review` run on staged changes before each commit.
 
 ## Constraints captured
 
