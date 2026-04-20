@@ -275,6 +275,12 @@ class LinuxAdapter(MeetingConnector):
     def _browser_session(self, meeting_url):
         """Run headless Playwright/Chromium session. Blocks until leave() is called."""
         os.makedirs(self._user_data_dir, exist_ok=True)
+        # Lock the profile dir to owner-only — contents include Google session
+        # cookies and shouldn't be listable by other users on shared hosts.
+        try:
+            os.chmod(self._user_data_dir, 0o700)
+        except OSError as e:
+            log.warning(f"LinuxAdapter: could not tighten perms on {config.relativize_home(self._user_data_dir)}: {e}")
         js = self.join_status
         browser = None
         try:
@@ -289,7 +295,7 @@ class LinuxAdapter(MeetingConnector):
                 ]
                 _use_auth = self._auth_state_file and os.path.isfile(self._auth_state_file)
                 if not _use_auth and self._auth_state_file:
-                    log.info(f"LinuxAdapter: {self._auth_state_file} not found — using guest mode")
+                    log.info(f"LinuxAdapter: {config.relativize_home(self._auth_state_file)} not found — using guest mode")
                 if _use_auth:
                     # Authenticated path: launch + new_context with saved session.
                     # headless=False + DISPLAY (Xvfb) enables audio rendering —
@@ -297,7 +303,7 @@ class LinuxAdapter(MeetingConnector):
                     # Do NOT pass env= — Playwright replaces the full environment if
                     # you do, stripping XDG_RUNTIME_DIR and breaking PulseAudio discovery.
                     # DISPLAY is already set in os.environ by the caller (scripts/run_linux.py).
-                    log.info(f"LinuxAdapter: loading auth state from {self._auth_state_file}")
+                    log.info(f"LinuxAdapter: loading auth state from {config.relativize_home(self._auth_state_file)}")
                     raw_browser = p.chromium.launch(
                         headless=False,
                         args=launch_args,

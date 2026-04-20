@@ -38,6 +38,19 @@ def _canon(path: str) -> str:
     return os.path.realpath(os.path.abspath(os.path.expanduser(path)))
 
 
+def _rel_home(path: str) -> str:
+    """Render `path` with $HOME replaced by `~`. Keeps the absolute user
+    directory out of the footer that's shipped to the LLM → meeting chat."""
+    if not path:
+        return path
+    home = os.path.expanduser("~")
+    if path == home:
+        return "~"
+    if path.startswith(home + os.sep):
+        return "~" + path[len(home):]
+    return path
+
+
 def _is_git_repo(path: str) -> bool:
     r = subprocess.run(
         ["git", "-C", path, "rev-parse", "--git-dir"],
@@ -259,7 +272,7 @@ async def _delegate(arguments: dict):
     cost = data.get("total_cost_usd", 0)
     workdir = _SESSIONS.get(repo_path, {}).get("worktree_path", "(unknown)")
 
-    footer = f"\n\n[workdir: {workdir}]\n[repo: {repo_path}]"
+    footer = f"\n\n[workdir: {_rel_home(workdir)}]\n[repo: {_rel_home(repo_path)}]"
     if duration_s or cost:
         footer += f"\n[Completed in {duration_s}s, cost ${cost:.4f}]"
 

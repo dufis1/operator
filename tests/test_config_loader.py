@@ -235,6 +235,21 @@ mcp_servers:
     print("PASS  test_mcp_servers_filter_and_overrides")
 
 
+def test_relativize_home_renders_tilde():
+    """relativize_home replaces $HOME prefix with `~`, leaves other paths alone."""
+    mod, _ = load_config(MIN_YAML)
+    home = os.path.expanduser("~")
+    assert mod.relativize_home(home) == "~"
+    assert mod.relativize_home(home + "/code/operator") == "~/code/operator"
+    assert mod.relativize_home("/var/log/syslog") == "/var/log/syslog"
+    assert mod.relativize_home("") == ""
+    assert mod.relativize_home(None) is None
+    # Partial match (same prefix but different dir) must NOT be tilde-swapped
+    fake = home + "extrasuffix/file"
+    assert mod.relativize_home(fake) == fake
+    print("PASS  test_relativize_home_renders_tilde")
+
+
 def test_mcp_env_strips_unsafe_keys():
     """PATH, PYTHONPATH, LD_*, DYLD_* in a server env block must be dropped, not passed through."""
     yaml_text = MIN_YAML + """
@@ -272,6 +287,7 @@ if __name__ == "__main__":
         test_intro_on_join_default_and_override,
         test_mcp_servers_filter_and_overrides,
         test_mcp_env_strips_unsafe_keys,
+        test_relativize_home_renders_tilde,
     ]
     failures = []
     for t in tests:

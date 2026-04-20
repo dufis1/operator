@@ -77,6 +77,24 @@ TOOL_HEARTBEAT_SECONDS   = 8       # how often to post "still working..." during
 BROWSER_PROFILE_DIR      = "./browser_profile"   # persistent Chrome profile (cookies, Google login)
 AUTH_STATE_FILE          = "./auth_state.json"   # Playwright storageState JSON for quick re-auth
 
+
+def relativize_home(p):
+    """Return path with $HOME replaced by `~`, else unchanged.
+
+    Used when rendering local paths into strings that will flow to the LLM
+    or meeting chat (delegate footers, log lines). Keeps the absolute path
+    off the wire so it doesn't leak the user's directory layout.
+    """
+    if not p:
+        return p
+    p = str(p)
+    home = str(Path.home())
+    if p == home:
+        return "~"
+    if p.startswith(home + os.sep):
+        return "~" + p[len(home):]
+    return p
+
 # ── MCP servers ───────────────────────────────────────────────────────────
 import logging as _logging
 _mcp_log = _logging.getLogger("config.mcp")

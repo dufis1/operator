@@ -497,6 +497,13 @@ class MacOSAdapter(MeetingConnector):
         js = self.join_status
         browser = None
         t_start = time.monotonic()
+        # Lock the profile dir to owner-only — contents include Google session
+        # cookies and shouldn't be listable by other users on shared hosts.
+        os.makedirs(BROWSER_PROFILE, exist_ok=True)
+        try:
+            os.chmod(BROWSER_PROFILE, 0o700)
+        except OSError as e:
+            log.warning(f"MacOSAdapter: could not tighten perms on {config.relativize_home(BROWSER_PROFILE)}: {e}")
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch_persistent_context(

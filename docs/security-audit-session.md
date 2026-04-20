@@ -4,14 +4,15 @@ Written mid-session to survive auto-compaction. Delete once 15.6.1 is committed 
 
 ## Where we are
 
-Fixes #0, #1, #2, #3, #4 are **done and committed**. Fix #5 (path hygiene bundle) + `SECURITY.md` + `docs/security.md` + `pip-audit` remain.
+Fixes #0, #1, #2, #3, #4, #5 are **done and committed**. `SECURITY.md` + `docs/security.md` + `pip-audit` remain.
 
 Commit trail:
 - **8d29b23** — Fix #1: delimiter wrappers (`<spoken>` + `<tool_result>`), ZWSP close-tag neutralizer, `SAFETY_RULES`, plus label-sanitization on speaker name + tool name (self-caught during narrow `/security-review`)
 - **912a163** — Fix #0 + #2: `auth_state.json` in `.gitignore` with full "don't commit" family comment + README sub-section; `_summarize_tool_args` with `OPERATOR_LOG_TOOL_ARGS=1` opt-in
-- **(this commit)** — Fix #3 + #4: env-key blocklist at config load + confirmation-prompt rewrite showing all args with head…tail truncation
+- **be9bf8c** — Fix #3 + #4: env-key blocklist at config load + confirmation-prompt rewrite showing all args with head…tail truncation
+- **(this commit)** — Fix #5: path-hygiene pass (delegate footer + linux_adapter log lines + both adapters chmod 0o700)
 
-Test count: 143+ → 150+ (Fix #1 added 2, Fix #3 added 1, Fix #4 added 2, Fix #2 relied on existing coverage).
+Test count: 143+ → 151+ (Fix #1 +2, Fix #3 +1, Fix #4 +2, Fix #5 +1).
 
 ## Audit conclusions (drives the fix list)
 
@@ -28,14 +29,14 @@ Findings, user-decisioned disposition:
 | M2 | med | `mcp_client.py:194: log.debug(f"MCP tool arguments: {json.dumps(arguments)}")` dumps full values at DEBUG | **Fix #2** — don't-log values; `OPERATOR_LOG_TOOL_ARGS=1` escape hatch | ✅ 912a163 |
 | M3 | med | `mcp_client.py:375 env={**os.environ, **srv["env"]}` — config can override `PATH`/`PYTHONPATH` | **Fix #3** — strip dangerous keys at config load, log warn | ✅ this commit |
 | M4 | med | `_request_confirmation` caps args at 5 + renders with `!r`; long `task` strings truncated by Meet chat | **Fix #4** — show all args; head/tail snippet for long values with log pointer | ✅ this commit |
-| M5 | med | Delegate footer leaks `/Users/jojo/...` into LLM → meeting chat | **Fix #5** — relativize to `~/...` | pending |
+| M5 | med | Delegate footer leaks `/Users/jojo/...` into LLM → meeting chat | **Fix #5** — relativize to `~/...` | ✅ this commit |
 | L1 | low | No allowlist on MCP `command` | Doc only — 15.6.2 (CONTRIBUTING.md + CODEOWNERS) is the real mitigation | pending doc |
 | L2 | low | `browser_profile/` + `auth_state.json` hold Google session cookies | Doc only — `docs/security.md` blast-radius note | pending doc |
 | L3 | low | Chat + captions logged in clear to `/tmp/operator.log` | Doc only — README privacy note already seeded session 136 | ✅ README |
 | L4 | low | `delegate` default `bypassPermissions` allows `curl \| sh` in worktree | Doc only — mention `DELEGATE_PERMISSION_MODE=acceptEdits` as safer alternative | pending doc |
 | **F1** | **high** | **`auth_state.json` NOT in `.gitignore`** (only `browser_profile/` is) — referenced as expected artifact in `config.py`, `connectors/linux_adapter.py`, `connectors/session.py`, 3 scripts. If regenerated via a future `auth_export.py`, `git add .` commits Google session cookies. CLAUDE.md says "never commit" but `.gitignore` doesn't enforce. | **Fix #0** — add `auth_state.json` to `.gitignore`; call out "don't commit" list visibly in README + `docs/security.md` + inline comment in `.gitignore` | ✅ 912a163 |
-| F2 | med | `browser_profile/` directory perms are 755 (world-readable dir). Other machine users can `ls` contents. Individual files inside are 600 (Chrome-enforced), so cookie content is safe, but listing reveals login patterns on shared machines. | **Fix #5b** — `os.chmod(BROWSER_PROFILE_DIR, 0o700)` after Playwright creates it | pending (in Fix #5) |
-| F3 | low | Absolute filesystem paths to auth state logged (`linux_adapter.py:300,337`). Same pattern as M5. | Fold into Fix #5 (path-relativization pass — both delegate footer AND adapter logs) | pending (in Fix #5) |
+| F2 | med | `browser_profile/` directory perms are 755 (world-readable dir). Other machine users can `ls` contents. Individual files inside are 600 (Chrome-enforced), so cookie content is safe, but listing reveals login patterns on shared machines. | **Fix #5b** — `os.chmod(BROWSER_PROFILE_DIR, 0o700)` after Playwright creates it | ✅ this commit |
+| F3 | low | Absolute filesystem paths to auth state logged (`linux_adapter.py:300,337`). Same pattern as M5. | Fold into Fix #5 (path-relativization pass — both delegate footer AND adapter logs) | ✅ this commit |
 
 ## What each shipped fix actually changed
 
@@ -67,7 +68,15 @@ Distilled here so `docs/security.md` (task #7) can cite specifics without the au
 - 1 regression test confirms `PATH`, `PYTHONPATH`, `LD_PRELOAD`, `DYLD_INSERT_LIBRARIES`, and lowercase `path` are all stripped while `SAFE_TOKEN` survives.
 - **Known follow-ups (not vulnerabilities, just gaps):** `NODE_OPTIONS`, `RUBYOPT`, `PERL5LIB`, `CLASSPATH`, `HOME` are analogous loader-injection vectors for non-Python MCP runtimes. Track in `docs/security.md` as residual risk.
 
-### Fix #4 — Confirmation prompt shows all args with truncation (this commit)
+### Fix #5 — Path hygiene pass (this commit)
+- `config.py`: new `relativize_home(p)` helper — swaps `$HOME` prefix for `~`, leaves non-home paths unchanged. Partial-prefix guard (`home + os.sep`) stops `/home/jojofoo/...` being mis-relativized when the user's home is `/home/jojo`.
+- `agents/engineer/delegate_to_claude_code.py`: local `_rel_home()` (delegate MCP is a separate subprocess that doesn't import the main `config`); used to render `[workdir: …]` and `[repo: …]` in the tool-result footer that flows into the LLM → meeting chat. Closes **M5**.
+- `connectors/linux_adapter.py`: two log lines that printed the absolute `auth_state.json` path now go through `config.relativize_home`. Closes **F3**.
+- `connectors/linux_adapter.py` + `connectors/macos_adapter.py`: after ensuring `BROWSER_PROFILE_DIR` exists via `os.makedirs(..., exist_ok=True)`, the code calls `os.chmod(dir, 0o700)` so other users on a shared host can't list login patterns. Wrapped in try/except (warning-level only) so a perm-less filesystem doesn't crash startup. Closes **F2**.
+- 1 regression test: `test_relativize_home_renders_tilde` covers the `$HOME` exact match, subpath, non-home path, empty string, None, and the partial-prefix false-positive case.
+- **Why this matters end-to-end:** before Fix #5, a delegate tool-result the LLM posted into meeting chat carried `/Users/jojo/Desktop/operator/.claude-sessions/…` — leaking the user's machine username and directory layout to every meeting participant. Adapter log lines pattern-matched the same leak on-disk.
+
+### Fix #4 — Confirmation prompt shows all args with truncation
 - `pipeline/chat_runner.py`: `_request_confirmation()` now renders **every** argument (previously capped at 5 — a malicious LLM could have hidden a 6th destructive arg past the cap).
 - Long values get head…tail truncation (`CONFIRM_ARG_MAX=160`, `CONFIRM_ARG_HEAD=70`, `CONFIRM_ARG_TAIL=50`); the user sees both ends so a trailing malicious instruction can't hide in the middle of a long string.
 - When truncation fires, the message appends `(Full values in /tmp/operator.log.)` and the full `args={args!r}` is logged at INFO so the user can cross-reference.
