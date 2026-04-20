@@ -1,0 +1,262 @@
+"""
+Unit tests for Component A — Config loader (Boundary depth).
+
+Covers `config.py`'s behavior at import time:
+  1. Missing OPERATOR_BOT → SystemExit(2)
+  2. Unknown bot name → SystemExit(2) listing available bots
+  3. Happy-path yaml → agent/llm/skills/transcript fields parse with defaults
+  4. SYSTEM_PROMPT = personality + "\\n\\n" + ground_rules; absent blocks drop out
+  5. `agent.intro_on_join` — defaults to True when absent, honored when present
+  6. MCP servers — `enabled: false` filtered, `tool_timeout_seconds` override preserved,
+     `${VAR}` env resolution against os.environ
+
+Approach: copy `config.py` into a tmp dir beside a tmp `agents/<bot>/config.yaml`,
+then load fresh via importlib. That way we can exercise the loader with arbitrary
+yaml without touching the real `agents/` tree.
+
+Run:
+    source venv/bin/activate
+    python tests/test_config_loader.py
+"""
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import importlib.util
+import shutil
+import tempfile
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REAL_CONFIG_PY = REPO_ROOT / "config.py"
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+
+def load_config(yaml_text: str, bot: str = "testbot", env: dict | None = None,
+                extra_bots: list[str] | None = None):
+    """Load config.py fresh against a tmp agents/<bot>/config.yaml.
+
+    Returns (module, exc) — module is the loaded config module (or None if
+    import raised SystemExit), exc is the SystemExit code (or None).
+    """
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        (tmp / "agents" / bot).mkdir(parents=True)
+        (tmp / "agents" / bot / "config.yaml").write_text(yaml_text)
+        # Create any extra placeholder bots so the "available bots" list is populated
+        for extra in (extra_bots or []):
+            (tmp / "agents" / extra).mkdir(parents=True)
+            (tmp / "agents" / extra / "config.yaml").write_text("agent: {name: x}\nllm: {provider: openai, model: m}")
+        shutil.copy(REAL_CONFIG_PY, tmp / "config.py")
+
+        full_env = dict(env or {})
+        saved = {k: os.environ.get(k) for k in list(full_env.keys()) + ["OPERATOR_BOT"]}
+        try:
+            if "OPERATOR_BOT" not in full_env:
+                full_env["OPERATOR_BOT"] = bot
+            for k, v in full_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+            spec = importlib.util.spec_from_file_location(f"config_test_{id(tmp)}",
+                                                         tmp / "config.py")
+            module = importlib.util.module_from_spec(spec)
+            try:
+                spec.loader.exec_module(module)
+                return module, None
+            except SystemExit as e:
+                return None, e.code
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        shutil.rmtree(tmp)
+
+
+MIN_YAML = """\
+agent:
+  name: Test Bot
+llm:
+  provider: openai
+  model: gpt-4o-mini
+"""
+
+
+# ---------------------------------------------------------------------------
+# Test 1: missing OPERATOR_BOT → SystemExit(2)
+# ---------------------------------------------------------------------------
+
+def test_missing_operator_bot_exits():
+    """Loading config without OPERATOR_BOT set must exit with code 2."""
+    _, code = load_config(MIN_YAML, env={"OPERATOR_BOT": ""})
+    assert code == 2, f"Expected SystemExit(2), got {code}"
+    print("PASS  test_missing_operator_bot_exits")
+
+
+# ---------------------------------------------------------------------------
+# Test 2: unknown bot → SystemExit(2)
+# ---------------------------------------------------------------------------
+
+def test_unknown_bot_exits():
+    """OPERATOR_BOT=<nonexistent> exits with code 2."""
+    _, code = load_config(MIN_YAML, bot="realbot",
+                          env={"OPERATOR_BOT": "ghost"},
+                          extra_bots=["other"])
+    assert code == 2, f"Expected SystemExit(2), got {code}"
+    print("PASS  test_unknown_bot_exits")
+
+
+# ---------------------------------------------------------------------------
+# Test 3: happy path — fields parse, defaults applied
+# ---------------------------------------------------------------------------
+
+def test_happy_path_parses_fields():
+    """Minimal yaml populates agent/llm fields; optional fields get defaults."""
+    mod, _ = load_config(MIN_YAML)
+    assert mod.AGENT_NAME == "Test Bot"
+    assert mod.TRIGGER_PHRASE == "@operator"       # default
+    assert mod.FIRST_CONTACT_HINT == ""             # default
+    assert mod.AGENT_TAGLINE == ""                  # default
+    assert mod.LLM_PROVIDER == "openai"
+    assert mod.LLM_MODEL == "gpt-4o-mini"
+    assert mod.HISTORY_MESSAGES == 40               # default
+    assert mod.CAPTIONS_ENABLED is False            # default
+    assert mod.SKILLS_PATHS == []                   # default
+    assert mod.SKILLS_PROGRESSIVE_DISCLOSURE is True  # default
+    assert mod.MCP_SERVERS == {}                    # no servers configured
+    # Internal tuning constants are always present
+    assert mod.TOOL_TIMEOUT_SECONDS == 60
+    assert mod.TOOL_HEARTBEAT_SECONDS == 8
+    print("PASS  test_happy_path_parses_fields")
+
+
+# ---------------------------------------------------------------------------
+# Test 4: SYSTEM_PROMPT composition
+# ---------------------------------------------------------------------------
+
+def test_system_prompt_composition():
+    """personality first, ground_rules last, joined with blank line; missing blocks drop out."""
+    # Both present
+    yaml_both = MIN_YAML + "\npersonality: |\n  You are friendly.\nground_rules: |\n  Never lie.\n"
+    mod, _ = load_config(yaml_both)
+    assert mod.SYSTEM_PROMPT == "You are friendly.\n\nNever lie.", \
+        f"Bad composition: {mod.SYSTEM_PROMPT!r}"
+    assert mod.PERSONALITY == "You are friendly."
+    assert mod.GROUND_RULES == "Never lie."
+
+    # Only personality
+    mod, _ = load_config(MIN_YAML + "\npersonality: 'only me'\n")
+    assert mod.SYSTEM_PROMPT == "only me"
+    assert mod.GROUND_RULES == ""
+
+    # Only ground_rules
+    mod, _ = load_config(MIN_YAML + "\nground_rules: 'rules only'\n")
+    assert mod.SYSTEM_PROMPT == "rules only"
+    assert mod.PERSONALITY == ""
+
+    # Neither present
+    mod, _ = load_config(MIN_YAML)
+    assert mod.SYSTEM_PROMPT == ""
+    print("PASS  test_system_prompt_composition")
+
+
+# ---------------------------------------------------------------------------
+# Test 5: intro_on_join default + override
+# ---------------------------------------------------------------------------
+
+def test_intro_on_join_default_and_override():
+    """Defaults to True when absent; honors explicit False/True."""
+    def with_intro(value: str) -> str:
+        return MIN_YAML.replace("  name: Test Bot",
+                                f"  name: Test Bot\n  intro_on_join: {value}")
+
+    # Absent → True
+    mod, _ = load_config(MIN_YAML)
+    assert mod.INTRO_ON_JOIN is True
+
+    # Explicit False
+    mod, _ = load_config(with_intro("false"))
+    assert mod.INTRO_ON_JOIN is False
+
+    # Explicit True
+    mod, _ = load_config(with_intro("true"))
+    assert mod.INTRO_ON_JOIN is True
+    print("PASS  test_intro_on_join_default_and_override")
+
+
+# ---------------------------------------------------------------------------
+# Test 6: MCP servers — enabled filter, timeout override, env resolution
+# ---------------------------------------------------------------------------
+
+def test_mcp_servers_filter_and_overrides():
+    """Disabled servers dropped; tool_timeout_seconds carried through; ${VAR} resolved from env."""
+    yaml_text = MIN_YAML + """
+mcp_servers:
+  active:
+    command: /bin/echo
+    args: ["hi"]
+    env:
+      TOKEN: ${FAKE_TOKEN_VAR}
+      STATIC: literal
+    hints: "use me"
+    read_tools: [list_stuff, get_stuff]
+    confirm_tools: [delete_stuff]
+    tool_timeout_seconds: 300
+  dormant:
+    command: /bin/true
+    enabled: false
+"""
+    mod, _ = load_config(yaml_text, env={"FAKE_TOKEN_VAR": "resolved-secret"})
+
+    # Disabled server filtered out
+    assert "dormant" not in mod.MCP_SERVERS
+    assert "active" in mod.MCP_SERVERS
+
+    active = mod.MCP_SERVERS["active"]
+    assert active["command"] == "/bin/echo"
+    assert active["args"] == ["hi"]
+    # Env var resolution
+    assert active["env"]["TOKEN"] == "resolved-secret"
+    assert active["env"]["STATIC"] == "literal"
+    # Hints, read/confirm tools
+    assert active["hints"] == "use me"
+    assert active["read_tools"] == {"list_stuff", "get_stuff"}
+    assert active["confirm_tools"] == {"delete_stuff"}
+    # Per-server timeout override preserved
+    assert active["tool_timeout_seconds"] == 300
+    print("PASS  test_mcp_servers_filter_and_overrides")
+
+
+# ---------------------------------------------------------------------------
+# Run all
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    tests = [
+        test_missing_operator_bot_exits,
+        test_unknown_bot_exits,
+        test_happy_path_parses_fields,
+        test_system_prompt_composition,
+        test_intro_on_join_default_and_override,
+        test_mcp_servers_filter_and_overrides,
+    ]
+    failures = []
+    for t in tests:
+        try:
+            t()
+        except Exception as e:
+            import traceback
+            print(f"FAIL  {t.__name__}: {e}")
+            traceback.print_exc()
+            failures.append(t.__name__)
+
+    print(f"\n{len(tests) - len(failures)}/{len(tests)} passed")
+    sys.exit(1 if failures else 0)

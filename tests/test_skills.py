@@ -4,6 +4,7 @@ Run: python tests/test_skills.py
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+os.environ.setdefault("OPERATOR_BOT", "pm")
 
 import logging
 import tempfile
@@ -245,6 +246,82 @@ def test_slash_invocation_counts_as_load():
     print("  slash-invocation counts: PASS")
 
 
+# ---------------------------------------------------------------------------
+# Gap-fill tests (session 133) — branches not covered by the tests above
+# ---------------------------------------------------------------------------
+
+def test_no_frontmatter_skipped(caplog_list):
+    """File that doesn't start with '---' is skipped with a 'missing frontmatter' warning."""
+    from pipeline.skills import load_skills
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "no-fm"
+        root.mkdir()
+        (root / "SKILL.md").write_text("just body, no frontmatter at all\n")
+        skills = load_skills([str(root)])
+        assert skills == []
+        assert any("missing frontmatter" in r.getMessage() for r in caplog_list)
+    print("  no frontmatter skipped: PASS")
+
+
+def test_unterminated_frontmatter_skipped(caplog_list):
+    """'---' opens but is never closed → skipped with 'unterminated frontmatter' warning."""
+    from pipeline.skills import load_skills
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "unterminated"
+        root.mkdir()
+        (root / "SKILL.md").write_text("---\nname: x\ndescription: y\nbody goes here no closing\n")
+        skills = load_skills([str(root)])
+        assert skills == []
+        assert any("unterminated frontmatter" in r.getMessage() for r in caplog_list)
+    print("  unterminated frontmatter skipped: PASS")
+
+
+def test_non_dict_frontmatter_skipped(caplog_list):
+    """Frontmatter that parses as a list (or any non-mapping) is skipped."""
+    from pipeline.skills import load_skills
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "listy"
+        root.mkdir()
+        (root / "SKILL.md").write_text("---\n- name: x\n- description: y\n---\nbody\n")
+        skills = load_skills([str(root)])
+        assert skills == []
+        assert any("not a mapping" in r.getMessage() for r in caplog_list)
+    print("  non-dict frontmatter skipped: PASS")
+
+
+def test_allowed_tools_string_parses_comma_split():
+    """allowed-tools declared as a comma-separated string is split and loaded."""
+    from pipeline.skills import load_skills
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "string-tools"
+        _write_skill(
+            root, "s", "Uses comma-string tools.",
+            extra_fm="allowed-tools: 'load_skill, Bash, Edit'\n",
+        )
+        skills = load_skills([str(root)])
+        assert len(skills) == 1
+        assert skills[0].allowed_tools == ["load_skill", "Bash", "Edit"]
+    print("  allowed-tools comma string: PASS")
+
+
+def test_empty_parent_folder_warns(caplog_list):
+    """Parent folder with no SKILL.md anywhere → warns 'no SKILL.md found' and returns []."""
+    from pipeline.skills import load_skills
+
+    with tempfile.TemporaryDirectory() as tmp:
+        parent = Path(tmp)
+        (parent / "empty-subdir").mkdir()  # subdir with no SKILL.md
+        (parent / "another").mkdir()
+        skills = load_skills([str(parent)])
+        assert skills == []
+        assert any("no SKILL.md found" in r.getMessage() for r in caplog_list)
+    print("  empty parent folder warns: PASS")
+
+
 class _CapturingHandler(logging.Handler):
     def __init__(self):
         super().__init__()
@@ -283,4 +360,10 @@ if __name__ == "__main__":
     test_load_skill_tool_only_when_progressive_with_skills()
     test_call_rate_sanity()
     test_slash_invocation_counts_as_load()
+    # Gap-fill (session 133)
+    _run_with_caplog(test_no_frontmatter_skipped)
+    _run_with_caplog(test_unterminated_frontmatter_skipped)
+    _run_with_caplog(test_non_dict_frontmatter_skipped)
+    test_allowed_tools_string_parses_comma_split()
+    _run_with_caplog(test_empty_parent_folder_warns)
     print("\nAll skill tests passed.")

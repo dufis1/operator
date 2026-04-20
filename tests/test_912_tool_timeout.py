@@ -42,6 +42,7 @@ def make_runner(tool_delay_seconds, heartbeat=1, timeout=4):
     mcp = MagicMock()
     mcp.get_openai_tools.return_value = []
     mcp.tool_timeout_for.return_value = None
+    mcp.record_tool_result.return_value = False  # server not tripped
     llm.send_tool_result.return_value = {"type": "text", "content": "Done."}
 
     def slow_tool(name, args):
@@ -103,23 +104,31 @@ def test_slow_tool_sends_heartbeat():
 # ---------------------------------------------------------------------------
 
 def test_timeout_sends_failure_message():
-    """Tool runs longer than timeout — failure message sent, error fed to LLM."""
+    """Tool runs longer than timeout — timeout signpost fed to LLM for user-facing summary."""
     runner, sent, llm, mcp = make_runner(tool_delay_seconds=10, heartbeat=1, timeout=3)
     runner._pending_tool_call = {"id": "c3", "name": "hung__tool", "arguments": {}}
 
     runner._handle_confirmation("yes")
 
-    timeout_msgs = [m for m in sent if "too long" in m.lower()]
-    assert len(timeout_msgs) == 1, f"Expected timeout message, got: {sent}"
-
     llm.send_tool_result.assert_called_once()
     result_content = llm.send_tool_result.call_args[0][2]
     assert "timed out" in result_content.lower(), \
-        f"Expected 'timed out' in error result, got: {result_content}"
+        f"Expected 'timed out' in error signpost, got: {result_content}"
+    print(f"PASS  test_timeout_sends_failure_message  signpost={result_content[:80]!r}")
 
-    # Should NOT have sent "Done." (no successful result)
+
+def test_timeout_fallback_when_llm_fails():
+    """On timeout, if the LLM follow-up itself fails, the user gets the terse fallback."""
+    runner, sent, llm, mcp = make_runner(tool_delay_seconds=10, heartbeat=1, timeout=3)
+    llm.send_tool_result.side_effect = RuntimeError("LLM down")
+    runner._pending_tool_call = {"id": "c4", "name": "hung__tool", "arguments": {}}
+
+    runner._handle_confirmation("yes")
+
+    timeout_msgs = [m for m in sent if "too long" in m.lower()]
+    assert len(timeout_msgs) == 1, f"Expected fallback timeout message, got: {sent}"
     assert "Done." not in sent, f"Unexpected success message: {sent}"
-    print(f"PASS  test_timeout_sends_failure_message  sent={sent}")
+    print(f"PASS  test_timeout_fallback_when_llm_fails  sent={sent}")
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +140,7 @@ if __name__ == "__main__":
         test_fast_tool_no_heartbeat,
         test_slow_tool_sends_heartbeat,
         test_timeout_sends_failure_message,
+        test_timeout_fallback_when_llm_fails,
     ]
     failures = []
     for t in tests:

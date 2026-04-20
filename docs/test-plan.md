@@ -62,12 +62,12 @@ Ordered by risk × value (most valuable first). Each session picks the next unch
 
 | # | Component | Files | Existing tests | Target depth | Size | Done? |
 |---|---|---|---|---|---|---|
-| B | **MeetingRecord** — JSONL append, `tail(n)`, meta header, slug uniqueness | `pipeline/meeting_record.py` | none | **Boundary + race** | S | ☐ |
-| A | **Config loader** — YAML→module, env precedence, disabled-server filter, `tool_timeout_seconds` override | `config.py` | none | Boundary | S | ☐ |
-| C | **LLMClient** — prompt shape, scratchpad merging, skill + MCP hint injection, record tail wiring | `pipeline/llm.py` | none | Boundary | M | ☐ |
-| G | **Skills loader** | `pipeline/skills.py` | `tests/test_skills.py` | Gap-fill | S | ☐ |
+| B | **MeetingRecord** — JSONL append, `tail(n)`, meta header, slug uniqueness | `pipeline/meeting_record.py` | `test_meeting_record.py` (session 133) | **Boundary + race** | S | ☑ |
+| A | **Config loader** — YAML→module, env precedence, disabled-server filter, `tool_timeout_seconds` override | `config.py` | `test_config_loader.py` (session 133) | Boundary | S | ☑ |
+| C | **LLMClient** — prompt shape, scratchpad merging, skill + MCP hint injection, record tail wiring | `pipeline/llm.py` | `test_llm_client.py` (session 133) | Boundary | M | ☑ |
+| G | **Skills loader** | `pipeline/skills.py` | `tests/test_skills.py` (extended session 133) | Gap-fill | S | ☑ |
 | Setup | **Setup wizard** — picker, card, path writes | `pipeline/setup.py`, `pipeline/picker.py`, `pipeline/build_card.py` | `tests/test_setup.py` | Gap-fill | M | ☐ |
-| F | **MCPClient** — reconnect, backoff, `tool_timeout_for`, orphan cleanup, `server_for_tool` | `pipeline/mcp_client.py` | `test_mcp_client.py`, `test_mcp_shutdown.py` | Gap-fill + race | M | ☐ |
+| F | **MCPClient** — reconnect, backoff, `tool_timeout_for`, orphan cleanup, `server_for_tool` | `pipeline/mcp_client.py` | `test_mcp_client.py`, `test_mcp_shutdown.py`, `test_mcp_client_units.py` (session 133) | Gap-fill + race | M | ☑ |
 | E | **ChatRunner** — trigger, 1-on-1, auto-leave, confirm flow | `pipeline/chat_runner.py` | `test_chat_hardening.py`, `test_911/912/913/915*.py` | Gap-fill | M | ☐ |
 | D | **OpenAI provider parity** | `pipeline/providers/openai.py` vs `pipeline/providers/anthropic.py` | `test_anthropic_provider.py` (anthropic only) | Boundary | M | ☐ |
 | Entry | **CLI entry + `operator try`** — arg parsing, bot discovery, `_run_try` wiring | `__main__.py` | none | Boundary | M | ☐ |
@@ -87,6 +87,12 @@ Ordered by risk × value (most valuable first). Each session picks the next unch
 ## Notes and decisions
 
 *(Add session-level notes here as components are completed — what the uncovered gaps actually were, any surprises, any decisions to revisit.)*
+
+- **B — MeetingRecord** (session 133, 2026-04-19) — 8 tests added to `tests/test_meeting_record.py`, all pass. No production bugs surfaced; the `_lock` contract holds under 10×20 concurrent appends, and tail()/append() interleaving is clean.
+- **A — Config loader** (session 133, 2026-04-19) — 6 tests added to `tests/test_config_loader.py`, all pass. Covers missing/unknown `OPERATOR_BOT`, yaml field parse + defaults, `SYSTEM_PROMPT` composition (personality + ground_rules), `intro_on_join` default-True, and MCP server filter/`tool_timeout_seconds`/`${VAR}` env resolution. Loader tests use a tmp `config.py` copy + tmp `agents/<bot>/config.yaml` so no real agents are touched.
+- **C — LLMClient** (session 133, 2026-04-19) — 6 tests added to `tests/test_llm_client.py`, all pass. Covers `ask()` wiring (system+tail), `_tail_messages` shape (agent→assistant, user prefix, caption `[spoken]` branch, first-contact hint attached once per first name), `ask()` tool_call scratchpad seeding, `send_tool_result` scratch-clear on final text, `ContextOverflowError` halving `_max_messages` (floor 2), and `intro()` single-shot + exception propagation. **Confirmed behavior**: captions never attach the first-contact hint and don't mark the speaker as greeted — ambient spoken talk doesn't trigger a direct greeting.
+- **G — Skills loader** (session 133, 2026-04-19) — 5 gap-fill tests appended to `tests/test_skills.py`: no frontmatter skipped, unterminated frontmatter skipped, non-dict frontmatter skipped, allowed-tools comma-string parsed, empty parent folder warns. All 18 now pass. **Incidental fix**: test_skills.py was missing `os.environ.setdefault("OPERATOR_BOT", "pm")` at the top — the existing LLM/ChatRunner wiring tests (9-13 in the __main__ list) had been silently failing on `SystemExit` from `config.py` before running their body. One-line fix added; all pre-existing tests now actually execute.
+- **F — MCPClient** (session 133, 2026-04-19) — 6 gap-fill tests added to new `tests/test_mcp_client_units.py`, all pass. Covers `_classify_startup_failure` (FileNotFoundError + "process exited" branches + BaseExceptionGroup unwrap), `server_for_tool` + `tool_timeout_for` override precedence, Linear `limit` arg stripping in `execute_tool`, and the `get_file_contents` binary-extension guardrail firing pre-execution. **Race carve-out deviation**: the plan flagged "tool timeout racing with reconnect" but there is no reconnect path in current mcp_client.py (each `_ServerHandle` runs once per session); "orphan cleanup during active call" is already covered by `test_mcp_shutdown.py`. So the "+race" portion of the carve-out has no target in the current code — revisit if reconnect is added post-launch. Next: **E — ChatRunner** (Gap-fill, M) or **Setup** wizard (Gap-fill, M).
 
 - **Self-intro on join** (added session 131, 2026-04-19) — must appear in the inventory of three components when their session comes up, even at Boundary depth:
   - **A — Config loader**: `agent.intro_on_join` reads as `True` when present, defaults to `True` when absent.
