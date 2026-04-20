@@ -22,6 +22,30 @@ from pipeline.guardrails import is_text_file_path, log_rejection
 log = logging.getLogger(__name__)
 
 
+def _summarize_tool_args(arguments: dict) -> str:
+    """Return a log-safe summary of tool arguments.
+
+    Default: keys + value types + string lengths only, no values.
+    Full values are dumped only when OPERATOR_LOG_TOOL_ARGS=1 is set
+    (opt-in escape hatch for debugging). Tool arguments often contain
+    repo paths, PR titles, issue bodies, or pasted snippets — treat
+    them as potentially sensitive.
+    """
+    if os.environ.get("OPERATOR_LOG_TOOL_ARGS") == "1":
+        return json.dumps(arguments, default=str)
+    parts = []
+    for k, v in arguments.items():
+        if isinstance(v, str):
+            parts.append(f"{k}=str[{len(v)}]")
+        elif isinstance(v, (list, tuple)):
+            parts.append(f"{k}={type(v).__name__}[{len(v)}]")
+        elif isinstance(v, dict):
+            parts.append(f"{k}=dict[{len(v)}]")
+        else:
+            parts.append(f"{k}={type(v).__name__}")
+    return "{" + ", ".join(parts) + "}"
+
+
 class MCPToolError(Exception):
     """Raised when an MCP tool call fails."""
     pass
@@ -191,7 +215,7 @@ class MCPClient:
                 raise MCPToolError(reason)
 
         log.info(f"MCP executing tool={tool_name} server={server_name}")
-        log.debug(f"MCP tool arguments: {json.dumps(arguments)}")
+        log.debug(f"MCP tool arguments: {_summarize_tool_args(arguments)}")
 
         try:
             result = handle.call_tool(original_name, arguments)

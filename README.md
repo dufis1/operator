@@ -30,8 +30,20 @@ directory — treat it like any other local artifact. macOS typically clears
 Chat history also lands in `~/.operator/history/<slug>.jsonl` — that's the
 durable record the bot replays from between turns. Same sensitivity profile.
 
-API keys live in a single `.env` at the repo root. Never commit `.env`,
-`browser_profile/`, or `auth_state.json`.
+### Never commit these
+
+API keys live in a single `.env` at the repo root. The following files hold
+secrets or logged-in Google session state and must stay local:
+
+- `.env` — API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GITHUB_TOKEN, …)
+- `credentials.json` — Google OAuth client secrets
+- `token.json` — Google OAuth access/refresh tokens
+- `auth_state.json` — Playwright storage state (Google session cookies)
+- `browser_profile/` — persistent Chrome profile (Google session cookies)
+
+All of the above are ignored by `.gitignore`. If you see one show up in
+`git status` untracked, something has gone wrong — don't `git add .` blindly.
+See `docs/security.md` for the full threat model.
 
 ## More
 

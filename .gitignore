@@ -1,7 +1,14 @@
-# Secrets — never commit these
+# Secrets — never commit any of these.
+# Full "don't commit" family (keep in sync with README "Privacy & logs" and docs/security.md):
+#   .env                — API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GITHUB_TOKEN, …)
+#   credentials.json    — Google OAuth client secrets
+#   token.json          — Google OAuth access/refresh tokens
+#   auth_state.json     — Playwright storage state (Google session cookies)
+#   browser_profile/    — persistent Chrome profile (Google session cookies)
 .env
 credentials.json
 token.json
+auth_state.json
 
 # Browser profile — contains Google session cookies
 browser_profile/
