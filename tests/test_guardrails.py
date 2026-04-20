@@ -11,6 +11,7 @@ Run:
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("OPERATOR_BOT", "pm")
 
 from unittest.mock import MagicMock
 from pipeline.guardrails import is_text_file_path, validate_tool_result
@@ -291,6 +292,110 @@ def test_llm_passes_clean_result():
 
 
 # ---------------------------------------------------------------------------
+# Gap-fill: base64 prefix coverage
+# ---------------------------------------------------------------------------
+
+def test_validate_base64_gif_and_webp():
+    """GIF (`R0lGOD`) and WebP (`UklGR`) prefixes must also be flagged."""
+    ok, reason = validate_tool_result("R0lGODlhAQABAAAAACH5BAEKAAEALAAA...")
+    assert not ok, "GIF base64 prefix should be flagged"
+    assert "R0lGOD" in reason
+    ok, reason = validate_tool_result("UklGRnoGAABXRUJQVlA4IG4GAADwIACdASo...")
+    assert not ok, "WebP (RIFF) base64 prefix should be flagged"
+    assert "UklGR" in reason
+    print("PASS  test_validate_base64_gif_and_webp")
+
+
+def test_validate_base64_prefix_beyond_window_passes():
+    """Base64 image prefix appearing past the first 1000 chars is NOT flagged.
+
+    The scanner only inspects content[:1000] for image signatures, so text
+    that legitimately mentions e.g. "iVBOR" deep in a file body shouldn't
+    blow up. Pad well past 1000 and verify the result passes.
+    """
+    content = ("abcde " * 200) + "iVBORw0KGgo"  # 1200+ chars, prefix at the tail
+    assert len(content) > 1000
+    ok, reason = validate_tool_result(content)
+    assert ok, f"prefix beyond 1000-char window should pass, got: {reason}"
+    print("PASS  test_validate_base64_prefix_beyond_window_passes")
+
+
+# ---------------------------------------------------------------------------
+# Gap-fill: non-printable ratio boundary + whitespace carve-outs
+# ---------------------------------------------------------------------------
+
+def test_validate_nonprintable_at_threshold_boundary():
+    """The check is strict `>` 0.10 — exactly 10% should still pass.
+
+    Build a 100-byte sample with exactly 10 non-printable bytes. 10 / 100 = 0.10,
+    which fails the `> 0.10` guard, so the content is accepted.
+    """
+    content = ("\x01" * 10) + ("a" * 90)
+    assert len(content) == 100
+    ok, reason = validate_tool_result(content)
+    assert ok, f"exactly 10% non-printable should pass (strict >), got: {reason}"
+
+    # Just above the boundary: 11/100 fails.
+    over = ("\x01" * 11) + ("a" * 89)
+    ok2, _ = validate_tool_result(over)
+    assert not ok2, "11% non-printable should be flagged"
+    print("PASS  test_validate_nonprintable_at_threshold_boundary")
+
+
+def test_validate_tab_newline_cr_not_counted_as_nonprintable():
+    """\\n, \\r, \\t are whitelisted and must not count toward the ratio."""
+    # 100% whitespace control chars — would be flagged if counted as non-printable.
+    content = "\n\r\t" * 500
+    ok, reason = validate_tool_result(content)
+    assert ok, f"tabs/newlines/CR must be allowed, got: {reason}"
+    print("PASS  test_validate_tab_newline_cr_not_counted_as_nonprintable")
+
+
+# ---------------------------------------------------------------------------
+# Gap-fill: log_rejection formatting
+# ---------------------------------------------------------------------------
+
+def test_log_rejection_emits_warning_with_context():
+    """log_rejection must emit a WARNING carrying stage, tool, reason, and args."""
+    import logging
+    from pipeline.guardrails import log_rejection
+
+    # Capture records from the guardrails logger at WARNING level.
+    captured = []
+
+    class _Handler(logging.Handler):
+        def emit(self, record):
+            captured.append(record)
+
+    guard_log = logging.getLogger("pipeline.guardrails")
+    h = _Handler(level=logging.WARNING)
+    saved_level = guard_log.level
+    guard_log.setLevel(logging.WARNING)
+    guard_log.addHandler(h)
+    try:
+        # args include a non-JSON-serializable object to exercise `default=str`.
+        log_rejection(
+            tool_name="github__get_file_contents",
+            arguments={"path": "images/logo.png", "weird": object()},
+            reason="non-text file",
+            stage="pre",
+        )
+    finally:
+        guard_log.removeHandler(h)
+        guard_log.setLevel(saved_level)
+
+    assert len(captured) == 1, f"expected 1 warning, got {len(captured)}"
+    rec = captured[0]
+    assert rec.levelno == logging.WARNING
+    msg = rec.getMessage()
+    assert "GUARDRAIL [pre]" in msg
+    assert "tool=github__get_file_contents" in msg
+    assert "reason=non-text file" in msg
+    assert "images/logo.png" in msg   # args must be rendered
+    print("PASS  test_log_rejection_emits_warning_with_context")
+
+
+# ---------------------------------------------------------------------------
 # Run all
 # ---------------------------------------------------------------------------
 
@@ -313,6 +418,11 @@ if __name__ == "__main__":
         test_mcp_allows_extensionless,
         test_llm_blocks_binary_result,
         test_llm_passes_clean_result,
+        test_validate_base64_gif_and_webp,
+        test_validate_base64_prefix_beyond_window_passes,
+        test_validate_nonprintable_at_threshold_boundary,
+        test_validate_tab_newline_cr_not_counted_as_nonprintable,
+        test_log_rejection_emits_warning_with_context,
     ]
     failures = []
     for t in tests:
