@@ -23,6 +23,13 @@ ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip tr
 LOAD_SKILL_TOOL = "load_skill"  # synthetic local tool — not routed to MCP
 _SLASH_RE = re.compile(r"^/([A-Za-z0-9_\-]+)\s*")
 
+# Confirmation message rendering — keep the prompt readable in Meet chat
+# while still showing both ends of long values (so the user can spot a
+# malicious trailing instruction).
+CONFIRM_ARG_MAX = 160   # threshold above which an arg is head…tail-truncated
+CONFIRM_ARG_HEAD = 70   # chars of head shown
+CONFIRM_ARG_TAIL = 50   # chars of tail shown
+
 
 class ChatRunner:
     """Polls meeting chat and responds to messages."""
@@ -379,7 +386,13 @@ class ChatRunner:
         return True
 
     def _request_confirmation(self, tool_call):
-        """Ask user for confirmation before executing a tool."""
+        """Ask user for confirmation before executing a tool.
+
+        Renders *every* argument so a write can't hide extra fields in the
+        confirmation prompt. Long values are truncated with a head…tail
+        snippet; the full payload is also logged at INFO so the user can
+        cross-reference /tmp/operator.log if they need the full string.
+        """
         self._pending_tool_call = tool_call
         name = tool_call["name"]
         args = tool_call["arguments"]
@@ -393,13 +406,29 @@ class ChatRunner:
         display_server = parts[0] if len(parts) == 2 else ""
         display_tool = parts[1] if len(parts) == 2 else name
 
-        arg_summary = ", ".join(f"{k}={v!r}" for k, v in list(args.items())[:5])
+        # Render every argument. Truncate any single rendered arg past
+        # CONFIRM_ARG_MAX with head…tail so the confirmation stays readable
+        # in Meet chat but the user can still see both ends of the value.
+        truncated_any = False
+        rendered = []
+        for k, v in args.items():
+            r = repr(v)
+            if len(r) > CONFIRM_ARG_MAX:
+                head = r[:CONFIRM_ARG_HEAD]
+                tail = r[-CONFIRM_ARG_TAIL:]
+                r = f"{head}…{tail}"
+                truncated_any = True
+            rendered.append(f"{k}={r}")
+        arg_summary = ", ".join(rendered) if rendered else "(no arguments)"
 
         msg = f"I'd like to run {display_tool}"
         if display_server:
             msg += f" via {display_server}"
-        msg += f" with: {arg_summary}. OK?"
-        log.info(f"ChatRunner: requesting confirmation for {name}")
+        msg += f" with: {arg_summary}."
+        if truncated_any:
+            msg += " (Full values in /tmp/operator.log.)"
+        msg += " OK?"
+        log.info(f"ChatRunner: requesting confirmation for {name} args={args!r}")
         self._send(msg, kind="confirmation")
 
     def _handle_confirmation(self, text):

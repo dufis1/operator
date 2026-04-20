@@ -81,14 +81,38 @@ AUTH_STATE_FILE          = "./auth_state.json"   # Playwright storageState JSON 
 import logging as _logging
 _mcp_log = _logging.getLogger("config.mcp")
 
+# Env keys a server config must not override — they influence how binaries
+# and shared libraries are located when the MCP subprocess launches, so a
+# malicious or mistaken config line could redirect execution or preload.
+# Exact matches (case-insensitive) and prefix matches for the dyld/ld family.
+_UNSAFE_ENV_KEYS = {"PATH", "PYTHONPATH", "PYTHONHOME", "IFS"}
+_UNSAFE_ENV_PREFIXES = ("LD_", "DYLD_")
+
+
+def _is_unsafe_env_key(key: str) -> bool:
+    upper = key.upper()
+    if upper in _UNSAFE_ENV_KEYS:
+        return True
+    return any(upper.startswith(p) for p in _UNSAFE_ENV_PREFIXES)
+
+
 def _resolve_env_vars(env_dict, server_name):
     """Replace ${VAR} references with os.environ values.
 
     Logs a warning for any ${VAR} that resolves to an empty or missing value,
     tagged with the server name so user-configured MCP issues are easy to spot.
+    Drops and warns on keys that could redirect binary or library lookup
+    (PATH, PYTHONPATH, LD_*, DYLD_*, …) — those stay bound to the parent
+    process environment and must not be overridable from config.
     """
     resolved = {}
     for k, v in env_dict.items():
+        if _is_unsafe_env_key(k):
+            _mcp_log.warning(
+                f"MCP USER CONFIG: server '{server_name}' env key '{k}' is "
+                f"refused — cannot override binary/library lookup paths from config"
+            )
+            continue
         if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
             var_name = v[2:-1]
             value = os.environ.get(var_name, "")

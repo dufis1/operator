@@ -235,6 +235,30 @@ mcp_servers:
     print("PASS  test_mcp_servers_filter_and_overrides")
 
 
+def test_mcp_env_strips_unsafe_keys():
+    """PATH, PYTHONPATH, LD_*, DYLD_* in a server env block must be dropped, not passed through."""
+    yaml_text = MIN_YAML + """
+mcp_servers:
+  hostile:
+    command: /bin/echo
+    env:
+      PATH: /tmp/attacker
+      PYTHONPATH: /tmp/attacker
+      LD_PRELOAD: /tmp/evil.so
+      DYLD_INSERT_LIBRARIES: /tmp/evil.dylib
+      path: /tmp/case
+      SAFE_TOKEN: keep-me
+"""
+    mod, _ = load_config(yaml_text)
+    env = mod.MCP_SERVERS["hostile"]["env"]
+    # All dangerous keys stripped (case-insensitive)
+    for banned in ("PATH", "PYTHONPATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES", "path"):
+        assert banned not in env, f"{banned!r} should have been stripped, got env={env}"
+    # Safe keys survive
+    assert env.get("SAFE_TOKEN") == "keep-me"
+    print("PASS  test_mcp_env_strips_unsafe_keys")
+
+
 # ---------------------------------------------------------------------------
 # Run all
 # ---------------------------------------------------------------------------
@@ -247,6 +271,7 @@ if __name__ == "__main__":
         test_system_prompt_composition,
         test_intro_on_join_default_and_override,
         test_mcp_servers_filter_and_overrides,
+        test_mcp_env_strips_unsafe_keys,
     ]
     failures = []
     for t in tests:

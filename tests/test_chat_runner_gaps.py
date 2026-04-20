@@ -183,6 +183,61 @@ def test_needs_confirmation_branches(monkeypatch=None):
     print("PASS  test_needs_confirmation_branches")
 
 
+def test_request_confirmation_renders_all_args_and_truncates_long_values():
+    """Every arg shows; long values get head…tail truncation + log pointer."""
+    runner, _, _ = make_runner()
+    sent = []
+    runner._send = lambda text, kind="chat": sent.append((text, kind))
+
+    short = "ENG-123"
+    long_body = "x" * 500
+    tc = {
+        "id": "c1",
+        "name": "linear__create_issue",
+        "arguments": {
+            "team": short,
+            "title": "bug: thing broke",
+            "description": long_body,
+            "priority": 2,
+            "labels": ["bug", "urgent"],
+            "parent": "ENG-100",
+        },
+    }
+    runner._request_confirmation(tc)
+
+    assert len(sent) == 1 and sent[0][1] == "confirmation"
+    msg = sent[0][0]
+    # All 6 args surface — previously only the first 5 were shown
+    for k in ("team=", "title=", "description=", "priority=", "labels=", "parent="):
+        assert k in msg, f"missing {k!r} in confirmation: {msg}"
+    # The long value was truncated — full 500-char body must not appear
+    assert long_body not in msg, "Full long value leaked through untruncated"
+    assert "…" in msg, f"Expected head…tail ellipsis, got: {msg}"
+    # Log-pointer present so the user can cross-reference
+    assert "/tmp/operator.log" in msg
+    # Short values survive unchanged
+    assert "ENG-123" in msg
+    print("PASS  test_request_confirmation_renders_all_args_and_truncates_long_values")
+
+
+def test_request_confirmation_no_truncation_on_short_args():
+    """No pointer when nothing was truncated — keeps the short prompt clean."""
+    runner, _, _ = make_runner()
+    sent = []
+    runner._send = lambda text, kind="chat": sent.append((text, kind))
+
+    tc = {
+        "id": "c2",
+        "name": "linear__list_issues",
+        "arguments": {"team": "ENG", "state": "open"},
+    }
+    runner._request_confirmation(tc)
+    msg = sent[0][0]
+    assert "/tmp/operator.log" not in msg, f"Unexpected log pointer: {msg}"
+    assert "…" not in msg, f"Unexpected truncation marker: {msg}"
+    print("PASS  test_request_confirmation_no_truncation_on_short_args")
+
+
 def test_handle_confirmation_affirmative_executes():
     """Affirmative words → clears pending, executes tool."""
     runner, _, _ = make_runner(mcp=MagicMock())
@@ -535,6 +590,8 @@ if __name__ == "__main__":
         test_auto_leave_after_grace,
         # M2
         test_needs_confirmation_branches,
+        test_request_confirmation_renders_all_args_and_truncates_long_values,
+        test_request_confirmation_no_truncation_on_short_args,
         test_handle_confirmation_affirmative_executes,
         test_handle_confirmation_non_affirmative_is_correction_not_cancel,
         test_pending_confirmation_messages_tagged_in_record,
