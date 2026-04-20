@@ -277,6 +277,38 @@ class LLMClient:
         except Exception as e:
             log.warning(f"LLM warmup failed (non-fatal): {e}")
 
+    def intro(self) -> str:
+        """Generate a self-introduction for the chat panel on join.
+
+        Sent with no message history — the bot is greeting the room, not
+        reacting to it. Relies on the system prompt already carrying skills,
+        MCP hints, and MCP status (injected during startup) so the model has
+        full visibility into what it can actually do this session.
+        """
+        prompt = (
+            "Introduce yourself to the meeting in chat. Constraints:\n"
+            "- 2 sentences. First sentence: who you are and your role. "
+            "Second sentence: 2–3 concrete use cases as an inline list, "
+            "framed as 'I can …' — pick examples that would inspire the user "
+            "to actually try you.\n"
+            "- Focus on outcomes and use cases, not mechanisms. Never name "
+            "specific tools, MCP servers, or skill names — that's too technical "
+            "for a meeting greeting.\n"
+            "- No greeting filler ('Hi everyone!'), no offers to help, no "
+            "questions back. Lead with substance.\n"
+            "- Plain text. No markdown, no bullet block, no headings."
+        )
+        response = self._provider.complete(
+            system=self._system_prompt,
+            messages=[{"role": "user", "content": prompt}],
+            model=config.LLM_MODEL,
+            max_tokens=self._max_tokens,
+            tools=None,
+        )
+        text = (response.text or "").strip()
+        log.info(f"LLM intro generated ({len(text)} chars): \"{text[:80]}\"")
+        return text
+
     def send_tool_result(self, tool_call_id: str, tool_name: str, result_content: str, tools=None):
         """Feed a tool result back to the model and get the next response.
 

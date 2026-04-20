@@ -37,6 +37,7 @@ AGENT_NAME           = _config["agent"]["name"]
 TRIGGER_PHRASE       = _config["agent"].get("trigger_phrase", "@operator")
 FIRST_CONTACT_HINT   = _config["agent"].get("first_contact_hint", "")
 AGENT_TAGLINE        = _config["agent"].get("tagline", "")
+INTRO_ON_JOIN        = _config["agent"].get("intro_on_join", True)
 
 # LLM
 LLM_PROVIDER           = _config["llm"]["provider"]

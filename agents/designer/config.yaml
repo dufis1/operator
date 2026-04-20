@@ -6,6 +6,7 @@ agent:
   trigger_phrase: "@operator"
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "opens your Figma and pulls no punches"
+  intro_on_join: true
 
 llm:
   provider: "anthropic"

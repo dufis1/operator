@@ -54,6 +54,15 @@ class ChatRunner:
         self._turn_count = 0
         self._load_skill_calls = 0
         self._load_skill_by_name: dict[str, int] = {}
+        # Self-intro on join. Background thread generates the text; main loop
+        # posts it (so send_chat stays single-threaded). User-message
+        # processing is deferred until the intro lands; messages that arrive
+        # during the gap are persisted to the record as normal and buffered
+        # for in-order replay once the intro posts.
+        self._intro_ready = threading.Event()
+        self._intro_text = ""
+        self._intro_posted = not config.INTRO_ON_JOIN
+        self._pre_intro_buffer: list[dict] = []
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
@@ -94,8 +103,26 @@ class ChatRunner:
                 log.warning("ChatRunner: session recovered via cookie injection — "
                             "consider re-running scripts/auth_export.py")
 
-        log.info("ChatRunner: joined — starting chat loop")
+        log.info("ChatRunner: joined")
+        if config.INTRO_ON_JOIN:
+            threading.Thread(target=self._generate_intro, daemon=True).start()
+        log.info("ChatRunner: starting chat loop")
         self._loop()
+
+    def _generate_intro(self):
+        """Background-thread LLM call for the self-intro.
+
+        Stores the result in _intro_text and signals via _intro_ready. The
+        main loop is responsible for sending it (so send_chat is never
+        called off-thread). On generation failure, _intro_text stays empty
+        and the main loop will skip the post.
+        """
+        try:
+            self._intro_text = self._llm.intro()
+        except Exception as e:
+            log.error(f"ChatRunner: intro generation failed — skipping: {e}")
+            self._intro_text = ""
+        self._intro_ready.set()
 
     def stop(self):
         """Signal the polling loop to exit."""
@@ -124,6 +151,19 @@ class ChatRunner:
                 log.warning("ChatRunner: connector disconnected unexpectedly — exiting loop")
                 print("\n⚠️  Operator: meeting connection lost — chat loop stopped.")
                 break
+
+            # Post the self-intro the first iteration after generation completes,
+            # then drain anything that arrived during the gap.
+            if not self._intro_posted and self._intro_ready.is_set():
+                if self._intro_text:
+                    self._send(self._intro_text)
+                self._intro_posted = True
+                if self._pre_intro_buffer:
+                    log.info(f"ChatRunner: draining {len(self._pre_intro_buffer)} pre-intro msg(s)")
+                    buffered = self._pre_intro_buffer
+                    self._pre_intro_buffer = []
+                    for buf in buffered:
+                        self._dispatch_user_message(buf["text"], buf["one_on_one"])
 
             try:
                 messages = self._connector.read_chat()
@@ -215,20 +255,14 @@ class ChatRunner:
                     self._handle_confirmation(text)
                     continue
 
-                # In 1-on-1 mode, every message is treated as addressed to us
-                trigger = config.TRIGGER_PHRASE.lower()
-                lower = text.lower()
-                has_trigger = trigger in lower
+                # Defer LLM-side processing until the self-intro has posted —
+                # buffered messages drain in order at the top of the iteration
+                # that observes the intro completing.
+                if not self._intro_posted:
+                    self._pre_intro_buffer.append({"text": text, "one_on_one": one_on_one})
+                    continue
 
-                if has_trigger or one_on_one:
-                    if has_trigger:
-                        prompt = re.sub(re.escape(config.TRIGGER_PHRASE) + r'[,:]?\s*', '', text, count=1, flags=re.IGNORECASE).strip()
-                    else:
-                        prompt = text
-                    if prompt:
-                        self._handle_message(prompt)
-                else:
-                    log.debug("ChatRunner: stored as context (no trigger phrase)")
+                self._dispatch_user_message(text, one_on_one)
 
             self._own_messages -= own_matched
 
@@ -262,6 +296,28 @@ class ChatRunner:
                 },
             })
         return tools or None
+
+    def _dispatch_user_message(self, text: str, one_on_one: bool):
+        """Trigger-check a chat message and route it to the LLM if addressed.
+
+        Called both from the live polling loop and from the post-intro buffer
+        drain. Pure routing — message persistence and seen-id tracking happen
+        upstream, before this is invoked.
+        """
+        trigger = config.TRIGGER_PHRASE.lower()
+        has_trigger = trigger in text.lower()
+        if has_trigger or one_on_one:
+            if has_trigger:
+                prompt = re.sub(
+                    re.escape(config.TRIGGER_PHRASE) + r'[,:]?\s*',
+                    '', text, count=1, flags=re.IGNORECASE,
+                ).strip()
+            else:
+                prompt = text
+            if prompt:
+                self._handle_message(prompt)
+        else:
+            log.debug("ChatRunner: stored as context (no trigger phrase)")
 
     def _handle_message(self, text):
         """Process a single chat message via LLM."""

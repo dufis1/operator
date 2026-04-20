@@ -88,6 +88,11 @@ Ordered by risk × value (most valuable first). Each session picks the next unch
 
 *(Add session-level notes here as components are completed — what the uncovered gaps actually were, any surprises, any decisions to revisit.)*
 
+- **Self-intro on join** (added session 131, 2026-04-19) — must appear in the inventory of three components when their session comes up, even at Boundary depth:
+  - **A — Config loader**: `agent.intro_on_join` reads as `True` when present, defaults to `True` when absent.
+  - **C — LLMClient**: `intro()` issues a single `provider.complete` call with no message history, returns the trimmed text; on provider exception the caller (ChatRunner) is responsible — `intro()` itself does not catch.
+  - **E — ChatRunner**: when `INTRO_ON_JOIN=True`, the background `_generate_intro` thread fires after join; main loop posts `_intro_text` exactly once and drains `_pre_intro_buffer` in order; messages arriving pre-intro are persisted to the record but their LLM dispatch is deferred; on intro-gen failure (`_intro_text=""`) the post is skipped silently and the buffer still drains; when `INTRO_ON_JOIN=False`, no thread spawns, no buffering occurs, processing is immediate.
+
 ---
 
 ## What's intentionally excluded
