@@ -7,3 +7,10 @@ playwright             # controls headless/headed Chrome for joining Google Meet
 mcp                    # Model Context Protocol client for tool-use integration
 rich                   # TUI used by `operator setup` wizard
 readchar               # cross-platform key reads for the wizard's arrow-key pickers
+
+# ── Security floors for transitive deps (pip-audit, session 138) ──────────────
+# Floors only — full pinning lives in Phase 14.2. Bump when a newer CVE ships.
+cryptography>=46.0.7     # CVE-2026-34073, CVE-2026-39892 (via google-auth)
+pygments>=2.20.0         # CVE-2026-4539 (via rich)
+python-multipart>=0.0.26 # CVE-2026-40347 (via mcp)
+requests>=2.33.0         # CVE-2026-25645 (via CacheControl, mcp, etc.)
