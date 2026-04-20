@@ -408,6 +408,267 @@ def test_picker_cancels_on_q():
     print("  picker cancels on q: PASS")
 
 
+# ── 12. _parse_env edge cases (S1) ────────────────────────────────────────
+
+
+def test_parse_env_strips_quotes():
+    """Both single- and double-quoted values are unwrapped to the raw value."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = Path(tmp) / ".env"
+        env.write_text(
+            "DOUBLE=\"value-1\"\n"
+            "SINGLE='value-2'\n"
+            "BARE=value-3\n",
+            encoding="utf-8",
+        )
+        parsed = wizard._parse_env(env)
+        assert parsed == {"DOUBLE": "value-1", "SINGLE": "value-2", "BARE": "value-3"}, parsed
+    print("  parse_env strips quotes: PASS")
+
+
+def test_parse_env_skips_comments_and_blanks():
+    """`#` comments and blank lines are ignored without error."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = Path(tmp) / ".env"
+        env.write_text(
+            "# leading comment\n"
+            "\n"
+            "KEY_A=a\n"
+            "   \n"
+            "# trailing comment\n"
+            "KEY_B=b\n",
+            encoding="utf-8",
+        )
+        parsed = wizard._parse_env(env)
+        assert parsed == {"KEY_A": "a", "KEY_B": "b"}, parsed
+    print("  parse_env skips comments + blanks: PASS")
+
+
+def test_parse_env_tolerates_malformed_line():
+    """A line without `=` is silently dropped — does not raise."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = Path(tmp) / ".env"
+        env.write_text(
+            "NOT_AN_ASSIGNMENT\n"
+            "VALID=ok\n",
+            encoding="utf-8",
+        )
+        parsed = wizard._parse_env(env)
+        assert parsed == {"VALID": "ok"}, parsed
+    print("  parse_env tolerates malformed: PASS")
+
+
+# ── 13. _append_env creates missing file (S2) ─────────────────────────────
+
+
+def test_append_env_creates_missing_file():
+    """Non-existent .env is created with the new values appended."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = Path(tmp) / "new.env"
+        assert not env.exists()
+        wizard._append_env(env, {"FRESH_KEY": "fresh-value"})
+        assert env.is_file()
+        parsed = wizard._parse_env(env)
+        assert parsed == {"FRESH_KEY": "fresh-value"}, parsed
+    print("  append_env creates missing file: PASS")
+
+
+# ── 14. _collect_env_refs (S3) ────────────────────────────────────────────
+
+
+def test_collect_env_refs_from_enabled_servers():
+    """${VAR} refs are gathered from enabled servers' env dict."""
+    cfg = {
+        "mcp_servers": {
+            "linear": {
+                "enabled": True,
+                "env": {"LINEAR_API_KEY": "${LINEAR_API_KEY}"},
+            },
+            "github": {
+                "enabled": True,
+                "env": {"GITHUB_TOKEN": "${GITHUB_TOKEN}", "OTHER": "literal"},
+            },
+        },
+    }
+    state = wizard.WizardState(
+        mode="new", name="x", display_name="X", tagline="", based_on="pm",
+        portrait="placeholder", bot_cfg=cfg, user_sources=[], bundled_skill_dirs=[],
+    )
+    refs = wizard._collect_env_refs(state)
+    assert refs == {"LINEAR_API_KEY", "GITHUB_TOKEN"}, refs
+    print("  collect_env_refs enabled only: PASS")
+
+
+def test_collect_env_refs_skips_disabled_servers():
+    """Refs from disabled servers are NOT collected — we don't prompt for keys
+    the wizard is turning off."""
+    cfg = {
+        "mcp_servers": {
+            "on-server": {
+                "enabled": True,
+                "env": {"KEEP_THIS": "${KEEP_THIS}"},
+            },
+            "off-server": {
+                "enabled": False,
+                "env": {"DROP_THIS": "${DROP_THIS}"},
+            },
+        },
+    }
+    state = wizard.WizardState(
+        mode="new", name="x", display_name="X", tagline="", based_on="pm",
+        portrait="placeholder", bot_cfg=cfg, user_sources=[], bundled_skill_dirs=[],
+    )
+    refs = wizard._collect_env_refs(state)
+    assert refs == {"KEEP_THIS"}, refs
+    print("  collect_env_refs skips disabled: PASS")
+
+
+def test_collect_env_refs_empty_when_no_mcps():
+    """A bot with no mcp_servers section yields the empty set."""
+    state = wizard.WizardState(
+        mode="new", name="x", display_name="X", tagline="", based_on="pm",
+        portrait="placeholder", bot_cfg={}, user_sources=[], bundled_skill_dirs=[],
+    )
+    assert wizard._collect_env_refs(state) == set()
+    print("  collect_env_refs empty when no mcps: PASS")
+
+
+# ── 15. _is_valid_skill_source (S4) ───────────────────────────────────────
+
+
+def test_is_valid_skill_source_accepts_three_shapes():
+    """.md file, SKILL.md folder, and parent-of-SKILL.md all validate."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        md = root / "lone.md"
+        md.write_text("---\nname: lone\ndescription: d\n---\n", encoding="utf-8")
+        folder = _make_skill_folder(root, "single")
+        parent = root / "parent"
+        parent.mkdir()
+        _make_skill_folder(parent, "kid")
+
+        assert wizard._is_valid_skill_source(md) is True, "md file should validate"
+        assert wizard._is_valid_skill_source(folder) is True, "SKILL.md folder should validate"
+        assert wizard._is_valid_skill_source(parent) is True, "parent-of-SKILL.md should validate"
+    print("  is_valid_skill_source accepts three shapes: PASS")
+
+
+def test_is_valid_skill_source_rejects_unrelated_paths():
+    """Random folder without SKILL.md and non-md file return False."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        empty_dir = root / "empty"
+        empty_dir.mkdir()
+        txt = root / "notes.txt"
+        txt.write_text("not a skill", encoding="utf-8")
+        readme = root / "README.md"  # md file but let's see: _is_valid accepts any .md
+        readme.write_text("plain readme", encoding="utf-8")
+
+        assert wizard._is_valid_skill_source(empty_dir) is False
+        assert wizard._is_valid_skill_source(txt) is False
+        # README.md is technically accepted by the .md shape — confirm so
+        # future readers know the validator doesn't re-check frontmatter here.
+        assert wizard._is_valid_skill_source(readme) is True
+    print("  is_valid_skill_source rejects non-skill paths: PASS")
+
+
+# ── 16. build_card.render + _wrap_cells (S5) ──────────────────────────────
+
+
+def test_build_card_render_panel_mode():
+    """rainbow=False returns a Rich Panel titled with the given title."""
+    from pipeline import build_card
+    from rich.panel import Panel
+
+    out = build_card.render(
+        name="Pm",
+        tagline="task wrangler",
+        portrait=build_card.PLACEHOLDER_PORTRAIT,
+        power_ups=["linear", "github"],
+        skills=["review"],
+        title="Your build",
+        rainbow=False,
+    )
+    assert isinstance(out, Panel), f"expected Panel, got {type(out).__name__}"
+    assert out.title == "Your build"
+    # Render body content to a string so we can sanity-check the fields landed.
+    body_plain = out.renderable.plain if hasattr(out.renderable, "plain") else str(out.renderable)
+    assert "Pm" in body_plain
+    assert "task wrangler" in body_plain
+    assert "linear" in body_plain and "github" in body_plain
+    assert "review" in body_plain
+    print("  build_card render Panel mode: PASS")
+
+
+def test_build_card_render_rainbow_emits_ansi():
+    """rainbow=True returns a Text built from ANSI — contains escape codes."""
+    from pipeline import build_card
+    from rich.text import Text
+
+    out = build_card.render(
+        name="Fresh",
+        tagline="reveal",
+        portrait=build_card.PLACEHOLDER_PORTRAIT,
+        power_ups=[],
+        skills=[],
+        rainbow=True,
+    )
+    assert isinstance(out, Text), f"expected Text, got {type(out).__name__}"
+    # Text.from_ansi strips the escape codes into Text spans; the plain form
+    # should still contain the frame-plus-title glyphs.
+    plain = out.plain
+    assert "Your build" in plain
+    assert "╭" in plain and "╯" in plain, f"expected rainbow frame glyphs, got: {plain[:100]!r}"
+    print("  build_card render rainbow path: PASS")
+
+
+def test_build_card_empty_bullets_show_placeholder():
+    """Empty power_ups/skills render as the '—' placeholder in the body rows."""
+    from pipeline import build_card
+
+    rows = build_card._compose_body(
+        name="X", tagline="t", portrait=build_card.PLACEHOLDER_PORTRAIT,
+        power_ups=[], skills=[],
+    )
+    joined = "\n".join(rows)
+    assert "power-ups:  —" in joined, f"expected em-dash for empty power_ups, got: {joined!r}"
+    assert "skills:     —" in joined, f"expected em-dash for empty skills, got: {joined!r}"
+    print("  build_card empty bullets show em-dash: PASS")
+
+
+def test_wrap_cells_hard_splits_oversized_token():
+    """A single token wider than the width is split on code-point boundaries,
+    not dropped or overflowing."""
+    from pipeline import build_card
+    long_word = "x" * 25
+    out = build_card._wrap_cells(long_word, 10)
+    # All rows ≤ 10 cells; concatenation reconstructs the input.
+    assert all(len(r) <= 10 for r in out), out
+    assert "".join(out) == long_word
+    # Normal case: short-enough text returns as-is.
+    assert build_card._wrap_cells("hi", 10) == ["hi"]
+    print("  wrap_cells hard-splits wide token: PASS")
+
+
+# ── 17. _first_line (S6) ──────────────────────────────────────────────────
+
+
+def test_first_line_basic_truncation_and_empty():
+    """Picks the first non-empty line; truncates with ellipsis past max_chars;
+    empty input returns empty string."""
+    # Skips leading blank lines
+    assert wizard._first_line("\n\nhello world\nsecond\n") == "hello world"
+    # Truncation adds an ellipsis
+    long = "a" * 80
+    out = wizard._first_line(long, max_chars=20)
+    assert out.endswith("…"), out
+    assert len(out) == 20, out  # max_chars-1 chars + "…" = max_chars
+    # Empty / whitespace-only input
+    assert wizard._first_line("") == ""
+    assert wizard._first_line("   \n\t\n") == ""
+    print("  first_line basic + truncate + empty: PASS")
+
+
 if __name__ == "__main__":
     print("Setup wizard tests:")
     test_name_validation_reserved_and_collision()
@@ -425,4 +686,19 @@ if __name__ == "__main__":
     test_picker_select_one_with_key_source()
     test_picker_select_many_with_key_source()
     test_picker_cancels_on_q()
+    # Session 134 gap-fill
+    test_parse_env_strips_quotes()
+    test_parse_env_skips_comments_and_blanks()
+    test_parse_env_tolerates_malformed_line()
+    test_append_env_creates_missing_file()
+    test_collect_env_refs_from_enabled_servers()
+    test_collect_env_refs_skips_disabled_servers()
+    test_collect_env_refs_empty_when_no_mcps()
+    test_is_valid_skill_source_accepts_three_shapes()
+    test_is_valid_skill_source_rejects_unrelated_paths()
+    test_build_card_render_panel_mode()
+    test_build_card_render_rainbow_emits_ansi()
+    test_build_card_empty_bullets_show_placeholder()
+    test_wrap_cells_hard_splits_oversized_token()
+    test_first_line_basic_truncation_and_empty()
     print("\nAll tests passed.")
