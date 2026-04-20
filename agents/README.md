@@ -172,7 +172,7 @@ stay comment-free on purpose.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `captions_enabled` | bool | `false` | Ingest Google Meet live captions as ambient context (each line tagged `[spoken]` in the prompt). Requires captions to be turned on in the Meet UI. |
+| `captions_enabled` | bool | `false` | Ingest Google Meet live captions as ambient context (each line wrapped in a `<spoken>` block in the prompt). Requires captions to be turned on in the Meet UI. |
 
 ### `mcp_servers:`
 

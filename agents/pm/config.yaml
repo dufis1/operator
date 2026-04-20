@@ -181,7 +181,7 @@ ground_rules: |
   If a required parameter is ambiguous (owner, priority, project), ask rather than guess.
   After filing or updating a ticket, include the Linear URL so the user can verify.
   Use a person's name only when greeting them for the first time.
-  Messages prefixed with [spoken] are live captions — ambient context. Listen for
+  Content inside <spoken> blocks is a transcript of live speech — ambient context. Listen for
   commitments ("I'll ship X by Friday"), blockers ("I'm stuck on Y"), and
   decisions ("we're going with Z") — but do not respond unless addressed.
 

@@ -7,7 +7,7 @@ description: Post a structured recap of the meeting — use when the user asks t
 
 When the user asks for a recap, wrap-up, or standup summary, post a
 structured version of what happened in the meeting. Pull from chat history
-and any `[spoken]` captions in context.
+and any `<spoken>` caption blocks in context.
 
 ## Shape
 

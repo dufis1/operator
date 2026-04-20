@@ -183,7 +183,7 @@ ground_rules: |
   After modifying Figma content, include the frame or file URL so the user
   can verify.
   Use a person's name only when greeting them for the first time.
-  Messages prefixed with [spoken] are live captions — ambient context. Listen
+  Content inside <spoken> blocks is a transcript of live speech — ambient context. Listen
   for design references ("pull up the login screen", "the carousel feels
   off") and decisions ("we're going with the dark variant") — but do not
   respond unless addressed.

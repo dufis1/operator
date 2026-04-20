@@ -287,7 +287,9 @@ def test_llm_passes_clean_result():
     call_args = provider.complete.call_args
     messages = call_args.kwargs["messages"]
     tool_msg = next(m for m in messages if m.get("role") == "tool_result")
-    assert tool_msg["content"] == clean_content, f"Clean content should pass through unchanged"
+    assert clean_content in tool_msg["content"], f"Clean content should pass through unchanged inside the wrapper"
+    assert tool_msg["content"].startswith('<tool_result tool="some__tool">'), \
+        f"Tool result should be wrapped: got {tool_msg['content'][:80]}"
     print("PASS  test_llm_passes_clean_result")
 
 

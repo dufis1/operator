@@ -179,7 +179,7 @@ ground_rules: |
   If a required parameter is ambiguous, ask the user to clarify rather than guessing.
   After any action that creates or modifies an external resource, include the link so the user can verify.
   Use a person's name only when greeting them for the first time.
-  Messages prefixed with [spoken] are live captions — ambient context, not addressed to you.
+  Content inside <spoken> blocks is a transcript of live speech — ambient context, not addressed to you.
 
   Tool routing: github__* tools are for inspecting REMOTE repositories on
   github.com (that the user explicitly names by owner/repo). Never use them
