@@ -1,0 +1,71 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "brainchild"
+dynamic = ["version"]
+description = "Chat-based AI meeting participant for Google Meet — joins, reads chat, replies via an LLM with MCP tool access."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "jojo", email = "shapirojojo@gmail.com" }]
+keywords = ["meeting", "google-meet", "llm", "agent", "mcp", "chat"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Communications :: Chat",
+]
+
+dependencies = [
+    # Pinned for reproducible installs (mirrors requirements.txt).
+    "python-dotenv==1.2.2",
+    "openai==2.29.0",
+    "anthropic==0.94.0",
+    "playwright==1.58.0",
+    "mcp==1.27.0",
+    "rich==14.3.3",
+    "readchar==4.2.2",
+    # Security floors for transitive deps (pip-audit, session 138) — left as
+    # `>=` so future CVE patches land on `pip install -U` without edits here.
+    "cryptography>=46.0.7",
+    "pygments>=2.20.0",
+    "python-multipart>=0.0.26",
+    "requests>=2.33.0",
+]
+
+[project.scripts]
+brainchild = "brainchild.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/jojoshapiro/brainchild"
+Repository = "https://github.com/jojoshapiro/brainchild"
+
+[tool.hatch.version]
+path = "src/brainchild/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/brainchild"]
+# Hatchling's default already bundles non-.py files that live inside the
+# declared package dir, so templates/**/*.{yaml,md,txt,env.example} ship
+# automatically. `force-include` was tried and caused duplicate zip entries.
+# Verify after any future build-backend change: `python -m zipfile -l
+# dist/brainchild-*.whl | grep templates/` must list agents/pm|engineer|designer.
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/brainchild",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "requirements.txt",
+    "pyproject.toml",
+]
