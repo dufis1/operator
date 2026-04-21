@@ -1,15 +1,16 @@
-# ── Cross-platform dependencies ───────────────────────────────────────────────
+# ── Cross-platform dependencies (Phase 14.2: pinned for reproducible installs) ─
 
-python-dotenv          # loads API keys from the .env file into the app
-openai                 # GPT-4.1-mini for LLM responses and completeness checks
-anthropic              # Claude (Sonnet/Opus) as an alternate LLM backend
-playwright             # controls headless/headed Chrome for joining Google Meet
-mcp                    # Model Context Protocol client for tool-use integration
-rich                   # TUI used by `operator setup` wizard
-readchar               # cross-platform key reads for the wizard's arrow-key pickers
+python-dotenv==1.2.2   # loads API keys from the .env file into the app
+openai==2.29.0         # GPT-4.1-mini for LLM responses and completeness checks
+anthropic==0.94.0      # Claude (Sonnet/Opus) as an alternate LLM backend
+playwright==1.58.0     # controls headless/headed Chrome for joining Google Meet
+mcp==1.27.0            # Model Context Protocol client for tool-use integration
+rich==14.3.3           # TUI used by `operator setup` wizard
+readchar==4.2.2        # cross-platform key reads for the wizard's arrow-key pickers
 
 # ── Security floors for transitive deps (pip-audit, session 138) ──────────────
-# Floors only — full pinning lives in Phase 14.2. Bump when a newer CVE ships.
+# Left as `>=` (not `==`) so future CVE patches land on `pip install -U` without
+# a requirements edit. Bump the floor when a newer CVE ships.
 cryptography>=46.0.7     # CVE-2026-34073, CVE-2026-39892 (via google-auth)
 pygments>=2.20.0         # CVE-2026-4539 (via rich)
 python-multipart>=0.0.26 # CVE-2026-40347 (via mcp)
