@@ -369,6 +369,23 @@ def test_run_try_unknown_bot_returns_2():
 
 
 # ---------------------------------------------------------------------------
+# Package-import smoke test — `[project.scripts] brainchild = "brainchild.__main__:main"`
+# wires pip's console script to this exact import path, so it must succeed
+# cleanly with no side effects beyond the documented Popen monkeypatch.
+# ---------------------------------------------------------------------------
+
+def test_package_import_exposes_main():
+    """`import brainchild.__main__` works and `main` is a zero-arg callable."""
+    import importlib
+    mod = importlib.import_module("brainchild.__main__")
+    assert callable(mod.main), "brainchild.__main__.main is not callable"
+    import inspect
+    sig = inspect.signature(mod.main)
+    assert len(sig.parameters) == 0, f"main() must take no args, got {sig}"
+    print("PASS  test_package_import_exposes_main")
+
+
+# ---------------------------------------------------------------------------
 # Run all
 # ---------------------------------------------------------------------------
 
@@ -392,6 +409,7 @@ if __name__ == "__main__":
         test_run_bot_check_mcp_delegates_and_returns_its_code,
         test_run_bot_unknown_flag_returns_2,
         test_run_try_unknown_bot_returns_2,
+        test_package_import_exposes_main,
     ]
     failures = []
     for t in tests:
