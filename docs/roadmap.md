@@ -1,6 +1,6 @@
 # Brainchild — Roadmap
 
-*Last updated: April 21, 2026 (session 140)*
+*Last updated: April 21, 2026 (session 141)*
 
 > **Current status: Phase 14 COMPLETE + product rename locked down across critical namespaces (session 140).** Product renamed from "brainchild" → **"brainchild"** — evokes creation (the #1 requested feeling), rolled off the tongue in "bring my brainchild to the meeting," grammatically clean as both noun and CLI. Decision came from a 12-candidate collision analysis: prodigy/manifest/bespoke/kaleidoscope/conjure/summon/spawn/facade all RED from dev-tool heritage collisions (Stanford Protégé, Laravel Facades, Jane Street Spawn, Kaleidoscope.app) or funded AI-agent competitors already in the same category (Bespoke Labs Series A, Bonafide AI, withprotege.ai $65M/a16z, mnfst/Manifest); brainchild was the only name where both lanes were clean. **Namespaces locked** (all staged under `/Users/jojo/Desktop/brainchild-reservations/` — sibling dir, not in the repo): PyPI `brainchild@0.0.0.dev0` published (`pypi.org/project/brainchild/`), npm scoped `@brainchild/cli@0.0.0` published under a new `brainchild` npm org (bare `brainchild` npm name was held by a dormant WordPress-theme publisher `hginc` and couldn't be reclaimed short-term; org scope-lock is functionally equivalent), domain `brainchild.build` purchased. **Phase 14 in-repo:** 14.1 shipped `LICENSE` at repo root (MIT, `Copyright (c) 2026 jojo`, doesn't name the project so it travels with any rename). 14.2 pinned all 7 direct deps with `==` to installed versions + kept the 4 transitive CVE floors as `>=` so `pip install -U` lands patches without a requirements edit; `pip-audit` re-run clean. **Deferred to next session:** GitHub repo rename `brainchild → brainchild` (auto-redirects), in-repo rename pass (CLI wrapper `brainchild → brainchild`, `__main__.py`, README, docs/*, `~/.brainchild/ → ~/.brainchild/` history path), Bluesky domain-handle verification via DNS TXT on `brainchild.build`, other social handles, landing page. **Still five sessions overdue: live-smoke of 131+132+136+137** — unchanged from session 139, remains the next critical gate before Phase 15. MVP budget: ~20h remaining.
 
@@ -193,29 +193,34 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 ---
 
-## Phase 14: Package
+## Phase 14: Package & Distribution
 
-*Minimal packaging for "clone and run." **Sequenced after 15.6 (session 105):** package the audited code, not pre-audit code.*
+*Expanded from "minimal packaging" (session 141) to a real install path. Ship a `curl | sh` one-liner that installs Brainchild via `uv tool install` from a git URL, with agents extracted to a user dir (`~/.brainchild/agents/`) so the shipped package is immutable. **Deliberately skipping PyPI for MVP** — `uv tool install git+https://github.com/.../brainchild.git` gives the same install ergonomics without PyPI account/metadata overhead; PyPI moves to post-MVP polish. **Sequenced after 15.6 (session 105):** package the audited code, not pre-audit code.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
 | 14.1 | Add `LICENSE` (MIT) | ✅ | ~5m |
 | 14.2 | Dependency pinning — `requirements.txt` with pinned versions for reproducible installs. No Python version matrix, no lockfile tooling | ✅ | ~1h |
+| 14.3 | Package restructure (src-layout) — move flat-root modules (`__main__.py`, `config.py`, `pipeline/`, `connectors/`, `agents/`) into `src/brainchild/`. Update every import (`from pipeline.x` → `from brainchild.pipeline.x`) across ~40 files + 20 test files. Extract a proper `main()` entry point in `src/brainchild/__main__.py`. Ship bundled agents (pm, engineer, designer) as **templates** in `src/brainchild/templates/agents/` — on first run, auto-copy all three to `~/.brainchild/agents/` so `brainchild list` shows something immediately. Agent discovery switches from `_ROOT / "agents"` (repo-relative) to `~/.brainchild/agents/` (user dir). Full test suite green before moving on. | ⬜ | ~6h |
+| 14.4 | `pyproject.toml` + console script entry — modern `[project]` metadata (name, version `0.1.0`, description, license, Python ≥3.10, dependencies from `requirements.txt`), `[project.scripts] brainchild = "brainchild.__main__:main"` so `uv tool install` creates the `brainchild` CLI on PATH. Build backend: hatchling (uv default). No PyPI upload yet — `uv tool install git+https://...` reads this file directly. | ⬜ | ~45m |
+| 14.5 | `install.sh` — bash install script at repo root. In order: detect macOS/Linux + Python ≥3.10; bootstrap `uv` if missing (calls Astral's installer); `uv tool install git+https://github.com/.../brainchild.git`; run `playwright install chromium` (the 170MB browser download); seed `~/.brainchild/.env` with commented API-key placeholders; verify `brainchild` on PATH; print a "what's next" message pointing at `brainchild setup`. | ⬜ | ~2h |
+| 14.6 | DNS + static host for `brainchild.build/install` — Cloudflare DNS wire-up (domain is purchased, not yet pointed), static hosting (GitHub Pages or Cloudflare Pages), TLS cert (automatic via CF). Serve `install.sh` at the canonical URL. Also unblocks Bluesky domain-handle verification + landing page (Phase 16.3). | ⬜ | ~1h |
+| 14.7 | Uninstall path — documented `brainchild uninstall` (or `brainchild.build/uninstall` script) that runs `uv tool uninstall brainchild`, removes `~/.brainchild/`, drops the PATH symlink. Small but important for trust. | ⬜ | ~30m |
+| 14.8 | Full user-flow smoke test (**integrates the five-session-overdue live-smoke**) — run on a clean second mac. (a) Paste `curl -fsSL brainchild.build/install \| sh`; verify install completes + browser downloads + stub `.env` appears. (b) Run `brainchild setup`, create an agent, fill API keys. (c) Run `brainchild try pm` terminal test-drive. (d) Run `brainchild pm <fresh-meet-url>` against a real Meet — this is the live-smoke validating sessions 131 (intro-on-join), 132 (personality/ground_rules split), 136 (stderr narrator), 137 (security-fix delimiter wrappers) on the packaged version, not the clone-and-hack version. Fix whatever breaks. | ⬜ | ~2h + buffer |
 
-**Phase total: ~1h**
+**Phase total: ~12.25h remaining** (14.1 + 14.2 ✅ = 1h05m done)
 
 ---
 
 ## Phase 15: Cross-Platform Testing
 
-*Prove it works on both platforms. Replaces the setup wizard (deferred to Post-MVP). **Sequenced last before launch (session 105):** tests the final, packaged, audited artifact end-to-end.*
+*Prove it works on Linux too. macOS smoke is already covered by Phase 14.8 (curl installer on clean mac), so Phase 15 slims to just the Linux run. **Sequenced last before launch:** tests the final, packaged artifact end-to-end on the other platform.*
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 15.1 | Linux testing — dedicated session on a real Linux box (not Docker). Fresh clone, full setup, join a meeting, chat interaction, MCP tool use. Fix whatever breaks | ⬜ | ~3h |
-| 15.2 | Fresh clone test (macOS) — new directory, follow the README exactly, no prior state. Verify the "one sitting" promise | ⬜ | ~1h |
+| 15.1 | Linux testing — dedicated session on a real Linux box (not Docker). Paste the curl one-liner, run the same user flow as 14.8 (setup → try → real Meet), fix whatever breaks | ⬜ | ~3h |
 
-**Phase total: ~4h**
+**Phase total: ~3h**
 
 ---
 
@@ -225,16 +230,16 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 
 | Step | Description | Status | Est. |
 |------|-------------|--------|------|
-| 16.1 | Rewrite `README.md` — what it is, quick start, architecture, "meetings that produce artifacts" positioning. **Must read as 3 steps** (choose an agent → add your keys/power-ups → join a meeting); agents gallery (`agents/`) is the entry point; link `claude-code` as the canonical starter. Includes: MCP compatibility notes (tested servers + known quirks), BYOMCP failure patterns and mitigation guidance, one annotated example config. Explicit "Claude Code in your Google Meet" framing in the hero. | ⬜ | ~4h |
+| 16.1 | Rewrite `README.md` — what it is, quick start, architecture, "meetings that produce artifacts" positioning. **Install mechanism is the curl one-liner** (`curl -fsSL brainchild.build/install \| sh`) from Phase 14.5, not `git clone`. **Quick-start must read as 3 steps** after install (choose an agent → add your keys/power-ups → join a meeting); agents gallery (`agents/`) is the entry point; link `claude-code` as the canonical starter. Includes: MCP compatibility notes (tested servers + known quirks), BYOMCP failure patterns and mitigation guidance, one annotated example config. Explicit "Claude Code in your Google Meet" framing in the hero. | ⬜ | ~4h |
 | 16.2 | Demo video/GIF — 30s screen recording embedded at top of README. **Hero hook: an artifact (Linear ticket / GitHub comment) materializing in chat while the speaker is still mid-sentence.** Visual surprise is the point; feature enumeration is not. Second demo (optional): drag-and-drop a skills folder and watch behavior change. | ⬜ | ~2h |
-| 16.3 | Landing page (Tier 1) — single-page site for `brainchild.dev` (or chosen domain) with: hero pitch ("Claude Code in your Google Meet"), 60-second screen-recorded demo embedded above the fold (the artifact-in-chat moment from 16.2, hosted), three-step quickstart preview, link to GitHub repo, "book a live demo with the maintainer" Calendly link as the soft-touch alternative to cloning. Static — no auth, no hosted bot, no API keys, no infra cost. Hosted demo (Tier 3 from session 105 discussion) explicitly out of scope for MVP — that's Joinly's lane and would undermine the "clone and run" promise. Plain HTML or a minimal Astro/Next site is fine; deploy via Vercel/Netlify free tier. **Sequenced before campaign prep (session 105):** the URL needs to exist before posts can link to it. | ⬜ | ~2h |
+| 16.3 | Landing page (Tier 1) — single-page site for `brainchild.build` with: hero pitch ("Claude Code in your Google Meet"), **copy-paste `curl \| sh` one-liner as the above-the-fold install CTA** (the install script hosted at `brainchild.build/install` from Phase 14.6 is already live by this point), 60-second screen-recorded demo (the artifact-in-chat moment from 16.2), three-step quickstart preview (post-install), link to GitHub repo, "book a live demo with the maintainer" Calendly link as the soft-touch alternative. Static — no auth, no hosted bot, no API keys, no infra cost. Hosted demo (Tier 3 from session 105 discussion) explicitly out of scope for MVP — that's Joinly's lane and would undermine the "install and run" promise. Plain HTML or a minimal Astro/Next site is fine; deploy via Vercel/Netlify or Cloudflare Pages (latter reuses the 14.6 DNS wire-up). | ⬜ | ~2h |
 | 16.4 | Launch campaign prep — draft 3 hero-framing posts (see `docs/mvp-bar.md` Launch Strategy section) tailored to their target channels: (a) "Claude Code in your Google Meet" for r/ClaudeAI + Claude-focused creators; (b) "The AI in my standup filed 3 Linear tickets before I finished talking" for r/ExperiencedDevs + eng newsletters; (c) a role-specific build tied to the second chat-native agent from 15.5.2. Prepare the seeded-PR plan for `agents/` (personas + use cases, 3 PRs queued for week 1). Direct-outreach shortlist: 10–20 Claude Code power users in SF. Identify 2–3 AI/PM newsletter brainchilds for earned or paid mentions (Pika's playbook). | ⬜ | ~3h |
 
 **Phase total: ~11h**
 
 ---
 
-**MVP total: ~21.5h remaining (70.75h gross across Phases 10–16 after session 139's 1.5h gallery-reshape moved 15.6.2 out, of which ~49h done — Phases 10–12 + 15.5 + 13 + 15.6.1 + 15.6.2-reshape complete). Execution order (revised session 139): 12 ✅ → 15.5.0–15.5.7 ✅ → 13 ✅ → 15.6.1 ✅ → ~~15.6.2~~ (moved to post-MVP gallery) → **live-smoke 131+132+136+137** (four sessions overdue) → 14 → 15 → 16. Slim-down candidates remaining: Phase 14 (packaging) and Phase 15 (cross-platform, macOS-primary at launch; Linux VM test only). Core-repo security (15.6.1) is uncuttable and shipped. Gallery trust model is the post-MVP evolution of what 15.6.2 was trying to solve. User holding launch date.**
+**MVP total: ~26.25h remaining (session 141 reshape of Phase 14 from "minimal packaging" to "curl-installable package" added ~11h of new work — package restructure + install.sh + DNS/hosting + clean-mac smoke test that absorbs the five-session-overdue live-smoke into 14.8). Execution order (revised session 141): 12 ✅ → 15.5.0–15.5.7 ✅ → 13 ✅ → 15.6.1 ✅ → ~~15.6.2~~ (moved to post-MVP gallery) → 14.3 (package restructure) → 14.4 (pyproject) → 14.5 (install.sh) → 14.6 (DNS + host) → 14.7 (uninstall) → 14.8 (clean-mac user-flow smoke, absorbs live-smoke of 131+132+136+137) → 15.1 (Linux run) → 16 (README + landing + launch). PyPI upload deferred to post-MVP (see Packaging & Community) — shape B (`uv tool install git+https://...`) gives the same install UX without PyPI account overhead. Core-repo security (15.6.1) is uncuttable and shipped. Gallery trust model is the post-MVP evolution of what 15.6.2 was trying to solve. Launch target: end of this week (Apr 25–26) aspirational; early next week (Apr 27–28) acceptable slip.**
 
 ---
 
@@ -297,7 +302,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 ### Packaging & Community
 | Item | Origin | Description |
 |------|--------|-------------|
-| `pyproject.toml` | 14.1 | Package name, Python version, entry points |
+| PyPI publication | session 141 (Phase 14 reshape) | Pre-MVP ships via `uv tool install git+https://github.com/.../brainchild.git` — no PyPI account, no metadata polish, no ongoing upload workflow. Post-MVP: publish `brainchild` to PyPI (the reservation `brainchild@0.0.0.dev0` already exists; first real release at `0.1.0`). Unlocks `pipx install brainchild`, `uvx brainchild`, `uv tool install brainchild` (no git URL), and cleaner upgrade UX via `uv tool upgrade brainchild`. ~1.5h one-time (account/token + build + `twine upload` + verify). Cheap marginal cost once the `pyproject.toml` from 14.4 exists, but not MVP-essential — our audience isn't primarily Python-native developers, and the curl one-liner is the hero install path either way. |
 | Python version matrix | 14.3 (expanded) | Test across 3.11, 3.12; lockfile tooling |
 | CI/CD pipeline | 14.4 | Automated tests on PR, release tagging, PyPI publish |
 | Contributing guide | 14.5 | Code standards, PR process, how to add MCP servers |
@@ -399,7 +404,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 - **Licensing:** MIT
 - **Python target:** 3.11
 - **Pivot (April 2026):** Chat-first v1, voice layered on later. Motivated by real user demand for task delegation via meeting chat.
-- **MVP scope (April 2026):** Google Meet only, Mac + Linux. 7-day ship window (April 12–19). See `docs/mvp-bar.md` for the full MVP bar definition.
+- **MVP scope (April 2026):** Google Meet only, Mac + Linux. Original 7-day ship window (April 12–19) elapsed; revised launch target (session 141): end of week Apr 25–26 aspirational, Apr 27–28 acceptable slip. Scope expansion: Phase 14 grew from "clone and run" to "curl one-liner + package restructure" after session 141 concluded a real install path is load-bearing for MVP credibility. See `docs/mvp-bar.md` for the full MVP bar definition.
 - **MVP model support (April 2026):** OpenAI + Anthropic. No local models — too weak at agentic tool use, would undermine the demo.
 - **V1 positioning (April 2026):** "Meetings that produce artifacts, not just words." Tool use during meetings is the moat — no competitor does this. Pika wins on presentation (avatar/voice), Recall wins on infrastructure (multi-platform), Brainchild wins on capability (MCP tool use, live context, extensibility).
 
