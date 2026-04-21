@@ -18,7 +18,7 @@ import tempfile
 import textwrap
 import time
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 # ── Mock server: speaks just enough MCP to initialize, then ignores SIGTERM ──
@@ -82,7 +82,7 @@ _server_file.close()
 
 # ── Patch config before importing MCPClient ──────────────────────────────
 
-import config
+from brainchild import config
 config.MCP_SERVERS = {
     "stubborn": {
         "command": sys.executable,
@@ -91,7 +91,7 @@ config.MCP_SERVERS = {
     }
 }
 
-from pipeline.mcp_client import MCPClient
+from brainchild.pipeline.mcp_client import MCPClient
 
 passed = 0
 failed = 0
@@ -165,7 +165,7 @@ except Exception as e:
 print("\n4. Run safety net to catch any survivors")
 
 # Import and run the safety net directly
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 # Inline the safety net logic (same as __main__._kill_orphaned_children)
 def _kill_orphaned_children():

@@ -9,10 +9,10 @@ scratchpad that clears when the tool loop ends.
 """
 import logging
 import re
-import config
-from pipeline.guardrails import validate_tool_result, log_rejection
-from pipeline.providers import ContextOverflowError
-from pipeline.meeting_record import MeetingRecord
+from brainchild import config
+from brainchild.pipeline.guardrails import validate_tool_result, log_rejection
+from brainchild.pipeline.providers import ContextOverflowError
+from brainchild.pipeline.meeting_record import MeetingRecord
 
 log = logging.getLogger(__name__)
 

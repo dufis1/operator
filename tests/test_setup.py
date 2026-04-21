@@ -15,12 +15,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-# pipeline.setup does not import config.py, but some sibling imports might
+# pipeline.setup does not from brainchild import config.py, but some sibling imports might
 # — set a safe default so tests never fail on missing BRAINCHILD_BOT.
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
-from pipeline import setup as wizard  # noqa: E402
+from brainchild.pipeline import setup as wizard  # noqa: E402
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -349,10 +349,10 @@ def test_reveal_swaps_portrait():
             # Pre-create the portrait file that _reveal will read.
             target = sandbox / "fresh"
             target.mkdir()
-            from pipeline import face
+            from brainchild.pipeline import face
             (target / "portrait.txt").write_text(face.render("fresh") + "\n", encoding="utf-8")
 
-            from pipeline import build_card
+            from brainchild.pipeline import build_card
             state = _make_state("fresh", mode="new")
             assert state.portrait == "placeholder"
             state.portrait = build_card.PLACEHOLDER_PORTRAIT
@@ -370,7 +370,7 @@ def test_reveal_swaps_portrait():
 def test_picker_select_one_with_key_source():
     """select_one navigates with UP/DOWN and returns the chosen Choice."""
     import readchar
-    from pipeline.picker import Choice, select_one
+    from brainchild.pipeline.picker import Choice, select_one
     choices = [Choice(label=f"item{i}", value=i) for i in range(3)]
     keys = [readchar.key.DOWN, readchar.key.DOWN, readchar.key.ENTER]
     picked = select_one("pick", choices, key_source=keys)
@@ -381,7 +381,7 @@ def test_picker_select_one_with_key_source():
 def test_picker_select_many_with_key_source():
     """select_many navigates with UP/DOWN, toggles with SPACE, confirms with ENTER."""
     import readchar
-    from pipeline.picker import Choice, select_many
+    from brainchild.pipeline.picker import Choice, select_many
     choices = [Choice(label=f"item{i}") for i in range(3)]
     # Start at 0, toggle item0 on, move down, toggle item1 on, confirm.
     keys = [
@@ -397,7 +397,7 @@ def test_picker_select_many_with_key_source():
 
 def test_picker_cancels_on_q():
     """select_one raises PickerCancelled when 'q' is pressed."""
-    from pipeline.picker import Choice, PickerCancelled, select_one
+    from brainchild.pipeline.picker import Choice, PickerCancelled, select_one
     choices = [Choice(label="x")]
     raised = False
     try:
@@ -577,7 +577,7 @@ def test_is_valid_skill_source_rejects_unrelated_paths():
 
 def test_build_card_render_panel_mode():
     """rainbow=False returns a Rich Panel titled with the given title."""
-    from pipeline import build_card
+    from brainchild.pipeline import build_card
     from rich.panel import Panel
 
     out = build_card.render(
@@ -602,7 +602,7 @@ def test_build_card_render_panel_mode():
 
 def test_build_card_render_rainbow_emits_ansi():
     """rainbow=True returns a Text built from ANSI — contains escape codes."""
-    from pipeline import build_card
+    from brainchild.pipeline import build_card
     from rich.text import Text
 
     out = build_card.render(
@@ -624,7 +624,7 @@ def test_build_card_render_rainbow_emits_ansi():
 
 def test_build_card_empty_bullets_show_placeholder():
     """Empty power_ups/skills render as the '—' placeholder in the body rows."""
-    from pipeline import build_card
+    from brainchild.pipeline import build_card
 
     rows = build_card._compose_body(
         name="X", tagline="t", portrait=build_card.PLACEHOLDER_PORTRAIT,
@@ -639,7 +639,7 @@ def test_build_card_empty_bullets_show_placeholder():
 def test_wrap_cells_hard_splits_oversized_token():
     """A single token wider than the width is split on code-point boundaries,
     not dropped or overflowing."""
-    from pipeline import build_card
+    from brainchild.pipeline import build_card
     long_word = "x" * 25
     out = build_card._wrap_cells(long_word, 10)
     # All rows ≤ 10 cells; concatenation reconstructs the input.

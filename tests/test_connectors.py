@@ -22,11 +22,11 @@ import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
-from connectors import session as session_mod
-from connectors.session import (
+from brainchild.connectors import session as session_mod
+from brainchild.connectors.session import (
     JoinStatus,
     _chrome_lock_is_live,
     inject_cookies,
@@ -46,8 +46,8 @@ def _make_terminal_connector(bot_name="pm"):
     back to our own pid (killing the test). Patching threading.Thread to a
     MagicMock makes the connector purely queue-driven for tests.
     """
-    from connectors.terminal import TerminalConnector
-    with patch("connectors.terminal.threading.Thread") as Thread:
+    from brainchild.connectors.terminal import TerminalConnector
+    with patch("brainchild.connectors.terminal.threading.Thread") as Thread:
         Thread.return_value = MagicMock()
         return TerminalConnector(bot_name=bot_name)
 
@@ -102,7 +102,7 @@ def test_terminal_read_chat_quit_and_exit_route_to_sigint():
     for keyword in ("/quit", "/exit", "  /quit  "):
         conn = _make_terminal_connector()
         conn._queue.put(keyword)
-        with patch("connectors.terminal.os.kill") as fake_kill:
+        with patch("brainchild.connectors.terminal.os.kill") as fake_kill:
             msgs = conn.read_chat()
         assert fake_kill.call_count == 1, keyword
         args, _ = fake_kill.call_args

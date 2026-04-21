@@ -10,9 +10,9 @@ import re
 import threading
 import time
 
-import config
-from pipeline import ui
-from pipeline.meeting_record import MeetingRecord, slug_from_url
+from brainchild import config
+from brainchild.pipeline import ui
+from brainchild.pipeline.meeting_record import MeetingRecord, slug_from_url
 
 log = logging.getLogger(__name__)
 

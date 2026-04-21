@@ -13,7 +13,7 @@ Run:
 import sys
 import os
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 import json
 from unittest.mock import MagicMock, patch
@@ -24,14 +24,14 @@ import openai
 # ---------------------------------------------------------------------------
 
 def make_llm():
-    from pipeline.llm import LLMClient
+    from brainchild.pipeline.llm import LLMClient
     provider = MagicMock()
     return LLMClient(provider)
 
 
 def make_text_message(text):
     """Return a ProviderResponse yielding a plain text reply."""
-    from pipeline.providers import ProviderResponse
+    from brainchild.pipeline.providers import ProviderResponse
     return ProviderResponse(text=text, tool_calls=[], stop_reason="end")
 
 
@@ -48,8 +48,8 @@ def make_bad_request_error(code):
 # ---------------------------------------------------------------------------
 
 def test_tool_result_size_guard():
-    import config
-    from pipeline.providers import ToolCall
+    from brainchild import config
+    from brainchild.pipeline.providers import ToolCall
     llm = make_llm()
 
     # Seed an in-flight tool call in the scratchpad.
@@ -82,7 +82,7 @@ def test_ask_context_overflow():
     llm._record.append("Brainchild", "old reply")
     before = llm._max_messages
 
-    from pipeline.providers import ContextOverflowError
+    from brainchild.pipeline.providers import ContextOverflowError
     llm._provider.complete.side_effect = ContextOverflowError()
 
     result = llm.ask("new message", tools=[{"type": "function", "function": {"name": "t", "parameters": {}}}])
@@ -97,7 +97,7 @@ def test_ask_context_overflow():
 # ---------------------------------------------------------------------------
 
 def test_send_tool_result_context_overflow():
-    from pipeline.providers import ContextOverflowError, ToolCall
+    from brainchild.pipeline.providers import ContextOverflowError, ToolCall
     llm = make_llm()
     llm._scratch = [{
         "role": "assistant", "content": None,
@@ -136,7 +136,7 @@ def test_other_bad_request_still_raises():
 # ---------------------------------------------------------------------------
 
 def test_chatrunner_routes_context_overflow():
-    from pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.chat_runner import ChatRunner
 
     connector = MagicMock()
     llm = MagicMock()
@@ -158,7 +158,7 @@ def test_chatrunner_routes_context_overflow():
 
 
 def test_chatrunner_routes_context_overflow_from_tool_result():
-    from pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.chat_runner import ChatRunner
 
     connector = MagicMock()
     llm = MagicMock()

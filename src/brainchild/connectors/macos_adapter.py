@@ -12,7 +12,7 @@ import time
 from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
-import config
+from brainchild import config
 
 # Meet room codes look like `abc-defg-hij` — three lowercase letter groups
 # separated by hyphens. Used to distinguish a real meeting URL from the
@@ -35,7 +35,7 @@ from .session import JoinStatus, detect_page_state, validate_auth_state, inject_
 
 log = logging.getLogger(__name__)
 
-_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
 

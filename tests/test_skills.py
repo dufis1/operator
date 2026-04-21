@@ -3,7 +3,7 @@ Tests for pipeline.skills loader + LLMClient/ChatRunner wiring.
 Run: python tests/test_skills.py
 """
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 import logging
@@ -22,7 +22,7 @@ def _write_skill(folder: Path, name: str, description: str, body: str = "do the 
 
 
 def test_happy_path_single_folder():
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "commit"
@@ -36,7 +36,7 @@ def test_happy_path_single_folder():
 
 
 def test_parent_dir_scan():
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         parent = Path(tmp)
@@ -49,7 +49,7 @@ def test_parent_dir_scan():
 
 
 def test_missing_path_warns_no_crash(caplog_list):
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
     skills = load_skills(["/nonexistent/path/that/does/not/exist"])
     assert skills == []
     assert any("path not found" in r.getMessage() for r in caplog_list), "missing path should WARN"
@@ -57,7 +57,7 @@ def test_missing_path_warns_no_crash(caplog_list):
 
 
 def test_malformed_yaml_skipped(caplog_list):
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "bad"
@@ -71,7 +71,7 @@ def test_malformed_yaml_skipped(caplog_list):
 
 
 def test_missing_fields_skipped(caplog_list):
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "incomplete"
@@ -84,7 +84,7 @@ def test_missing_fields_skipped(caplog_list):
 
 
 def test_duplicate_last_wins(caplog_list):
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         a = Path(tmp) / "a" / "commit"
@@ -99,7 +99,7 @@ def test_duplicate_last_wins(caplog_list):
 
 
 def test_deep_nesting_ignored():
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         parent = Path(tmp)
@@ -111,7 +111,7 @@ def test_deep_nesting_ignored():
 
 
 def test_allowed_tools_warn(caplog_list):
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "with-tools"
@@ -129,8 +129,8 @@ def test_allowed_tools_warn(caplog_list):
 
 def test_llm_inject_skills_menu():
     """Progressive mode puts the menu (names + descriptions) in the system prompt, not the bodies."""
-    from pipeline.llm import LLMClient
-    from pipeline.skills import Skill
+    from brainchild.pipeline.llm import LLMClient
+    from brainchild.pipeline.skills import Skill
 
     llm = LLMClient(MagicMock())
     base = llm._system_prompt
@@ -147,8 +147,8 @@ def test_llm_inject_skills_menu():
 
 def test_llm_inject_skills_full():
     """Non-progressive mode inlines the full skill body."""
-    from pipeline.llm import LLMClient
-    from pipeline.skills import Skill
+    from brainchild.pipeline.llm import LLMClient
+    from brainchild.pipeline.skills import Skill
 
     llm = LLMClient(MagicMock())
     skills = [Skill(name="x", description="d", body="FULL BODY TEXT")]
@@ -159,8 +159,8 @@ def test_llm_inject_skills_full():
 
 def test_load_skill_tool_only_when_progressive_with_skills():
     """_tools_for_llm exposes load_skill iff progressive_disclosure AND skills loaded."""
-    from pipeline.chat_runner import ChatRunner, LOAD_SKILL_TOOL
-    from pipeline.skills import Skill
+    from brainchild.pipeline.chat_runner import ChatRunner, LOAD_SKILL_TOOL
+    from brainchild.pipeline.skills import Skill
 
     # No skills — no load_skill tool (even when MCP is absent, we return None).
     runner = ChatRunner(connector=MagicMock(), llm=MagicMock(), mcp_client=None, skills=[])
@@ -191,8 +191,8 @@ def test_call_rate_sanity():
     should count a slash-invoke. This is the regression hook for watching whether
     the model over-calls load_skill. Real call-rate is provider-driven — we only
     verify our local counters don't increment on unrelated messages here."""
-    from pipeline.chat_runner import ChatRunner
-    from pipeline.skills import Skill
+    from brainchild.pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.skills import Skill
 
     runner = ChatRunner(
         connector=MagicMock(), llm=MagicMock(), mcp_client=None,
@@ -223,8 +223,8 @@ def test_call_rate_sanity():
 
 
 def test_slash_invocation_counts_as_load():
-    from pipeline.chat_runner import ChatRunner
-    from pipeline.skills import Skill
+    from brainchild.pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.skills import Skill
 
     runner = ChatRunner(
         connector=MagicMock(), llm=MagicMock(), mcp_client=None,
@@ -252,7 +252,7 @@ def test_slash_invocation_counts_as_load():
 
 def test_no_frontmatter_skipped(caplog_list):
     """File that doesn't start with '---' is skipped with a 'missing frontmatter' warning."""
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "no-fm"
@@ -266,7 +266,7 @@ def test_no_frontmatter_skipped(caplog_list):
 
 def test_unterminated_frontmatter_skipped(caplog_list):
     """'---' opens but is never closed → skipped with 'unterminated frontmatter' warning."""
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "unterminated"
@@ -280,7 +280,7 @@ def test_unterminated_frontmatter_skipped(caplog_list):
 
 def test_non_dict_frontmatter_skipped(caplog_list):
     """Frontmatter that parses as a list (or any non-mapping) is skipped."""
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "listy"
@@ -294,7 +294,7 @@ def test_non_dict_frontmatter_skipped(caplog_list):
 
 def test_allowed_tools_string_parses_comma_split():
     """allowed-tools declared as a comma-separated string is split and loaded."""
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp) / "string-tools"
@@ -310,7 +310,7 @@ def test_allowed_tools_string_parses_comma_split():
 
 def test_empty_parent_folder_warns(caplog_list):
     """Parent folder with no SKILL.md anywhere → warns 'no SKILL.md found' and returns []."""
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
 
     with tempfile.TemporaryDirectory() as tmp:
         parent = Path(tmp)

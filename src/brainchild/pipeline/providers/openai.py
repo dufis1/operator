@@ -14,7 +14,7 @@ import openai
 
 log = logging.getLogger(__name__)
 
-from pipeline.providers.base import (
+from brainchild.pipeline.providers.base import (
     LLMProvider,
     ContextOverflowError,
     ToolCall,

@@ -14,12 +14,12 @@ Run:
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 import time
 from unittest.mock import MagicMock
-import config
+from brainchild import config
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ def make_runner(tool_delay_seconds, heartbeat=1, timeout=4):
     config.TOOL_HEARTBEAT_SECONDS = heartbeat
     config.TOOL_TIMEOUT_SECONDS = timeout
 
-    from pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.chat_runner import ChatRunner
 
     connector = MagicMock()
     llm = MagicMock()

@@ -16,11 +16,11 @@ import os
 import time
 
 # Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
-import config  # noqa: E402
-from connectors.macos_adapter import MacOSAdapter  # noqa: E402
+from brainchild import config  # noqa: E402
+from brainchild.connectors.macos_adapter import MacOSAdapter  # noqa: E402
 
 
 def main():

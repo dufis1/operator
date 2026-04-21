@@ -12,9 +12,9 @@ import sys
 import os
 
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from connectors.base import MeetingConnector
+from brainchild.connectors.base import MeetingConnector
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +91,7 @@ def test_stub_connector_is_connected():
 
 def test_chat_runner_exits_on_disconnect():
     """ChatRunner._loop() exits when connector reports disconnected."""
-    from pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.chat_runner import ChatRunner
 
     connector = StubConnector()
     llm = StubLLM()
@@ -122,7 +122,7 @@ def test_chat_runner_exits_on_disconnect():
 
 def test_chat_runner_does_not_exit_on_explicit_stop():
     """stop() exits the loop via _stop_event, not is_connected()."""
-    from pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.chat_runner import ChatRunner
 
     connector = StubConnector()
     llm = StubLLM()

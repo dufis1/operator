@@ -15,4 +15,5 @@ REPO_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 cd "$REPO_DIR"
 # shellcheck disable=SC1091
 source venv/bin/activate
-exec python __main__.py "$@"
+export PYTHONPATH="$REPO_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+exec python -m brainchild "$@"

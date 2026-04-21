@@ -19,7 +19,7 @@ Run:
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 import json
 import tempfile
@@ -27,7 +27,7 @@ import threading
 import time
 from pathlib import Path
 
-from pipeline.meeting_record import MeetingRecord, slug_from_url
+from brainchild.pipeline.meeting_record import MeetingRecord, slug_from_url
 
 
 # ---------------------------------------------------------------------------

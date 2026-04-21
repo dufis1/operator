@@ -18,13 +18,13 @@ Run:
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 from unittest.mock import MagicMock
 
-import config
-from pipeline.mcp_client import MCPClient, MCPToolError, _classify_startup_failure
+from brainchild import config
+from brainchild.pipeline.mcp_client import MCPClient, MCPToolError, _classify_startup_failure
 
 
 # ---------------------------------------------------------------------------

@@ -38,14 +38,14 @@ from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 # Loading __main__.py by name imports the module without re-executing as a
 # script (the `if __name__ == "__main__"` guard is skipped).
 import importlib.util
 _SPEC = importlib.util.spec_from_file_location(
     "brainchild_entry",
-    Path(__file__).resolve().parent.parent / "__main__.py",
+    Path(__file__).resolve().parent.parent / "src" / "brainchild" / "__main__.py",
 )
 entry = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(entry)
@@ -358,7 +358,7 @@ def test_run_bot_unknown_flag_returns_2():
 # ---------------------------------------------------------------------------
 
 def test_run_try_unknown_bot_returns_2():
-    """Unknown bot must bail early — before any `import config` can fire."""
+    """Unknown bot must bail early — before any `from brainchild import config` can fire."""
     with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
         buf = io.StringIO()
         with redirect_stdout(buf):

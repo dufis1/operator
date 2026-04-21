@@ -20,7 +20,7 @@ Run:
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 import importlib.util
 import shutil
@@ -28,7 +28,7 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-REAL_CONFIG_PY = REPO_ROOT / "config.py"
+REAL_CONFIG_PY = REPO_ROOT / "src" / "brainchild" / "config.py"
 
 
 # ---------------------------------------------------------------------------
@@ -50,7 +50,11 @@ def load_config(yaml_text: str, bot: str = "testbot", env: dict | None = None,
         for extra in (extra_bots or []):
             (tmp / "agents" / extra).mkdir(parents=True)
             (tmp / "agents" / extra / "config.yaml").write_text("agent: {name: x}\nllm: {provider: openai, model: m}")
-        shutil.copy(REAL_CONFIG_PY, tmp / "config.py")
+        # config.py computes _ROOT as parents[2], so place it at tmp/src/brainchild/config.py
+        # to match the real src-layout and keep `_ROOT / "agents"` resolving to tmp/agents/.
+        pkg_dir = tmp / "src" / "brainchild"
+        pkg_dir.mkdir(parents=True)
+        shutil.copy(REAL_CONFIG_PY, pkg_dir / "config.py")
 
         full_env = dict(env or {})
         saved = {k: os.environ.get(k) for k in list(full_env.keys()) + ["BRAINCHILD_BOT"]}
@@ -64,7 +68,7 @@ def load_config(yaml_text: str, bot: str = "testbot", env: dict | None = None,
                     os.environ[k] = v
 
             spec = importlib.util.spec_from_file_location(f"config_test_{id(tmp)}",
-                                                         tmp / "config.py")
+                                                         tmp / "src" / "brainchild" / "config.py")
             module = importlib.util.module_from_spec(spec)
             try:
                 spec.loader.exec_module(module)

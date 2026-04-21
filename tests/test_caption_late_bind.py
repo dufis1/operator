@@ -12,9 +12,9 @@ the late-bind fix changes — the JS observer hasn't moved.
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
-from connectors.macos_adapter import MacOSAdapter
+from brainchild.connectors.macos_adapter import MacOSAdapter
 
 
 def _make_adapter():

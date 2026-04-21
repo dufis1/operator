@@ -14,10 +14,10 @@ Usage:
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
-import config
+from brainchild import config
 from playwright.sync_api import sync_playwright
 
 BROWSER_PROFILE = os.path.join(os.path.dirname(__file__), "..", config.BROWSER_PROFILE_DIR)

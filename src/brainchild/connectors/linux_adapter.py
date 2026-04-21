@@ -12,7 +12,7 @@ import threading
 import time
 
 from playwright.sync_api import sync_playwright
-import config
+from brainchild import config
 
 from .base import MeetingConnector
 from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug

@@ -16,14 +16,14 @@ Run:
 import json
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import openai
 
-from pipeline.providers import (
+from brainchild.pipeline.providers import (
     OpenAIProvider,
     ContextOverflowError,
     ProviderResponse,

@@ -53,11 +53,11 @@ from rich.console import Console, Group, RenderableType
 from rich.prompt import Confirm, Prompt
 from rich.text import Text
 
-from pipeline import build_card, face
-from pipeline.picker import Choice, PickerCancelled, select_many, select_one
+from brainchild.pipeline import build_card, face
+from brainchild.pipeline.picker import Choice, PickerCancelled, select_many, select_one
 
 
-_ROOT = Path(__file__).resolve().parents[1]
+_ROOT = Path(__file__).resolve().parents[3]
 _AGENTS_DIR = _ROOT / "agents"
 _ENV_FILE = _ROOT / ".env"
 _PM_CONFIG = _AGENTS_DIR / "pm" / "config.yaml"

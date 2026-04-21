@@ -14,24 +14,24 @@ Run:
 import sys
 import os
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from unittest.mock import MagicMock
 
 
 def make_llm():
-    from pipeline.llm import LLMClient
+    from brainchild.pipeline.llm import LLMClient
     provider = MagicMock()
     return LLMClient(provider)
 
 
 def make_text_message(text):
-    from pipeline.providers import ProviderResponse
+    from brainchild.pipeline.providers import ProviderResponse
     return ProviderResponse(text=text, tool_calls=[], stop_reason="end")
 
 
 def make_tool_call_message(tool_id, name):
-    from pipeline.providers import ProviderResponse, ToolCall
+    from brainchild.pipeline.providers import ProviderResponse, ToolCall
     return ProviderResponse(
         text=None,
         tool_calls=[ToolCall(id=tool_id, name=name, args={})],
@@ -41,7 +41,7 @@ def make_tool_call_message(tool_id, name):
 
 def test_single_tool_call_clears_scratch():
     """After send_tool_result returns a text summary, _scratch is empty."""
-    from pipeline.providers import ToolCall
+    from brainchild.pipeline.providers import ToolCall
     llm = make_llm()
     llm._scratch = [
         {"role": "assistant", "content": None, "tool_calls": [
@@ -59,7 +59,7 @@ def test_single_tool_call_clears_scratch():
 
 def test_chained_tool_calls_accumulate_then_clear():
     """Mid-chain send_tool_result keeps scratch; final text clears it."""
-    from pipeline.providers import ToolCall
+    from brainchild.pipeline.providers import ToolCall
     llm = make_llm()
     llm._scratch = [
         {"role": "assistant", "content": None, "tool_calls": [
@@ -83,7 +83,7 @@ def test_chained_tool_calls_accumulate_then_clear():
 
 def test_new_ask_clears_stale_scratch():
     """Starting a new user turn drops any leftover tool-loop scratch."""
-    from pipeline.providers import ToolCall
+    from brainchild.pipeline.providers import ToolCall
     llm = make_llm()
     llm._scratch = [
         {"role": "assistant", "content": None, "tool_calls": [

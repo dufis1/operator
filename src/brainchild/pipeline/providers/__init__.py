@@ -1,11 +1,11 @@
-from pipeline.providers.base import (
+from brainchild.pipeline.providers.base import (
     LLMProvider,
     ContextOverflowError,
     ToolCall,
     ProviderResponse,
 )
-from pipeline.providers.openai import OpenAIProvider
-from pipeline.providers.anthropic import AnthropicProvider
+from brainchild.pipeline.providers.openai import OpenAIProvider
+from brainchild.pipeline.providers.anthropic import AnthropicProvider
 
 
 def build_provider():
@@ -14,7 +14,7 @@ def build_provider():
     Called by the app-level entry points (__main__, runner, docker entrypoint)
     so the choice of backend lives in one place.
     """
-    import config
+    from brainchild import config
     name = config.LLM_PROVIDER
     if name == "openai":
         from openai import OpenAI

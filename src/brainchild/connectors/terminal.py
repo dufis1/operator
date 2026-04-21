@@ -16,7 +16,7 @@ import signal
 import sys
 import threading
 
-from connectors.base import MeetingConnector
+from brainchild.connectors.base import MeetingConnector
 
 
 class TerminalConnector(MeetingConnector):

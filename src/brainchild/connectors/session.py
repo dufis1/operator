@@ -11,7 +11,7 @@ import threading
 
 log = logging.getLogger(__name__)
 
-_BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 class JoinStatus:

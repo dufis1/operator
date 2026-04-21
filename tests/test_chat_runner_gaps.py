@@ -19,13 +19,13 @@ os.environ.setdefault("BRAINCHILD_BOT", "pm")
 import sys
 import threading
 import time
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from unittest.mock import MagicMock
 
-import config
-from pipeline.chat_runner import ChatRunner, LOAD_SKILL_TOOL
-from pipeline.skills import Skill
+from brainchild import config
+from brainchild.pipeline.chat_runner import ChatRunner, LOAD_SKILL_TOOL
+from brainchild.pipeline.skills import Skill
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ def test_group_mode_requires_trigger():
 def test_auto_leave_after_grace():
     """Once peers seen and now alone for ALONE_EXIT_GRACE_SECONDS → connector.leave()."""
     # Patch to short windows so the test runs sub-second.
-    import pipeline.chat_runner as cr
+    import brainchild.pipeline.chat_runner as cr
     orig_grace = config.ALONE_EXIT_GRACE_SECONDS
     orig_interval = cr.PARTICIPANT_CHECK_INTERVAL
     orig_poll = cr.POLL_INTERVAL
@@ -289,7 +289,7 @@ def test_pending_confirmation_messages_tagged_in_record():
         [],
     ]
 
-    import pipeline.chat_runner as cr
+    import brainchild.pipeline.chat_runner as cr
     orig_poll = cr.POLL_INTERVAL
     cr.POLL_INTERVAL = 0.05
     try:
@@ -431,7 +431,7 @@ def test_intro_on_join_posts_and_drains_buffer():
 
     # Drive one _loop iteration manually by invoking the drain block.
     # Easier: call _loop in a thread and stop it.
-    import pipeline.chat_runner as cr
+    import brainchild.pipeline.chat_runner as cr
     orig_poll = cr.POLL_INTERVAL
     cr.POLL_INTERVAL = 0.05
     try:
@@ -460,7 +460,7 @@ def test_intro_failure_skips_post_but_still_drains():
     dispatched = []
     runner._dispatch_user_message = lambda t, o: dispatched.append((t, o))
 
-    import pipeline.chat_runner as cr
+    import brainchild.pipeline.chat_runner as cr
     orig_poll = cr.POLL_INTERVAL
     cr.POLL_INTERVAL = 0.05
     try:

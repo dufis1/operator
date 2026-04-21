@@ -5,7 +5,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
-_ROOT = Path(__file__).parent
+# Repo root — three levels up from src/brainchild/config.py. Commit 2 switches this to ~/.brainchild/agents/.
+_ROOT = Path(__file__).resolve().parents[2]
 
 BOT_NAME = os.environ.get("BRAINCHILD_BOT", "").strip()
 if not BOT_NAME:

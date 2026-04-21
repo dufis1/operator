@@ -16,7 +16,7 @@ import sys
 import webbrowser
 from pathlib import Path
 
-_ROOT = Path(__file__).parent
+_ROOT = Path(__file__).resolve().parents[2]
 _AGENTS_DIR = _ROOT / "agents"
 
 
@@ -100,8 +100,8 @@ def _check_mcp() -> int:
     import logging
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
-    import config
-    from pipeline.mcp_client import MCPClient
+    from brainchild import config
+    from brainchild.pipeline.mcp_client import MCPClient
 
     if not config.MCP_SERVERS:
         print("No mcp_servers configured in config.yaml.")
@@ -147,9 +147,9 @@ def _print_startup_banner(skills, plain=False):
     Also triggers the first-run portrait hook: any bot without a committed
     portrait.txt gets one minted from the deterministic glyph generator.
     """
-    import config
+    from brainchild import config
     import sys as _sys
-    from pipeline import face
+    from brainchild.pipeline import face
 
     bot_name = os.environ.get("BRAINCHILD_BOT", "")
     portrait_path = _AGENTS_DIR / bot_name / "portrait.txt"
@@ -258,7 +258,7 @@ def _run_list():
 
 
 def _run_setup(rest):
-    from pipeline.setup import run as _wizard_run
+    from brainchild.pipeline.setup import run as _wizard_run
     return _wizard_run(rest)
 
 
@@ -306,7 +306,7 @@ def _run_try(name):
         _print_usage()
         return 2
 
-    # Must land before any `import config`.
+    # Must land before any `from brainchild import config`.
     os.environ["BRAINCHILD_BOT"] = name
 
     import logging
@@ -326,14 +326,14 @@ def _run_try(name):
 
     log = logging.getLogger("brainchild")
 
-    import config
-    from connectors.terminal import TerminalConnector
-    from pipeline import ui
-    from pipeline.chat_runner import ChatRunner
-    from pipeline.llm import LLMClient
-    from pipeline.meeting_record import MeetingRecord
-    from pipeline.providers import build_provider
-    from pipeline.skills import load_skills
+    from brainchild import config
+    from brainchild.connectors.terminal import TerminalConnector
+    from brainchild.pipeline import ui
+    from brainchild.pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.llm import LLMClient
+    from brainchild.pipeline.meeting_record import MeetingRecord
+    from brainchild.pipeline.providers import build_provider
+    from brainchild.pipeline.skills import load_skills
 
     skills = load_skills(config.SKILLS_PATHS)
     _print_startup_banner(skills, plain=False)
@@ -343,7 +343,7 @@ def _run_try(name):
 
     mcp = None
     if config.MCP_SERVERS:
-        from pipeline.mcp_client import MCPClient
+        from brainchild.pipeline.mcp_client import MCPClient
         mcp = MCPClient()
         try:
             mcp.connect_all()
@@ -423,7 +423,7 @@ def _run_bot(name, rest):
             print(f"Unexpected argument: {arg}")
             return 2
 
-    # MUST be set before any `import config` fires in the pipeline modules.
+    # MUST be set before any `from brainchild import config` fires in the pipeline modules.
     os.environ["BRAINCHILD_BOT"] = name
 
     if check_mcp:
@@ -457,19 +457,19 @@ def _run_macos(meeting_url=None, force=False, plain=False):
 
     log = logging.getLogger("brainchild")
 
-    import config
-    from connectors.macos_adapter import MacOSAdapter
-    from pipeline import ui
-    from pipeline.chat_runner import ChatRunner
-    from pipeline.llm import LLMClient
-    from pipeline.providers import build_provider
+    from brainchild import config
+    from brainchild.connectors.macos_adapter import MacOSAdapter
+    from brainchild.pipeline import ui
+    from brainchild.pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.llm import LLMClient
+    from brainchild.pipeline.providers import build_provider
 
     t_start = _time.monotonic()
 
     # Skills load up-front so inject_skills lands before MCP hints/status in
     # the system prompt, and so the banner can show skill count before MCP
     # connects. Banner prints immediately after, as the boot splash.
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
     _print_startup_banner(skills, plain=plain)
     ui.say("Launching Chrome…")
@@ -485,8 +485,8 @@ def _run_macos(meeting_url=None, force=False, plain=False):
     def _wire_meeting_record(url):
         if not config.CAPTIONS_ENABLED:
             return None, None
-        from pipeline.meeting_record import MeetingRecord, slug_from_url
-        from pipeline.transcript import TranscriptFinalizer
+        from brainchild.pipeline.meeting_record import MeetingRecord, slug_from_url
+        from brainchild.pipeline.transcript import TranscriptFinalizer
         slug = slug_from_url(url)
         record = MeetingRecord(slug=slug, meta={"meet_url": url})
         llm.set_record(record)
@@ -504,7 +504,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
     _mcp_result = {"client": None}
     def _connect_mcp():
         t_mcp = _time.monotonic()
-        from pipeline.mcp_client import MCPClient
+        from brainchild.pipeline.mcp_client import MCPClient
         client = MCPClient()
         try:
             tool_names = client.connect_all()
@@ -636,14 +636,14 @@ def _run_linux(meeting_url, force=False, plain=False):
         sys.exit(1)
     log.info(f"DISPLAY={display}")
 
-    from connectors.linux_adapter import LinuxAdapter
-    from pipeline import ui
-    from pipeline.chat_runner import ChatRunner
-    from pipeline.llm import LLMClient
-    from pipeline.providers import build_provider
-    import config
+    from brainchild.connectors.linux_adapter import LinuxAdapter
+    from brainchild.pipeline import ui
+    from brainchild.pipeline.chat_runner import ChatRunner
+    from brainchild.pipeline.llm import LLMClient
+    from brainchild.pipeline.providers import build_provider
+    from brainchild import config
 
-    from pipeline.skills import load_skills
+    from brainchild.pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
     _print_startup_banner(skills, plain=plain)
     ui.say("Launching Chromium…")
@@ -655,7 +655,7 @@ def _run_linux(meeting_url, force=False, plain=False):
 
     mcp = None
     if config.MCP_SERVERS:
-        from pipeline.mcp_client import MCPClient
+        from brainchild.pipeline.mcp_client import MCPClient
         mcp = MCPClient()
         try:
             tool_names = mcp.connect_all()

@@ -16,8 +16,8 @@ import threading
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-import config
-from pipeline.guardrails import is_text_file_path, log_rejection
+from brainchild import config
+from brainchild.pipeline.guardrails import is_text_file_path, log_rejection
 
 log = logging.getLogger(__name__)
 
