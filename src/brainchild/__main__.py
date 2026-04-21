@@ -17,31 +17,31 @@ import webbrowser
 from pathlib import Path
 
 _AGENTS_DIR = Path.home() / ".brainchild" / "agents"
-_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "agents"
+_BUNDLED_AGENTS_DIR = Path(__file__).resolve().parent / "agents"
 
 
 def _ensure_user_agents():
-    """First-run hook: seed ~/.brainchild/agents/ from bundled templates.
+    """First-run hook: seed ~/.brainchild/agents/ from the bundled agents.
 
     Runs from main() before any CLI dispatch. If the user agents dir is
-    missing or has no bot with a config.yaml, copies every bundled template
+    missing or has no bot with a config.yaml, copies every bundled bot
     (pm, engineer, designer) in one shot — single pick framing was a reach,
     so it's all-three-every-time. No-op once the user has at least one bot.
     """
     import shutil
-    if not _TEMPLATES_DIR.exists():
+    if not _BUNDLED_AGENTS_DIR.exists():
         return
     if _AGENTS_DIR.exists():
         for p in _AGENTS_DIR.iterdir():
             if p.is_dir() and (p / "config.yaml").is_file():
                 return
     _AGENTS_DIR.mkdir(parents=True, exist_ok=True)
-    for template in _TEMPLATES_DIR.iterdir():
-        if not template.is_dir():
+    for bundled in _BUNDLED_AGENTS_DIR.iterdir():
+        if not bundled.is_dir():
             continue
-        dest = _AGENTS_DIR / template.name
+        dest = _AGENTS_DIR / bundled.name
         if not dest.exists():
-            shutil.copytree(template, dest)
+            shutil.copytree(bundled, dest)
 
 
 # ── Prevent Ctrl+C from killing child processes ────────────────────
