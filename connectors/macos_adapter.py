@@ -1,5 +1,5 @@
 """
-macOS connector for Operator.
+macOS connector for Brainchild.
 
 Wraps Playwright/Chrome meeting join into the MeetingConnector interface.
 """
@@ -31,7 +31,7 @@ def _is_real_meet_room(url: str) -> bool:
 
 from .base import MeetingConnector
 from .captions_js import CAPTION_OBSERVER_JS, enable_captions, filter_caption
-from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live, _chrome_kill_and_clear, _write_operator_pid
+from .session import JoinStatus, detect_page_state, validate_auth_state, inject_cookies, save_debug, _chrome_lock_is_live, _chrome_kill_and_clear, _write_brainchild_pid
 
 log = logging.getLogger(__name__)
 
@@ -204,26 +204,26 @@ class MacOSAdapter(MeetingConnector):
         """Inject a MutationObserver that queues new chat messages in JS.
 
         The observer watches for new div[data-message-id] elements and
-        stores them in window.__operatorChatQueue. _do_read_chat drains
+        stores them in window.__brainchildChatQueue. _do_read_chat drains
         this queue instead of scanning the full DOM each time.
         """
         if self._observer_installed:
             return
         try:
             page.evaluate("""() => {
-                if (window.__operatorChatObserver) return;
-                window.__operatorChatQueue = [];
-                window.__operatorSeenIds = new Set();
+                if (window.__brainchildChatObserver) return;
+                window.__brainchildChatQueue = [];
+                window.__brainchildSeenIds = new Set();
 
                 // Seed seen IDs with all existing messages so we don't re-process history
                 document.querySelectorAll('div[data-message-id]').forEach(el => {
-                    window.__operatorSeenIds.add(el.getAttribute('data-message-id'));
+                    window.__brainchildSeenIds.add(el.getAttribute('data-message-id'));
                 });
 
                 function extractMessage(el) {
                     const msgId = el.getAttribute('data-message-id');
-                    if (!msgId || window.__operatorSeenIds.has(msgId)) return null;
-                    window.__operatorSeenIds.add(msgId);
+                    if (!msgId || window.__brainchildSeenIds.has(msgId)) return null;
+                    window.__brainchildSeenIds.add(msgId);
                     // Extract text — prefer first div[jsname] inside message (any jsname value),
                     // fall back to first child's first text node, then raw innerText.
                     const jsnameEl = el.querySelector('div[jsname]');
@@ -262,32 +262,32 @@ class MacOSAdapter(MeetingConnector):
                 const container = textarea ? textarea.closest('[data-panel-id]') : null;
                 if (!container) return;
 
-                window.__operatorChatObserver = new MutationObserver(mutations => {
+                window.__brainchildChatObserver = new MutationObserver(mutations => {
                     for (const mut of mutations) {
                         for (const node of mut.addedNodes) {
                             if (node.nodeType !== 1) continue;
                             // Check if the added node itself is a message
                             if (node.matches && node.matches('div[data-message-id]')) {
                                 const msg = extractMessage(node);
-                                if (msg) window.__operatorChatQueue.push(msg);
+                                if (msg) window.__brainchildChatQueue.push(msg);
                             }
                             // Check descendants
                             if (node.querySelectorAll) {
                                 node.querySelectorAll('div[data-message-id]').forEach(el => {
                                     const msg = extractMessage(el);
-                                    if (msg) window.__operatorChatQueue.push(msg);
+                                    if (msg) window.__brainchildChatQueue.push(msg);
                                 });
                             }
                         }
                     }
                 });
-                window.__operatorChatObserver.observe(container, {childList: true, subtree: true});
+                window.__brainchildChatObserver.observe(container, {childList: true, subtree: true});
             }""")
             # Verify the observer actually attached. The JS function returns
             # early (no-op) if the textarea or its panel container isn't in
             # the DOM yet — page.evaluate() won't throw, so we check the
             # result explicitly and only mark installed on confirmed success.
-            attached = page.evaluate("() => !!window.__operatorChatObserver")
+            attached = page.evaluate("() => !!window.__brainchildChatObserver")
             if attached:
                 self._observer_installed = True
                 log.info("MacOSAdapter: chat MutationObserver installed")
@@ -303,8 +303,8 @@ class MacOSAdapter(MeetingConnector):
 
         try:
             messages = page.evaluate("""() => {
-                const q = window.__operatorChatQueue || [];
-                window.__operatorChatQueue = [];
+                const q = window.__brainchildChatQueue || [];
+                window.__brainchildChatQueue = [];
                 return q;
             }""")
             if messages:
@@ -484,7 +484,7 @@ class MacOSAdapter(MeetingConnector):
                     _chrome_kill_and_clear(singleton_lock)
                 else:
                     log.error(
-                        "MacOSAdapter: another Operator session is already running — "
+                        "MacOSAdapter: another Brainchild session is already running — "
                         "stop that session before starting a new one"
                     )
                     self.join_status.signal_failure("already_running")
@@ -493,7 +493,7 @@ class MacOSAdapter(MeetingConnector):
                 os.remove(singleton_lock)
                 log.info("MacOSAdapter: removed stale SingletonLock")
 
-        _write_operator_pid(singleton_lock)
+        _write_brainchild_pid(singleton_lock)
         js = self.join_status
         browser = None
         t_start = time.monotonic()
@@ -846,7 +846,7 @@ class MacOSAdapter(MeetingConnector):
                                         log.warning(
                                             f"MacOSAdapter: network lost for {NETWORK_GRACE_SECONDS}s — exiting"
                                         )
-                                        print("\n⚠️  Operator: network connection lost — exiting.")
+                                        print("\n⚠️  Brainchild: network connection lost — exiting.")
                                         break
                                 else:
                                     if network_lost_at is not None:
@@ -861,14 +861,14 @@ class MacOSAdapter(MeetingConnector):
                             try:
                                 if page.is_closed():
                                     log.warning("MacOSAdapter: health check — page closed unexpectedly, exiting")
-                                    print("\n⚠️  Operator: browser page closed unexpectedly — exiting.")
+                                    print("\n⚠️  Brainchild: browser page closed unexpectedly — exiting.")
                                     break
                                 current_url = page.url
                                 if "meet.google.com" not in current_url:
                                     log.warning(f"MacOSAdapter: health check — unexpected URL: {current_url}")
                             except Exception:
                                 log.warning("MacOSAdapter: health check — page not accessible, exiting")
-                                print("\n⚠️  Operator: browser became inaccessible — exiting.")
+                                print("\n⚠️  Brainchild: browser became inaccessible — exiting.")
                                 break
 
                 finally:
@@ -912,7 +912,7 @@ class MacOSAdapter(MeetingConnector):
             if not js.ready.is_set():
                 js.signal_failure(f"exception: {e}")
         finally:
-            pid_file = os.path.join(BROWSER_PROFILE, ".operator.pid")
+            pid_file = os.path.join(BROWSER_PROFILE, ".brainchild.pid")
             try:
                 os.remove(pid_file)
             except OSError:

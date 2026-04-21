@@ -192,7 +192,7 @@ async def _delegate(arguments: dict):
         ]
 
     # bypassPermissions = Claude Code auto-approves every tool (incl. Bash). Safe
-    # default here because the Operator layer already confirm-gates each delegate
+    # default here because the Brainchild layer already confirm-gates each delegate
     # call, and --worktree isolates file changes. acceptEdits blocks Bash.
     permission_mode = os.environ.get("DELEGATE_PERMISSION_MODE", "bypassPermissions")
 

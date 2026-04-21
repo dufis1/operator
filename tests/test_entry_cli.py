@@ -15,7 +15,7 @@ Covers `__main__.py`:
     - unknown bot/subcommand → returns 2
     - known bot → _run_bot(name, rest)
   _run_bot arg parsing
-    - url + flags (--force, --check-mcp, --plain) parsed; sets OPERATOR_BOT
+    - url + flags (--force, --check-mcp, --plain) parsed; sets BRAINCHILD_BOT
     - --check-mcp path delegates to _check_mcp and returns its code
   _run_try validation
     - unknown bot → returns 2 before any heavy imports
@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # script (the `if __name__ == "__main__"` guard is skipped).
 import importlib.util
 _SPEC = importlib.util.spec_from_file_location(
-    "operator_entry",
+    "brainchild_entry",
     Path(__file__).resolve().parent.parent / "__main__.py",
 )
 entry = importlib.util.module_from_spec(_SPEC)
@@ -86,7 +86,7 @@ def tmp_agents_dir(bots):
 @contextmanager
 def patched_argv(argv_after_prog):
     saved = sys.argv
-    sys.argv = ["operator"] + list(argv_after_prog)
+    sys.argv = ["brainchild"] + list(argv_after_prog)
     try:
         yield
     finally:
@@ -276,24 +276,24 @@ def test_main_known_bot_dispatches_to_run_bot():
 # ---------------------------------------------------------------------------
 
 def test_run_bot_parses_url_and_flags_and_sets_env():
-    """_run_bot parses flags + url; sets OPERATOR_BOT before dispatching."""
+    """_run_bot parses flags + url; sets BRAINCHILD_BOT before dispatching."""
     captured = {}
     def fake_macos(meeting_url=None, force=False, plain=False):
         captured["platform"] = "macos"
         captured["url"] = meeting_url
         captured["force"] = force
         captured["plain"] = plain
-        captured["env"] = os.environ.get("OPERATOR_BOT")
+        captured["env"] = os.environ.get("BRAINCHILD_BOT")
     def fake_linux(meeting_url, force=False, plain=False):
         captured["platform"] = "linux"
         captured["url"] = meeting_url
         captured["force"] = force
         captured["plain"] = plain
-        captured["env"] = os.environ.get("OPERATOR_BOT")
+        captured["env"] = os.environ.get("BRAINCHILD_BOT")
 
-    saved_env = os.environ.get("OPERATOR_BOT")
+    saved_env = os.environ.get("BRAINCHILD_BOT")
     try:
-        os.environ.pop("OPERATOR_BOT", None)
+        os.environ.pop("BRAINCHILD_BOT", None)
         with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
             with patched_dispatch(_run_macos=fake_macos, _run_linux=fake_linux):
                 rc = entry._run_bot(
@@ -307,9 +307,9 @@ def test_run_bot_parses_url_and_flags_and_sets_env():
         assert captured["env"] == "pm"
     finally:
         if saved_env is None:
-            os.environ.pop("OPERATOR_BOT", None)
+            os.environ.pop("BRAINCHILD_BOT", None)
         else:
-            os.environ["OPERATOR_BOT"] = saved_env
+            os.environ["BRAINCHILD_BOT"] = saved_env
     print("PASS  test_run_bot_parses_url_and_flags_and_sets_env")
 
 
@@ -317,7 +317,7 @@ def test_run_bot_check_mcp_delegates_and_returns_its_code():
     """--check-mcp must call _check_mcp and return its code — not reach platform runner."""
     spy = MagicMock(return_value=7)
     platform_spy = MagicMock()
-    saved_env = os.environ.get("OPERATOR_BOT")
+    saved_env = os.environ.get("BRAINCHILD_BOT")
     try:
         with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
             with patched_dispatch(
@@ -327,17 +327,17 @@ def test_run_bot_check_mcp_delegates_and_returns_its_code():
         assert rc == 7
         assert spy.call_count == 1
         assert platform_spy.call_count == 0
-        assert os.environ.get("OPERATOR_BOT") == "pm"
+        assert os.environ.get("BRAINCHILD_BOT") == "pm"
     finally:
         if saved_env is None:
-            os.environ.pop("OPERATOR_BOT", None)
+            os.environ.pop("BRAINCHILD_BOT", None)
         else:
-            os.environ["OPERATOR_BOT"] = saved_env
+            os.environ["BRAINCHILD_BOT"] = saved_env
     print("PASS  test_run_bot_check_mcp_delegates_and_returns_its_code")
 
 
 def test_run_bot_unknown_flag_returns_2():
-    saved_env = os.environ.get("OPERATOR_BOT")
+    saved_env = os.environ.get("BRAINCHILD_BOT")
     try:
         with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
             buf = io.StringIO()
@@ -347,9 +347,9 @@ def test_run_bot_unknown_flag_returns_2():
         assert "Unknown flag" in buf.getvalue()
     finally:
         if saved_env is None:
-            os.environ.pop("OPERATOR_BOT", None)
+            os.environ.pop("BRAINCHILD_BOT", None)
         else:
-            os.environ["OPERATOR_BOT"] = saved_env
+            os.environ["BRAINCHILD_BOT"] = saved_env
     print("PASS  test_run_bot_unknown_flag_returns_2")
 
 

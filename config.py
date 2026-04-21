@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 load_dotenv()
 _ROOT = Path(__file__).parent
 
-BOT_NAME = os.environ.get("OPERATOR_BOT", "").strip()
+BOT_NAME = os.environ.get("BRAINCHILD_BOT", "").strip()
 if not BOT_NAME:
     sys.stderr.write(
-        "ERROR: OPERATOR_BOT env var is not set.\n"
-        "Run via the CLI: `operator <name> [url]`.\n"
+        "ERROR: BRAINCHILD_BOT env var is not set.\n"
+        "Run via the CLI: `brainchild <name> [url]`.\n"
     )
     raise SystemExit(2)
 
@@ -34,7 +34,7 @@ _config = yaml.safe_load(_cfg_path.read_text())
 
 # Agent
 AGENT_NAME           = _config["agent"]["name"]
-TRIGGER_PHRASE       = _config["agent"].get("trigger_phrase", "@operator")
+TRIGGER_PHRASE       = _config["agent"].get("trigger_phrase", "@brainchild")
 FIRST_CONTACT_HINT   = _config["agent"].get("first_contact_hint", "")
 AGENT_TAGLINE        = _config["agent"].get("tagline", "")
 INTRO_ON_JOIN        = _config["agent"].get("intro_on_join", True)

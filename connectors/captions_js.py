@@ -114,7 +114,7 @@ CAPTION_OBSERVER_JS = """
             attributes: true,
             subtree: true,
         });
-        window.__onCaption("__operator_diag__", "observer_attached label=" + label, performance.now());
+        window.__onCaption("__brainchild_diag__", "observer_attached label=" + label, performance.now());
     };
 
     const region = document.querySelector(REGION_SEL);
@@ -198,7 +198,7 @@ def filter_caption(speaker: str, text: str) -> str | None:
     Drops diagnostic sentinels, empty text, icon ligatures, Meet system banners,
     and single-fragment echoes of the speaker name.
     """
-    if speaker == "__operator_diag__":
+    if speaker == "__brainchild_diag__":
         log.info(f"captions: JS diagnostic — {text}")
         return None
     stripped = (text or "").strip()

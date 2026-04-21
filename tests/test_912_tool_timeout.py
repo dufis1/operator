@@ -15,7 +15,7 @@ Run:
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 import time
 from unittest.mock import MagicMock

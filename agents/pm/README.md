@@ -26,8 +26,8 @@ cp agents/pm/.env.example .env
 # Edit .env with your keys
 
 # 2. Run — direct URL or auto-open meet.new
-operator pm https://meet.google.com/xxx-yyyy-zzz
-operator pm
+brainchild pm https://meet.google.com/xxx-yyyy-zzz
+brainchild pm
 ```
 
 **First run:** Linear MCP opens a browser window for OAuth. Authenticate once;
@@ -36,13 +36,13 @@ terminal for an auth URL to paste.
 
 ## Using it
 
-- **"@operator file a ticket for that"** — PM takes the recent discussion
+- **"@brainchild file a ticket for that"** — PM takes the recent discussion
   and creates a Linear issue. It'll ask for missing pieces (team, priority)
   rather than guessing.
-- **"@operator draft a PRD from this"** — PM emits a structured one-pager
+- **"@brainchild draft a PRD from this"** — PM emits a structured one-pager
   (problem / user / goal / scope / open questions) from the discussion.
   Uses the bundled `prd-from-discussion` skill.
-- **"@operator wrap up"** or **"@operator summarize"** — PM posts a
+- **"@brainchild wrap up"** or **"@brainchild summarize"** — PM posts a
   structured recap: decisions, action items with owners, blockers, tickets
   filed, open questions. Uses the bundled `standup-summary` skill.
 

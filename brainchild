@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Operator — provisional launcher.
+# Brainchild — provisional launcher.
 # Resolves its own symlink so it works when installed on $PATH,
 # then activates the repo venv and dispatches to __main__.py.
 set -e

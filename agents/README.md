@@ -1,7 +1,7 @@
 # Agents
 
-Ready-to-run agent configurations for Operator. Each subfolder is a complete,
-working setup — pick one, point Operator at it, join a meeting.
+Ready-to-run agent configurations for Brainchild. Each subfolder is a complete,
+working setup — pick one, point Brainchild at it, join a meeting.
 
 The `agents/` folder is the "choose your fighter" layer. You can:
 
@@ -9,7 +9,7 @@ The `agents/` folder is the "choose your fighter" layer. You can:
 - **Power it up** — add your own MCP servers, drop extra skill files in, change the model.
 - **Contribute one** — open a PR with a new folder. See [Contributing](#contributing) below.
 
-Operator itself is model-agnostic (OpenAI or Anthropic) and skill-format-neutral
+Brainchild itself is model-agnostic (OpenAI or Anthropic) and skill-format-neutral
 (any markdown file with YAML frontmatter works). Agents in this folder lean on
 the [Claude Code skill format](https://docs.claude.com/claude-code) because it's
 the most widely adopted skill format in the wild — but nothing about an agent
@@ -24,12 +24,12 @@ is Claude-specific. Swap the model in `config.yaml` and the same skills work.
 #    (see the agent's README for which keys it needs)
 
 # 2. (Optional) Test-drive it in terminal before joining a Meet
-operator try engineer                                  # chat in-terminal, no Meet
+brainchild try engineer                                  # chat in-terminal, no Meet
 
 # 3. Run — name the bot you want, optionally pass a Meet URL
-operator engineer https://meet.google.com/xxx-yyyy-zzz
-operator engineer                                      # auto-opens meet.new
-operator list                                          # show all bots
+brainchild engineer https://meet.google.com/xxx-yyyy-zzz
+brainchild engineer                                      # auto-opens meet.new
+brainchild list                                          # show all bots
 ```
 
 Every run names the bot explicitly. Config lives in `agents/<name>/config.yaml`
@@ -46,7 +46,7 @@ Every agent is a self-contained folder:
 ```
 agents/<name>/
   README.md          # What it does, who it's for, setup, 15s demo GIF
-  config.yaml        # Complete Operator config — model, MCP servers, skills path
+  config.yaml        # Complete Brainchild config — model, MCP servers, skills path
   skills/            # Optional. Markdown skill files bundled with this agent.
     <skill>.md
   .env.example       # Optional. Lists required env vars with placeholder values.
@@ -64,7 +64,7 @@ Keep it short. Five sections:
 
 ### `config.yaml`
 
-Must be a complete, runnable Operator config (not a fragment). Every
+Must be a complete, runnable Brainchild config (not a fragment). Every
 `agents/<name>/config.yaml` has the same top-level blocks, in this order:
 `agent`, `llm`, `transcript`, `mcp_servers`, `skills`, `ground_rules`,
 `personality`. That ordering mirrors the setup wizard's four-layer view
@@ -136,10 +136,10 @@ stay comment-free on purpose.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `name` | string | required | Display name shown in chat and in `operator list` (e.g. `PM`). |
-| `trigger_phrase` | string | `@operator` | Substring that marks a message as addressed to the bot in a multi-party meeting. Ignored in 1-on-1s (any message is treated as addressed). |
+| `name` | string | required | Display name shown in chat and in `brainchild list` (e.g. `PM`). |
+| `trigger_phrase` | string | `@brainchild` | Substring that marks a message as addressed to the bot in a multi-party meeting. Ignored in 1-on-1s (any message is treated as addressed). |
 | `first_contact_hint` | string | `""` | Extra line appended to the system prompt the first turn the bot talks to a given person. Supports `{first_name}` substitution. |
-| `tagline` | string | `""` | One-liner shown in `operator list`, the setup wizard picker, and the build card. |
+| `tagline` | string | `""` | One-liner shown in `brainchild list`, the setup wizard picker, and the build card. |
 
 ### `llm:`
 
@@ -183,7 +183,7 @@ re-authoring env/tools/hints.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `enabled` | bool | `true` | Master switch. `false` = skip this server at load time. |
-| `description` | string | `""` | One-line description of what this server does, shown in the `operator setup` wizard's power-ups picker. Wizard-only; runtime ignores it. |
+| `description` | string | `""` | One-line description of what this server does, shown in the `brainchild setup` wizard's power-ups picker. Wizard-only; runtime ignores it. |
 | `command` | string | required | Executable to run (e.g. `npx`, `./github-mcp-server`). |
 | `args` | list of strings | `[]` | Args passed to `command`. |
 | `env` | map | `{}` | Env vars for the server process. `${VAR}` is substituted from your repo-root `.env`; an empty/missing value logs a warning at startup. |
@@ -215,7 +215,7 @@ there if you need to change behavior globally.
 
 ## Contributing an agent
 
-We want this folder to grow. If you've built an Operator setup for a specific
+We want this folder to grow. If you've built an Brainchild setup for a specific
 job — standup bot, incident commander, interview notes, research assistant,
 customer call notes — open a PR.
 

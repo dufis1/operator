@@ -1,9 +1,9 @@
-# Designer — design-review / creative partner agent for Operator
+# Designer — design-review / creative partner agent for Brainchild
 # Secrets (API keys) stay in .env — this file is safe to commit and share.
 
 agent:
   name: "Designer"
-  trigger_phrase: "@operator"
+  trigger_phrase: "@brainchild"
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "opens your Figma and pulls no punches"
   intro_on_join: true
@@ -22,7 +22,7 @@ transcript:
 # MCP servers — all shipped bots declare the same full-union scaffold; they
 # differ only in which servers are `enabled: true` by default. `config.py`
 # skips `enabled: false` blocks at load time, so disabled ones are inert at
-# runtime but ready for the `operator setup` wizard to toggle on. Versions
+# runtime but ready for the `brainchild setup` wizard to toggle on. Versions
 # are pinned so runtime behavior stays stable through launch; bump
 # deliberately when upstream ships a fix or feature you want.
 mcp_servers:
@@ -33,7 +33,7 @@ mcp_servers:
     args: ["agents/engineer/delegate_to_claude_code.py"]
     env:
       # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
-      # file edits auto-run, Bash is blocked. Operator confirm-gates each
+      # file edits auto-run, Bash is blocked. Brainchild confirm-gates each
       # delegate call either way, and --worktree isolates file changes.
       DELEGATE_PERMISSION_MODE: "bypassPermissions"
     read_tools: []     # delegate_to_claude_code is a write — always confirm
@@ -52,7 +52,7 @@ mcp_servers:
     # GLips community server (https://github.com/GLips/Figma-Context-MCP) — Figma PAT,
     # read-only. Chosen as the default after the official server's OAuth dynamic-client
     # registration returned 403 (Figma's MCP catalog gate is hard, not soft).
-    # If Operator is added to Figma's catalog, swap to the official server — see README.
+    # If Brainchild is added to Figma's catalog, swap to the official server — see README.
     command: "npx"
     args: ["-y", "figma-developer-mcp@0.10.1", "--stdio"]
     env:

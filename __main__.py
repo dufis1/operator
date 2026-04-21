@@ -1,14 +1,14 @@
 """
-Operator — AI Meeting Participant
+Brainchild — AI Meeting Participant
 Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
 
 Usage:
-    operator <name> <url>     Run named agent in a specific Meet
-    operator <name>           Auto-open a new Meet, join as that bot
-    operator try <name>       Terminal test-drive (no Meet)
-    operator setup            Create a new agent (wizard)
-    operator list             Show available agents
-    operator                  Print usage + agent list
+    brainchild <name> <url>     Run named agent in a specific Meet
+    brainchild <name>           Auto-open a new Meet, join as that bot
+    brainchild try <name>       Terminal test-drive (no Meet)
+    brainchild setup            Create a new agent (wizard)
+    brainchild list             Show available agents
+    brainchild                  Print usage + agent list
 """
 import os
 import subprocess
@@ -62,7 +62,7 @@ def _kill_orphaned_children():
         return
 
     import logging
-    log = logging.getLogger("operator")
+    log = logging.getLogger("brainchild")
 
     labeled = []
     for cpid in child_pids:
@@ -151,7 +151,7 @@ def _print_startup_banner(skills, plain=False):
     import sys as _sys
     from pipeline import face
 
-    bot_name = os.environ.get("OPERATOR_BOT", "")
+    bot_name = os.environ.get("BRAINCHILD_BOT", "")
     portrait_path = _AGENTS_DIR / bot_name / "portrait.txt"
 
     # First-run hook — contributor-added bot with no portrait gets one minted.
@@ -160,7 +160,7 @@ def _print_startup_banner(skills, plain=False):
     if bot_name and not plain and not portrait_path.exists():
         if face.write_if_missing(bot_name, portrait_path):
             import logging
-            logging.getLogger("operator").info(
+            logging.getLogger("brainchild").info(
                 f"minted fresh portrait: {portrait_path}"
             )
 
@@ -227,11 +227,11 @@ def _bot_tagline(name):
 
 def _print_usage():
     print("Usage:")
-    print("  operator <name> [url]     Run an agent in a Meet")
-    print("  operator <name>           Auto-open a new Meet, join as that bot")
-    print("  operator try <name>       Terminal test-drive (no Meet)")
-    print("  operator setup            Create a new agent (wizard)")
-    print("  operator list             Show available bots")
+    print("  brainchild <name> [url]     Run an agent in a Meet")
+    print("  brainchild <name>           Auto-open a new Meet, join as that bot")
+    print("  brainchild try <name>       Terminal test-drive (no Meet)")
+    print("  brainchild setup            Create a new agent (wizard)")
+    print("  brainchild list             Show available bots")
     print()
     print("Flags:")
     print("  --plain                   ASCII-only banner (screen readers / hostile terminals)")
@@ -277,7 +277,7 @@ def main():
         return _run_list()
     if first == "try":
         if len(argv) < 2:
-            print("Usage: operator try <name>\n")
+            print("Usage: brainchild try <name>\n")
             _print_usage()
             return 2
         return _run_try(argv[1])
@@ -307,24 +307,24 @@ def _run_try(name):
         return 2
 
     # Must land before any `import config`.
-    os.environ["OPERATOR_BOT"] = name
+    os.environ["BRAINCHILD_BOT"] = name
 
     import logging
     import signal
     import time as _time
 
     logging.basicConfig(
-        filename="/tmp/operator.log",
+        filename="/tmp/brainchild.log",
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
-    # Keep stderr clean — terminal UX is the chat itself. Logs stay in /tmp/operator.log.
+    # Keep stderr clean — terminal UX is the chat itself. Logs stay in /tmp/brainchild.log.
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
 
-    log = logging.getLogger("operator")
+    log = logging.getLogger("brainchild")
 
     import config
     from connectors.terminal import TerminalConnector
@@ -424,7 +424,7 @@ def _run_bot(name, rest):
             return 2
 
     # MUST be set before any `import config` fires in the pipeline modules.
-    os.environ["OPERATOR_BOT"] = name
+    os.environ["BRAINCHILD_BOT"] = name
 
     if check_mcp:
         return _check_mcp()
@@ -444,18 +444,18 @@ def _run_macos(meeting_url=None, force=False, plain=False):
     import time as _time
 
     logging.basicConfig(
-        filename="/tmp/operator.log",
+        filename="/tmp/brainchild.log",
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
     # Stderr stays reserved for the user-facing narrative (pipeline.ui).
-    # Detailed diagnostics live in /tmp/operator.log only.
+    # Detailed diagnostics live in /tmp/brainchild.log only.
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
 
-    log = logging.getLogger("operator")
+    log = logging.getLogger("brainchild")
 
     import config
     from connectors.macos_adapter import MacOSAdapter
@@ -569,7 +569,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
         if _shutdown_called:
             return
         _shutdown_called = True
-        reason_file = os.path.join(config.BROWSER_PROFILE_DIR, ".operator.kill_reason")
+        reason_file = os.path.join(config.BROWSER_PROFILE_DIR, ".brainchild.kill_reason")
         try:
             with open(reason_file) as _f:
                 reason = _f.read().strip()
@@ -591,10 +591,10 @@ def _run_macos(meeting_url=None, force=False, plain=False):
     signal.signal(signal.SIGINT, _shutdown)
 
     try:
-        log.info(f"Starting Operator — joining {meeting_url}")
+        log.info(f"Starting Brainchild — joining {meeting_url}")
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            ui.say(f"Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}")
+            ui.say(f"Restart with: brainchild {os.environ.get('BRAINCHILD_BOT', '<name>')} {meeting_url}")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
@@ -608,7 +608,7 @@ def _run_linux(meeting_url, force=False, plain=False):
     import signal
 
     logging.basicConfig(
-        filename="/tmp/operator.log",
+        filename="/tmp/brainchild.log",
         level=logging.DEBUG,
         format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     )
@@ -616,15 +616,15 @@ def _run_linux(meeting_url, force=False, plain=False):
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
-    log = logging.getLogger("operator")
+    log = logging.getLogger("brainchild")
 
     if not meeting_url:
         meeting_url = os.environ.get("MEETING_URL")
     if not meeting_url:
-        bot = os.environ.get("OPERATOR_BOT", "<name>")
+        bot = os.environ.get("BRAINCHILD_BOT", "<name>")
         print("A meeting URL is required on Linux:", file=sys.stderr)
-        print(f"   operator {bot} <meet-url>", file=sys.stderr)
-        print(f"   MEETING_URL=<url> operator {bot}", file=sys.stderr)
+        print(f"   brainchild {bot} <meet-url>", file=sys.stderr)
+        print(f"   MEETING_URL=<url> brainchild {bot}", file=sys.stderr)
         sys.exit(1)
 
     display = os.environ.get("DISPLAY")
@@ -648,7 +648,7 @@ def _run_linux(meeting_url, force=False, plain=False):
     _print_startup_banner(skills, plain=plain)
     ui.say("Launching Chromium…")
 
-    log.info(f"Starting Operator (Linux) — joining {meeting_url}")
+    log.info(f"Starting Brainchild (Linux) — joining {meeting_url}")
     connector = LinuxAdapter()
     llm = LLMClient(build_provider())
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
@@ -700,7 +700,7 @@ def _run_linux(meeting_url, force=False, plain=False):
     try:
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            ui.say(f"Restart with: operator {os.environ.get('OPERATOR_BOT', '<name>')} {meeting_url}")
+            ui.say(f"Restart with: brainchild {os.environ.get('BRAINCHILD_BOT', '<name>')} {meeting_url}")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:

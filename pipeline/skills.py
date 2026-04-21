@@ -1,5 +1,5 @@
 """
-Skill loader — reads Claude Code-style SKILL.md folders for Operator.
+Skill loader — reads Claude Code-style SKILL.md folders for Brainchild.
 
 Each skill lives in a folder with a `SKILL.md` file whose YAML frontmatter
 declares `name` and `description` (and optionally `allowed-tools`). The

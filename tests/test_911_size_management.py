@@ -12,7 +12,7 @@ Run:
 """
 import sys
 import os
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import json
@@ -79,7 +79,7 @@ def test_tool_result_size_guard():
 def test_ask_context_overflow():
     llm = make_llm()
     llm._record.append("Alice", "old message")
-    llm._record.append("Operator", "old reply")
+    llm._record.append("Brainchild", "old reply")
     before = llm._max_messages
 
     from pipeline.providers import ContextOverflowError

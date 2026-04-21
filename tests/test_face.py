@@ -8,9 +8,9 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-# face module doesn't import config, but set OPERATOR_BOT so any accidental
+# face module doesn't import config, but set BRAINCHILD_BOT so any accidental
 # transitive import doesn't fail the suite on agent discovery.
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 from pipeline import face
 

@@ -26,12 +26,12 @@ def _summarize_tool_args(arguments: dict) -> str:
     """Return a log-safe summary of tool arguments.
 
     Default: keys + value types + string lengths only, no values.
-    Full values are dumped only when OPERATOR_LOG_TOOL_ARGS=1 is set
+    Full values are dumped only when BRAINCHILD_LOG_TOOL_ARGS=1 is set
     (opt-in escape hatch for debugging). Tool arguments often contain
     repo paths, PR titles, issue bodies, or pasted snippets — treat
     them as potentially sensitive.
     """
-    if os.environ.get("OPERATOR_LOG_TOOL_ARGS") == "1":
+    if os.environ.get("BRAINCHILD_LOG_TOOL_ARGS") == "1":
         return json.dumps(arguments, default=str)
     parts = []
     for k, v in arguments.items():

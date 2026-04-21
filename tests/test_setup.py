@@ -1,4 +1,4 @@
-"""Tests for `operator setup` wizard (pipeline/setup.py).
+"""Tests for `brainchild setup` wizard (pipeline/setup.py).
 
 Covers the individual helpers rather than end-to-end prompting — the rich
 prompts are easy to wire interactively but noisy to mock at scale, and the
@@ -16,9 +16,9 @@ import tempfile
 from pathlib import Path
 
 # pipeline.setup does not import config.py, but some sibling imports might
-# — set a safe default so tests never fail on missing OPERATOR_BOT.
+# — set a safe default so tests never fail on missing BRAINCHILD_BOT.
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 from pipeline import setup as wizard  # noqa: E402
 
@@ -142,7 +142,7 @@ def test_skill_copy_parent_walk():
 def _make_state(name: str, mode: str = "edit", **overrides) -> "wizard.WizardState":
     """Build a minimally-valid WizardState for write/reveal tests."""
     bot_cfg = overrides.pop("bot_cfg", None) or {
-        "agent": {"name": name.capitalize(), "trigger_phrase": "@operator"},
+        "agent": {"name": name.capitalize(), "trigger_phrase": "@brainchild"},
         "llm": {"provider": "anthropic", "model": "x"},
         "mcp_servers": {},
     }
@@ -238,7 +238,7 @@ def test_from_scratch_write_creates_bundle():
         wizard._AGENTS_DIR = sandbox
         try:
             bot_cfg = {
-                "agent": {"name": "Fresh", "trigger_phrase": "@operator", "tagline": "t"},
+                "agent": {"name": "Fresh", "trigger_phrase": "@brainchild", "tagline": "t"},
                 "llm": {"provider": "anthropic", "model": "x"},
                 "mcp_servers": {"notion": {"enabled": True, "command": "npx", "args": []}},
             }

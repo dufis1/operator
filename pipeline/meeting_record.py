@@ -1,10 +1,10 @@
 """
 MeetingRecord — per-meeting JSONL chat log that doubles as LLM history.
 
-File path: ~/.operator/history/<meet_slug>.jsonl
+File path: ~/.brainchild/history/<meet_slug>.jsonl
 One JSON object per line: {"timestamp": float, "sender": str, "text": str, "kind": "chat"}.
 
-Append-only. Local-only. Users can delete ~/.operator/history/ freely.
+Append-only. Local-only. Users can delete ~/.brainchild/history/ freely.
 """
 import json
 import logging
@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 log = logging.getLogger(__name__)
 
-DEFAULT_ROOT = Path.home() / ".operator" / "history"
+DEFAULT_ROOT = Path.home() / ".brainchild" / "history"
 
 
 def slug_from_url(url: str) -> str:

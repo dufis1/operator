@@ -1,5 +1,5 @@
 """The 'Your build' card — persistent right-pane preview during the
-``operator setup`` wizard's picker steps and the final reveal artifact.
+``brainchild setup`` wizard's picker steps and the final reveal artifact.
 
 All wrapping happens inside ``_compose_body`` so every emitted row is
 already ≤ ``_INNER`` cells with the ``"  "`` left indent preserved

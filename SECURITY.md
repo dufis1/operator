@@ -1,6 +1,6 @@
 # Security
 
-Thanks for taking the time to report a security issue in Operator.
+Thanks for taking the time to report a security issue in Brainchild.
 
 ## Reporting a vulnerability
 
@@ -34,13 +34,13 @@ the fix. No bug bounty — this is a solo open-source project.
 
 In scope:
 
-- Code in this repository (`operator` CLI, connectors, pipeline, agents).
+- Code in this repository (`brainchild` CLI, connectors, pipeline, agents).
 - Default agent configs shipped under `agents/`.
 
 Out of scope:
 
 - Issues in upstream dependencies — report those to the dependency owner.
-  Operator's own pinned versions are tracked via `pip-audit`; see
+  Brainchild's own pinned versions are tracked via `pip-audit`; see
   `docs/security.md`.
 - Google Meet itself, or Meet's chat/participant controls.
 - Third-party MCP servers invoked via user-supplied configs.

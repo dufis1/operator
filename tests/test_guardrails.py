@@ -11,7 +11,7 @@ Run:
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 from unittest.mock import MagicMock
 from pipeline.guardrails import is_text_file_path, validate_tool_result

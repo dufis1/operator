@@ -1,9 +1,9 @@
-# Engineer — engineering assistant agent for Operator
+# Engineer — engineering assistant agent for Brainchild
 # Secrets (API keys) stay in .env — this file is safe to commit and share.
 
 agent:
   name: "Engineer"
-  trigger_phrase: "@operator"
+  trigger_phrase: "@brainchild"
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "spins up Claude Code worktrees while you meet"
   intro_on_join: true
@@ -19,7 +19,7 @@ transcript:
 # MCP servers — all shipped bots declare the same full-union scaffold; they
 # differ only in which servers are `enabled: true` by default. `config.py`
 # skips `enabled: false` blocks at load time, so disabled ones are inert at
-# runtime but ready for the `operator setup` wizard to toggle on. Versions
+# runtime but ready for the `brainchild setup` wizard to toggle on. Versions
 # are pinned so runtime behavior stays stable through launch; bump
 # deliberately when upstream ships a fix or feature you want.
 mcp_servers:
@@ -33,7 +33,7 @@ mcp_servers:
     tool_timeout_seconds: 600
     env:
       # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
-      # file edits auto-run, Bash is blocked. Operator confirm-gates each
+      # file edits auto-run, Bash is blocked. Brainchild confirm-gates each
       # delegate call either way, and --worktree isolates file changes.
       DELEGATE_PERMISSION_MODE: "bypassPermissions"
     read_tools: []     # delegate_to_claude_code is a write — always confirm
@@ -52,7 +52,7 @@ mcp_servers:
     # GLips community server (https://github.com/GLips/Figma-Context-MCP) — Figma PAT,
     # read-only. Chosen as the default after the official server's OAuth dynamic-client
     # registration returned 403 (Figma's MCP catalog gate is hard, not soft).
-    # If Operator is added to Figma's catalog, swap to the official server — see README.
+    # If Brainchild is added to Figma's catalog, swap to the official server — see README.
     command: "npx"
     args: ["-y", "figma-developer-mcp@0.10.1", "--stdio"]
     env:
@@ -183,7 +183,7 @@ ground_rules: |
 
   Tool routing: github__* tools are for inspecting REMOTE repositories on
   github.com (that the user explicitly names by owner/repo). Never use them
-  to look at files in the current working directory, the Operator codebase,
+  to look at files in the current working directory, the Brainchild codebase,
   or any local path. For any local file operation — reading, writing,
   verifying, running, counting files, inspecting directories — delegate to
   Claude Code. When in doubt between the two, prefer delegate.

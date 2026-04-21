@@ -1,5 +1,5 @@
 """
-LLM integration for Operator.
+LLM integration for Brainchild.
 
 Wraps a provider-agnostic chat interface with a system prompt. Conversation
 history lives in a MeetingRecord (JSONL file on disk, one line per observed
@@ -87,7 +87,7 @@ class LLMClient:
         self._system_prompt = config.SYSTEM_PROMPT + SAFETY_RULES
         self._max_tokens = config.MAX_TOKENS
         # Session-local set of first names already greeted. Resets on restart
-        # so a fresh Operator process will re-greet participants once.
+        # so a fresh Brainchild process will re-greet participants once.
         self._greeted: set[str] = set()
         # Cached text of the current MCP-status block so inject_mcp_status can
         # be called more than once per session without stacking duplicates.
@@ -161,14 +161,14 @@ class LLMClient:
             parts.append(
                 f"MCP servers that FAILED to load: {names}. "
                 f"If the user asks about tools from a failed server, tell them it failed "
-                f"to load and to check /tmp/operator.log — do not pretend the tool exists."
+                f"to load and to check /tmp/brainchild.log — do not pretend the tool exists."
             )
         if disabled_runtime:
             names = ", ".join(disabled_runtime.keys())
             parts.append(
                 f"MCP servers DISABLED this session after repeated tool-call failures: {names}. "
                 f"Do not attempt these tools. If the user asks, tell them the server was "
-                f"disabled due to repeated failures and to check /tmp/operator.log."
+                f"disabled due to repeated failures and to check /tmp/brainchild.log."
             )
 
         if self._mcp_status_text and self._mcp_status_text in self._system_prompt:

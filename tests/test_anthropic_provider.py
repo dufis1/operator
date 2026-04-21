@@ -59,7 +59,7 @@ def test_system_prompt_passed_separately():
     client.messages.create.return_value = _anthropic_response([_text_block("ok")])
 
     provider.complete(
-        system="You are Operator.",
+        system="You are Brainchild.",
         messages=[{"role": "user", "content": "hi"}],
         model="claude-sonnet-4-5",
         max_tokens=60,
@@ -70,7 +70,7 @@ def test_system_prompt_passed_separately():
     # part of the cached prefix alongside the tool schemas.
     assert kwargs["system"] == [{
         "type": "text",
-        "text": "You are Operator.",
+        "text": "You are Brainchild.",
         "cache_control": {"type": "ephemeral"},
     }]
     assert kwargs["messages"] == [{"role": "user", "content": "hi"}]

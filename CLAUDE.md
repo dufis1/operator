@@ -4,31 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Does
 
-Operator is a chat-based AI meeting participant. It joins Google Meet, opens the chat panel, watches for messages addressed to it (via the `@operator` trigger phrase, or any message in a 1-on-1), queries an LLM with tool access via MCP (Linear, GitHub), and posts the reply back into meeting chat.
+Brainchild is a chat-based AI meeting participant. It joins Google Meet, opens the chat panel, watches for messages addressed to it (via the `@brainchild` trigger phrase, or any message in a 1-on-1), queries an LLM with tool access via MCP (Linear, GitHub), and posts the reply back into meeting chat.
 
 ## Commands
 
 ### Run
 
 ```bash
-operator pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
-operator pm                                        # auto-open meet.new
-operator list                                      # show available agents
-operator                                           # usage + agent list
+brainchild pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
+brainchild pm                                        # auto-open meet.new
+brainchild list                                      # show available agents
+brainchild                                           # usage + agent list
 ```
 
 Replace `pm` with any bot under `agents/` (`engineer`, `designer`, …). Every
 run selects an agent explicitly — there is no ambient root `config.yaml`
-anymore. The `operator` wrapper (symlinked into `~/.local/bin/`) handles venv
+anymore. The `brainchild` wrapper (symlinked into `~/.local/bin/`) handles venv
 activation; you can also call `python __main__.py <name> [url]` directly if
 the venv is already active.
 
 ### Logs & Diagnostics
 
 ```bash
-tail -f /tmp/operator.log
-grep "TIMING" /tmp/operator.log          # latency markers
-grep "LLM\|MCP\|ChatRunner" /tmp/operator.log
+tail -f /tmp/brainchild.log
+grep "TIMING" /tmp/brainchild.log          # latency markers
+grep "LLM\|MCP\|ChatRunner" /tmp/brainchild.log
 ```
 
 ### Tests
@@ -66,7 +66,7 @@ Connectors (platform-specific — implement MeetingConnector)
 Pipeline (platform-agnostic)
   pipeline/chat_runner.py     — polling loop; trigger detection, 1-on-1 mode,
                                  tool-confirmation flow, participant-based auto-leave
-  pipeline/meeting_record.py  — append-only JSONL per meeting at ~/.operator/history/<slug>.jsonl;
+  pipeline/meeting_record.py  — append-only JSONL per meeting at ~/.brainchild/history/<slug>.jsonl;
                                  single source of truth for chat history (meta header + tail(n))
   pipeline/llm.py             — LLMClient: builds prompt from MeetingRecord tail + in-memory
                                  scratchpad (tool calls/results), MCP status/hints injection
@@ -85,7 +85,7 @@ Pipeline (platform-agnostic)
 
 ### Configuration
 
-Every run names an agent explicitly (`operator <name> [url]`). Config loading is driven by the `OPERATOR_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks (top-to-bottom ordering mirrors the setup wizard's four-layer view of a bot):
+Every run names an agent explicitly (`brainchild <name> [url]`). Config loading is driven by the `BRAINCHILD_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks (top-to-bottom ordering mirrors the setup wizard's four-layer view of a bot):
 - `agent` — `name`, `trigger_phrase`, `first_contact_hint`, `tagline`, `intro_on_join`
 - `llm` — `provider` (`openai` | `anthropic`), `model`, `history_messages` (tail size replayed from the meeting record)
 - `transcript` — `captions_enabled`

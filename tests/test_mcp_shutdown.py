@@ -19,7 +19,7 @@ import textwrap
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 # ── Mock server: speaks just enough MCP to initialize, then ignores SIGTERM ──
 

@@ -1,9 +1,9 @@
-"""Terminal connector — stdin/stdout MeetingConnector for `operator try`.
+"""Terminal connector — stdin/stdout MeetingConnector for `brainchild try`.
 
 Treats the user's terminal as a 1-on-1 meeting: each stdin line becomes an
 incoming "chat" message, each `send_chat` prints with a colored bot-name
 prefix. Forces `ChatRunner` into 1-on-1 mode by pinning participant count
-to 2, so the user does not need to prefix every line with `@operator`.
+to 2, so the user does not need to prefix every line with `@brainchild`.
 
 No captions, no join handshake, no browser. Everything above the connector
 seam (LLM, MCP, skills, meeting record, tool confirmation) is unchanged.

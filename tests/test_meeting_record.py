@@ -1,7 +1,7 @@
 """
 Unit tests for Component B — MeetingRecord (Boundary + race depth).
 
-Covers the JSONL chat log at ~/.operator/history/<slug>.jsonl:
+Covers the JSONL chat log at ~/.brainchild/history/<slug>.jsonl:
   1. slug_from_url — happy path + empty/malformed input
   2. New file — meta header + session_start marker written on first open
   3. Existing file rejoin — meta preserved, new session_start appended

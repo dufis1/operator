@@ -1,17 +1,17 @@
 # Security — threat model and residual risks
 
-This document describes Operator's threat model, the mitigations already
+This document describes Brainchild's threat model, the mitigations already
 shipped, and the risks that remain documented rather than fixed. It is the
 single source of truth the README and `.gitignore` cross-link to.
 
 Reporting contact and SLA live in `SECURITY.md` at the repo root.
 
-## What Operator is
+## What Brainchild is
 
 A chat-based AI meeting participant. It joins Google Meet with a persistent
 Chrome profile, reads the chat panel, and replies via an LLM with tool access
 (Linear, GitHub, and user-supplied MCP servers). Everything runs locally on
-the operator's machine; there is no Operator-side server.
+the brainchild's machine; there is no Brainchild-side server.
 
 ## Trust boundaries
 
@@ -81,9 +81,9 @@ does. The "never commit these" list is inline in both `.gitignore` and
 
 `mcp_client.py` used to `log.debug(f"MCP tool arguments: {json.dumps(arguments)}")`
 which dumped full values (repo paths, PR bodies, issue titles, pasted
-snippets) into `/tmp/operator.log`. The new `_summarize_tool_args()` emits
+snippets) into `/tmp/brainchild.log`. The new `_summarize_tool_args()` emits
 `key=type[len]` only (e.g. `{path=str[23], team=str[3]}`). Full JSON dump is
-opt-in via `OPERATOR_LOG_TOOL_ARGS=1` (strict `== "1"` equality; fails
+opt-in via `BRAINCHILD_LOG_TOOL_ARGS=1` (strict `== "1"` equality; fails
 closed on `"true"` or empty).
 
 ### Strip unsafe env keys from MCP config — commit `be9bf8c`
@@ -112,7 +112,7 @@ destructive arg past the cap). Long values get head…tail truncation
 (`CONFIRM_ARG_MAX=160`, head 70, tail 50); the user sees both ends so a
 trailing malicious instruction can't hide in the middle of a long string.
 When truncation fires, the message appends `(Full values in
-/tmp/operator.log.)` and the full `args={args!r}` is logged at INFO.
+/tmp/brainchild.log.)` and the full `args={args!r}` is logged at INFO.
 `repr()` neutralizes Unicode bidi-override and control characters.
 
 ### Path hygiene pass — commit `ebb6b29`
@@ -121,7 +121,7 @@ When truncation fires, the message appends `(Full values in
 
 - `agents/engineer/delegate_to_claude_code.py` — the `[workdir: …]` /
   `[repo: …]` footer in delegate tool-results that flows into meeting chat.
-  Before this fix, a delegate reply carried `/Users/jojo/Desktop/operator/…`
+  Before this fix, a delegate reply carried `/Users/jojo/Desktop/brainchild/…`
   into meeting chat, leaking the machine username and directory layout to
   every participant.
 - `connectors/linux_adapter.py` — two log lines that printed the absolute
@@ -186,7 +186,7 @@ it does not stop malware running as the bot's own user.
 
 ### L3 — Chat and captions logged in clear
 
-`/tmp/operator.log` contains every chat message and (when captions are on)
+`/tmp/brainchild.log` contains every chat message and (when captions are on)
 every spoken word. It never leaves your machine. macOS typically clears
 `/tmp` on reboot; Linux may not. Delete it manually if the meeting content
 was sensitive. See the README "Privacy & logs" section for the fuller note.

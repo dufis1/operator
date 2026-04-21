@@ -45,24 +45,24 @@ def _chrome_lock_is_live(lock_path):
         return False
 
 
-def _write_operator_pid(lock_path):
+def _write_brainchild_pid(lock_path):
     """Write the current process PID to a file alongside the SingletonLock.
 
     Called at the start of each browser session so --force can find and
-    terminate the Operator Python process, not just Chrome.
+    terminate the Brainchild Python process, not just Chrome.
     """
-    pid_file = os.path.join(os.path.dirname(lock_path), ".operator.pid")
+    pid_file = os.path.join(os.path.dirname(lock_path), ".brainchild.pid")
     try:
         with open(pid_file, "w") as f:
             f.write(str(os.getpid()))
     except OSError as e:
-        log.warning(f"session: could not write operator PID file: {e}")
+        log.warning(f"session: could not write brainchild PID file: {e}")
 
 
 def _chrome_kill_and_clear(lock_path):
-    """Kill the Operator session (Python process + Chrome) and clear the lock.
+    """Kill the Brainchild session (Python process + Chrome) and clear the lock.
 
-    Kills the Python operator process first via the PID file (its SIGTERM
+    Kills the Python brainchild process first via the PID file (its SIGTERM
     handler triggers a clean shutdown including browser.close()).  Chrome is
     killed as a fallback in case the PID file is absent or the process is
     already dead.  Safe to call on a stale or already-gone lock.
@@ -70,36 +70,36 @@ def _chrome_kill_and_clear(lock_path):
     import signal as _signal
     import time as _time
 
-    pid_file = os.path.join(os.path.dirname(lock_path), ".operator.pid")
+    pid_file = os.path.join(os.path.dirname(lock_path), ".brainchild.pid")
 
-    # ── 1. Kill the Operator Python process ──────────────────────────
-    operator_pid = None
+    # ── 1. Kill the Brainchild Python process ──────────────────────────
+    brainchild_pid = None
     try:
         with open(pid_file) as f:
-            operator_pid = int(f.read().strip())
-        if operator_pid == os.getpid():
-            operator_pid = None          # never kill ourselves
+            brainchild_pid = int(f.read().strip())
+        if brainchild_pid == os.getpid():
+            brainchild_pid = None          # never kill ourselves
     except (FileNotFoundError, ValueError):
         pass
 
-    if operator_pid:
+    if brainchild_pid:
         try:
-            reason_file = os.path.join(os.path.dirname(lock_path), ".operator.kill_reason")
+            reason_file = os.path.join(os.path.dirname(lock_path), ".brainchild.kill_reason")
             with open(reason_file, "w") as f:
-                f.write("Terminated: killed by another Operator instance (--force)")
+                f.write("Terminated: killed by another Brainchild instance (--force)")
         except OSError:
             pass
         try:
-            os.kill(operator_pid, _signal.SIGTERM)
+            os.kill(brainchild_pid, _signal.SIGTERM)
             for _ in range(30):          # wait up to 3 s for clean exit
                 _time.sleep(0.1)
                 try:
-                    os.kill(operator_pid, 0)
+                    os.kill(brainchild_pid, 0)
                 except OSError:
                     break                # gone
             else:
                 try:
-                    os.kill(operator_pid, _signal.SIGKILL)
+                    os.kill(brainchild_pid, _signal.SIGKILL)
                 except OSError:
                     pass
         except OSError:

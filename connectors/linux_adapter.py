@@ -1,5 +1,5 @@
 """
-Linux local connector for Operator.
+Linux local connector for Brainchild.
 
 Wraps headless Playwright/Chromium meeting join into the MeetingConnector
 interface. Requires Playwright's Chromium browser installed via
@@ -413,7 +413,7 @@ class LinuxAdapter(MeetingConnector):
                     try:
                         name_input = page.get_by_placeholder("Your name")
                         name_input.wait_for(timeout=3000)
-                        name_input.fill("Operator")
+                        name_input.fill("Brainchild")
                         page.wait_for_timeout(500)
                         log.debug("LinuxAdapter: filled guest name")
                     except Exception:
@@ -543,7 +543,7 @@ class LinuxAdapter(MeetingConnector):
                                         log.warning(
                                             f"LinuxAdapter: network lost for {NETWORK_GRACE_SECONDS}s — exiting"
                                         )
-                                        print("\n⚠️  Operator: network connection lost — exiting.")
+                                        print("\n⚠️  Brainchild: network connection lost — exiting.")
                                         break
                                 else:
                                     if network_lost_at is not None:
@@ -558,14 +558,14 @@ class LinuxAdapter(MeetingConnector):
                             try:
                                 if page.is_closed():
                                     log.warning("LinuxAdapter: health check — page closed unexpectedly, exiting")
-                                    print("\n⚠️  Operator: browser page closed unexpectedly — exiting.")
+                                    print("\n⚠️  Brainchild: browser page closed unexpectedly — exiting.")
                                     break
                                 current_url = page.url
                                 if "meet.google.com" not in current_url:
                                     log.warning(f"LinuxAdapter: health check — unexpected URL: {current_url}")
                             except Exception:
                                 log.warning("LinuxAdapter: health check — page not accessible, exiting")
-                                print("\n⚠️  Operator: browser became inaccessible — exiting.")
+                                print("\n⚠️  Brainchild: browser became inaccessible — exiting.")
                                 break
 
                 finally:

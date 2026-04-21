@@ -1,8 +1,8 @@
-"""Tiny terminal narrator for the Operator CLI.
+"""Tiny terminal narrator for the Brainchild CLI.
 
 The user watches stderr while the bot spins up and runs a meeting. This module
 emits short, colored, one-line status updates — the *narrative* layer. Detailed
-diagnostics stay in /tmp/operator.log via the logging module.
+diagnostics stay in /tmp/brainchild.log via the logging module.
 
 Colors are auto-disabled when:
 - $NO_COLOR is set (https://no-color.org)
@@ -54,7 +54,7 @@ def warn(msg: str) -> None:
 
 def err(msg: str, hint_log: bool = True) -> None:
     """Error line. Appends the log-file pointer by default."""
-    suffix = f"  {_c('dim', '— see /tmp/operator.log')}" if hint_log else ""
+    suffix = f"  {_c('dim', '— see /tmp/brainchild.log')}" if hint_log else ""
     print(f"{_c('red', '✗')} {msg}{suffix}", file=sys.stderr, flush=True)
 
 

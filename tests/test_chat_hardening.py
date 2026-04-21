@@ -4,7 +4,7 @@ Run: python tests/test_chat_hardening.py
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-os.environ.setdefault("OPERATOR_BOT", "pm")
+os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 import config
 import re
@@ -137,7 +137,7 @@ def test_trigger_phrase_gating():
 
     no_match = [
         "what time is it",
-        "let's discuss the operator role",  # bare word shouldn't match "@operator"
+        "let's discuss the brainchild role",  # bare word shouldn't match "@brainchild"
     ]
     for text in no_match:
         assert trigger not in text.lower(), f"Should not match: {text!r}"

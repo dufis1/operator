@@ -1,21 +1,21 @@
-# Operator
+# Brainchild
 
 Chat-based AI meeting participant for Google Meet. Joins, reads chat, replies
 via an LLM with tool access (Linear, GitHub, and other MCP servers you wire
 up), and leaves when everyone else does.
 
 ```bash
-operator pm                                        # open a fresh Meet
-operator pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
-operator try pm                                    # terminal test-drive, no Meet
-operator list                                      # show available agents
+brainchild pm                                        # open a fresh Meet
+brainchild pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
+brainchild try pm                                    # terminal test-drive, no Meet
+brainchild list                                      # show available agents
 ```
 
-`pm` is a sample bot under `agents/`. Drop in `operator setup` to create your own.
+`pm` is a sample bot under `agents/`. Drop in `brainchild setup` to create your own.
 
 ## Privacy & logs
 
-Operator writes a detailed diagnostic log to **`/tmp/operator.log`** on every
+Brainchild writes a detailed diagnostic log to **`/tmp/brainchild.log`** on every
 run. For now, this file contains:
 
 - The Meet URL the bot joined (a capability token — anyone with it can join).
@@ -27,7 +27,7 @@ run. For now, this file contains:
 directory — treat it like any other local artifact. macOS typically clears
 `/tmp` on reboot; Linux may not. Delete it manually if it matters.
 
-Chat history also lands in `~/.operator/history/<slug>.jsonl` — that's the
+Chat history also lands in `~/.brainchild/history/<slug>.jsonl` — that's the
 durable record the bot replays from between turns. Same sensitivity profile.
 
 ### Never commit these

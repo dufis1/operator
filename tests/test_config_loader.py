@@ -2,7 +2,7 @@
 Unit tests for Component A — Config loader (Boundary depth).
 
 Covers `config.py`'s behavior at import time:
-  1. Missing OPERATOR_BOT → SystemExit(2)
+  1. Missing BRAINCHILD_BOT → SystemExit(2)
   2. Unknown bot name → SystemExit(2) listing available bots
   3. Happy-path yaml → agent/llm/skills/transcript fields parse with defaults
   4. SYSTEM_PROMPT = personality + "\\n\\n" + ground_rules; absent blocks drop out
@@ -53,10 +53,10 @@ def load_config(yaml_text: str, bot: str = "testbot", env: dict | None = None,
         shutil.copy(REAL_CONFIG_PY, tmp / "config.py")
 
         full_env = dict(env or {})
-        saved = {k: os.environ.get(k) for k in list(full_env.keys()) + ["OPERATOR_BOT"]}
+        saved = {k: os.environ.get(k) for k in list(full_env.keys()) + ["BRAINCHILD_BOT"]}
         try:
-            if "OPERATOR_BOT" not in full_env:
-                full_env["OPERATOR_BOT"] = bot
+            if "BRAINCHILD_BOT" not in full_env:
+                full_env["BRAINCHILD_BOT"] = bot
             for k, v in full_env.items():
                 if v is None:
                     os.environ.pop(k, None)
@@ -91,14 +91,14 @@ llm:
 
 
 # ---------------------------------------------------------------------------
-# Test 1: missing OPERATOR_BOT → SystemExit(2)
+# Test 1: missing BRAINCHILD_BOT → SystemExit(2)
 # ---------------------------------------------------------------------------
 
-def test_missing_operator_bot_exits():
-    """Loading config without OPERATOR_BOT set must exit with code 2."""
-    _, code = load_config(MIN_YAML, env={"OPERATOR_BOT": ""})
+def test_missing_brainchild_bot_exits():
+    """Loading config without BRAINCHILD_BOT set must exit with code 2."""
+    _, code = load_config(MIN_YAML, env={"BRAINCHILD_BOT": ""})
     assert code == 2, f"Expected SystemExit(2), got {code}"
-    print("PASS  test_missing_operator_bot_exits")
+    print("PASS  test_missing_brainchild_bot_exits")
 
 
 # ---------------------------------------------------------------------------
@@ -106,9 +106,9 @@ def test_missing_operator_bot_exits():
 # ---------------------------------------------------------------------------
 
 def test_unknown_bot_exits():
-    """OPERATOR_BOT=<nonexistent> exits with code 2."""
+    """BRAINCHILD_BOT=<nonexistent> exits with code 2."""
     _, code = load_config(MIN_YAML, bot="realbot",
-                          env={"OPERATOR_BOT": "ghost"},
+                          env={"BRAINCHILD_BOT": "ghost"},
                           extra_bots=["other"])
     assert code == 2, f"Expected SystemExit(2), got {code}"
     print("PASS  test_unknown_bot_exits")
@@ -122,7 +122,7 @@ def test_happy_path_parses_fields():
     """Minimal yaml populates agent/llm fields; optional fields get defaults."""
     mod, _ = load_config(MIN_YAML)
     assert mod.AGENT_NAME == "Test Bot"
-    assert mod.TRIGGER_PHRASE == "@operator"       # default
+    assert mod.TRIGGER_PHRASE == "@brainchild"       # default
     assert mod.FIRST_CONTACT_HINT == ""             # default
     assert mod.AGENT_TAGLINE == ""                  # default
     assert mod.LLM_PROVIDER == "openai"
@@ -240,7 +240,7 @@ def test_relativize_home_renders_tilde():
     mod, _ = load_config(MIN_YAML)
     home = os.path.expanduser("~")
     assert mod.relativize_home(home) == "~"
-    assert mod.relativize_home(home + "/code/operator") == "~/code/operator"
+    assert mod.relativize_home(home + "/code/brainchild") == "~/code/brainchild"
     assert mod.relativize_home("/var/log/syslog") == "/var/log/syslog"
     assert mod.relativize_home("") == ""
     assert mod.relativize_home(None) is None
@@ -280,7 +280,7 @@ mcp_servers:
 
 if __name__ == "__main__":
     tests = [
-        test_missing_operator_bot_exits,
+        test_missing_brainchild_bot_exits,
         test_unknown_bot_exits,
         test_happy_path_parses_fields,
         test_system_prompt_composition,

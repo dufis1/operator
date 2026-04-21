@@ -102,7 +102,7 @@ class ChatRunner:
                     log.error("Re-export session: python scripts/auth_export.py")
                     ui.err("Not authenticated — run: python scripts/auth_export.py")
                 elif "already_running" in reason:
-                    ui.warn("Another Operator session is already running. Use --force to stop it and start a new one.")
+                    ui.warn("Another Brainchild session is already running. Use --force to stop it and start a new one.")
                 else:
                     ui.err(f"Join failed: {reason}")
                 self._connector.leave()
@@ -391,7 +391,7 @@ class ChatRunner:
         Renders *every* argument so a write can't hide extra fields in the
         confirmation prompt. Long values are truncated with a head…tail
         snippet; the full payload is also logged at INFO so the user can
-        cross-reference /tmp/operator.log if they need the full string.
+        cross-reference /tmp/brainchild.log if they need the full string.
         """
         self._pending_tool_call = tool_call
         name = tool_call["name"]
@@ -426,7 +426,7 @@ class ChatRunner:
             msg += f" via {display_server}"
         msg += f" with: {arg_summary}."
         if truncated_any:
-            msg += " (Full values in /tmp/operator.log.)"
+            msg += " (Full values in /tmp/brainchild.log.)"
         msg += " OK?"
         log.info(f"ChatRunner: requesting confirmation for {name} args={args!r}")
         self._send(msg, kind="confirmation")

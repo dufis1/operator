@@ -29,20 +29,20 @@ cp agents/designer/.env.example .env
 # Edit .env with ANTHROPIC_API_KEY and FIGMA_TOKEN
 
 # 2. Run — direct URL or auto-open meet.new
-operator designer https://meet.google.com/xxx-yyyy-zzz
-operator designer
+brainchild designer https://meet.google.com/xxx-yyyy-zzz
+brainchild designer
 ```
 
 ## Using it
 
-- **"@operator pull up the login screen — figma.com/design/\<key>?node-id=…"**
+- **"@brainchild pull up the login screen — figma.com/design/\<key>?node-id=…"**
   — Designer fetches the frame and summarizes what it sees (layout shape,
   dominant type, spacing, 1-2 hierarchy observations).
-- **"@operator review this — figma.com/design/\<key>?node-id=…"** — runs the
+- **"@brainchild review this — figma.com/design/\<key>?node-id=…"** — runs the
   bundled `design-review-feedback` skill: structured critique with
   *what works / what breaks / questions / suggestions*, grounded in the
   actual canvas. Specific, opinionated, no flattery padding.
-- **"@operator the carousel feels off — what's the first thing you'd change?"**
+- **"@brainchild the carousel feels off — what's the first thing you'd change?"**
   — conversational gut check, 1-3 sentences with specific numbers or element
   names.
 
@@ -64,8 +64,8 @@ Two alternatives, each with tradeoffs:
   "paste a Figma link in chat" UX is lost in exchange.
 - **Figma's official MCP server** (`mcp-remote https://mcp.figma.com/mcp`)
   — OAuth-authenticated, read + write, but requires the MCP client to be in
-  Figma's approved catalog. Operator is not (yet) in the catalog, so
-  dynamic client registration returns `403 Forbidden`. If/when Operator is
+  Figma's approved catalog. Brainchild is not (yet) in the catalog, so
+  dynamic client registration returns `403 Forbidden`. If/when Brainchild is
   added, this becomes the best option: no plugin, no bridge, write
   operations included.
 

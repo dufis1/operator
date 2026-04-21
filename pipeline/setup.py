@@ -1,4 +1,4 @@
-"""`operator setup` wizard — Phase 15.5.5.
+"""`brainchild setup` wizard — Phase 15.5.5.
 
 Builds a new `agents/<name>/` bundle, or rewrites an existing one in place,
 through a seven-step guided TUI:
@@ -63,7 +63,7 @@ _ENV_FILE = _ROOT / ".env"
 _PM_CONFIG = _AGENTS_DIR / "pm" / "config.yaml"
 
 # Subcommand verbs the CLI reserves — a from-scratch bot can't use them as
-# a name because `operator <reserved>` would never dispatch to the bot.
+# a name because `brainchild <reserved>` would never dispatch to the bot.
 RESERVED_NAMES = {"setup", "list", "try"}
 # Lowercase start-with-letter, alphanumeric + dash/underscore, up to 32 chars.
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -522,7 +522,7 @@ def _edit_in_editor(*, seed: str, label: str) -> str:
     Falls back to `vi` if neither $EDITOR nor $VISUAL is set.
     """
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
-    fd, tmp_path = tempfile.mkstemp(prefix=f"operator-{label.replace(' ', '_')}-", suffix=".txt")
+    fd, tmp_path = tempfile.mkstemp(prefix=f"brainchild-{label.replace(' ', '_')}-", suffix=".txt")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(seed)
@@ -588,7 +588,7 @@ def _append_env(path: Path, new_values: dict[str, str]) -> None:
             lines.append("")
     else:
         existing_text = ""
-    lines.append("# added by operator setup")
+    lines.append("# added by brainchild setup")
     for k, v in new_values.items():
         lines.append(f"{k}='{v}'")
     with path.open("a", encoding="utf-8") as f:
@@ -685,13 +685,13 @@ def _write_readme(path: Path, name: str, bot_cfg: dict) -> None:
     body = (
         f"# {display}\n\n"
         f"{tagline}\n\n"
-        f"Run: `operator {name}` or `operator {name} <meet-url>`.\n\n"
+        f"Run: `brainchild {name}` or `brainchild {name} <meet-url>`.\n\n"
         f"MCPs: {mcp_line}\n\n"
         "## Note\n\n"
         "Skills and MCPs are independent in this bundle — enabling a skill\n"
         "that references an MCP tool doesn't auto-enable the MCP, and vice\n"
         "versa. If a skill asks for a tool that isn't wired, the model will\n"
-        "either ask for it or degrade gracefully. Re-run `operator setup`\n"
+        "either ask for it or degrade gracefully. Re-run `brainchild setup`\n"
         "and pick this bot as a preset to adjust either list.\n"
     )
     path.write_text(body, encoding="utf-8")
@@ -716,7 +716,7 @@ def _reveal(state: WizardState) -> None:
 def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
-    console.print("[bold]Operator setup wizard[/bold]")
+    console.print("[bold]Brainchild setup wizard[/bold]")
     console.print("[dim]Seven steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
@@ -750,7 +750,7 @@ def run(argv: list[str]) -> int:
         console.print(f"\n✗ setup failed: {e}")
         raise
 
-    console.print(f"\n[bold]Done.[/bold] Try it: [bold]operator {state.name}[/bold]\n")
+    console.print(f"\n[bold]Done.[/bold] Try it: [bold]brainchild {state.name}[/bold]\n")
     return 0
 
 
