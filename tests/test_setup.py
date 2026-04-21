@@ -53,13 +53,22 @@ def test_name_validation_reserved_and_collision():
         ok, _ = wizard._validate_name(bad)
         assert not ok, f"expected rejection for {bad!r}"
 
-    # collision — pm always exists in this repo
-    ok, reason = wizard._validate_name("pm")
-    assert not ok and "already exists" in reason, reason
+    # collision — pm bot pre-seeded in a tmp agents dir
+    with tempfile.TemporaryDirectory() as tmp:
+        sandbox = Path(tmp) / "agents"
+        (sandbox / "pm").mkdir(parents=True)
+        (sandbox / "pm" / "config.yaml").write_text("agent: {name: pm}\n")
+        original = wizard._AGENTS_DIR
+        wizard._AGENTS_DIR = sandbox
+        try:
+            ok, reason = wizard._validate_name("pm")
+            assert not ok and "already exists" in reason, reason
 
-    # happy path
-    ok, reason = wizard._validate_name("brand-new-bot")
-    assert ok, reason
+            # happy path — unoccupied name in same sandbox
+            ok, reason = wizard._validate_name("brand-new-bot")
+            assert ok, reason
+        finally:
+            wizard._AGENTS_DIR = original
 
     print("  name validation: PASS")
 

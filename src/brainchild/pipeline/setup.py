@@ -58,9 +58,10 @@ from brainchild.pipeline.picker import Choice, PickerCancelled, select_many, sel
 
 
 _ROOT = Path(__file__).resolve().parents[3]
-_AGENTS_DIR = _ROOT / "agents"
+_AGENTS_DIR = Path.home() / ".brainchild" / "agents"
+_TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates" / "agents"
 _ENV_FILE = _ROOT / ".env"
-_PM_CONFIG = _AGENTS_DIR / "pm" / "config.yaml"
+_PM_CONFIG = _TEMPLATES_DIR / "pm" / "config.yaml"
 
 # Subcommand verbs the CLI reserves — a from-scratch bot can't use them as
 # a name because `brainchild <reserved>` would never dispatch to the bot.

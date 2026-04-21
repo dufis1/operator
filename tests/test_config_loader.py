@@ -37,38 +37,36 @@ REAL_CONFIG_PY = REPO_ROOT / "src" / "brainchild" / "config.py"
 
 def load_config(yaml_text: str, bot: str = "testbot", env: dict | None = None,
                 extra_bots: list[str] | None = None):
-    """Load config.py fresh against a tmp agents/<bot>/config.yaml.
+    """Load config.py fresh against a tmp ~/.brainchild/agents/<bot>/config.yaml.
+
+    Redirects HOME to a tmp dir so `Path.home() / ".brainchild" / "agents"` in
+    the loader resolves inside the sandbox — the real user dir stays untouched.
 
     Returns (module, exc) — module is the loaded config module (or None if
     import raised SystemExit), exc is the SystemExit code (or None).
     """
     tmp = Path(tempfile.mkdtemp())
     try:
-        (tmp / "agents" / bot).mkdir(parents=True)
-        (tmp / "agents" / bot / "config.yaml").write_text(yaml_text)
-        # Create any extra placeholder bots so the "available bots" list is populated
+        agents_root = tmp / ".brainchild" / "agents"
+        (agents_root / bot).mkdir(parents=True)
+        (agents_root / bot / "config.yaml").write_text(yaml_text)
         for extra in (extra_bots or []):
-            (tmp / "agents" / extra).mkdir(parents=True)
-            (tmp / "agents" / extra / "config.yaml").write_text("agent: {name: x}\nllm: {provider: openai, model: m}")
-        # config.py computes _ROOT as parents[2], so place it at tmp/src/brainchild/config.py
-        # to match the real src-layout and keep `_ROOT / "agents"` resolving to tmp/agents/.
-        pkg_dir = tmp / "src" / "brainchild"
-        pkg_dir.mkdir(parents=True)
-        shutil.copy(REAL_CONFIG_PY, pkg_dir / "config.py")
+            (agents_root / extra).mkdir(parents=True)
+            (agents_root / extra / "config.yaml").write_text("agent: {name: x}\nllm: {provider: openai, model: m}")
 
         full_env = dict(env or {})
-        saved = {k: os.environ.get(k) for k in list(full_env.keys()) + ["BRAINCHILD_BOT"]}
+        saved = {k: os.environ.get(k) for k in list(full_env.keys()) + ["BRAINCHILD_BOT", "HOME"]}
         try:
             if "BRAINCHILD_BOT" not in full_env:
                 full_env["BRAINCHILD_BOT"] = bot
+            full_env["HOME"] = str(tmp)
             for k, v in full_env.items():
                 if v is None:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
 
-            spec = importlib.util.spec_from_file_location(f"config_test_{id(tmp)}",
-                                                         tmp / "src" / "brainchild" / "config.py")
+            spec = importlib.util.spec_from_file_location(f"config_test_{id(tmp)}", REAL_CONFIG_PY)
             module = importlib.util.module_from_spec(spec)
             try:
                 spec.loader.exec_module(module)

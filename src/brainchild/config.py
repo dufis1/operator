@@ -5,8 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
-# Repo root — three levels up from src/brainchild/config.py. Commit 2 switches this to ~/.brainchild/agents/.
-_ROOT = Path(__file__).resolve().parents[2]
+_AGENTS_DIR = Path.home() / ".brainchild" / "agents"
 
 BOT_NAME = os.environ.get("BRAINCHILD_BOT", "").strip()
 if not BOT_NAME:
@@ -16,13 +15,13 @@ if not BOT_NAME:
     )
     raise SystemExit(2)
 
-BOT_DIR = _ROOT / "agents" / BOT_NAME
+BOT_DIR = _AGENTS_DIR / BOT_NAME
 _cfg_path = BOT_DIR / "config.yaml"
 if not _cfg_path.exists():
     available = sorted(
-        p.name for p in (_ROOT / "agents").iterdir()
+        p.name for p in _AGENTS_DIR.iterdir()
         if p.is_dir() and (p / "config.yaml").exists()
-    )
+    ) if _AGENTS_DIR.exists() else []
     sys.stderr.write(
         f"ERROR: no config found at {_cfg_path}.\n"
         f"Available bots: {', '.join(available) if available else '(none)'}\n"
