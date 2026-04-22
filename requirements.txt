@@ -11,7 +11,6 @@ readchar==4.2.2        # cross-platform key reads for the wizard's arrow-key pic
 # ── Security floors for transitive deps (pip-audit, session 138) ──────────────
 # Left as `>=` (not `==`) so future CVE patches land on `pip install -U` without
 # a requirements edit. Bump the floor when a newer CVE ships.
-cryptography>=46.0.7     # CVE-2026-34073, CVE-2026-39892 (via google-auth)
+cryptography>=46.0.7     # CVE-2026-34073, CVE-2026-39892 (via mcp → pyjwt[crypto])
 pygments>=2.20.0         # CVE-2026-4539 (via rich)
 python-multipart>=0.0.26 # CVE-2026-40347 (via mcp)
-requests>=2.33.0         # CVE-2026-25645 (via CacheControl, mcp, etc.)

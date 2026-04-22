@@ -36,10 +36,9 @@ dependencies = [
     "readchar==4.2.2",
     # Security floors for transitive deps (pip-audit, session 138) — left as
     # `>=` so future CVE patches land on `pip install -U` without edits here.
-    "cryptography>=46.0.7",
-    "pygments>=2.20.0",
-    "python-multipart>=0.0.26",
-    "requests>=2.33.0",
+    "cryptography>=46.0.7",    # via mcp → pyjwt[crypto]
+    "pygments>=2.20.0",        # via rich
+    "python-multipart>=0.0.26", # via mcp
 ]
 
 [project.scripts]
