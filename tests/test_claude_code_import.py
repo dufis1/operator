@@ -14,10 +14,8 @@ Covers:
      malformed lines skipped.
   6. discover_all_mcps — merges both sources, dedup by slug, wrapped
      count sums correctly.
-  7. list_user_skills — missing dir, empty dir, skill dirs without
-     SKILL.md skipped, valid dirs returned sorted.
-  8. read_user_claude_md — missing, present.
-  9. append_env_placeholders — new file creation, idempotent (var set as
+  7. read_user_claude_md — missing, present.
+  8. append_env_placeholders — new file creation, idempotent (var set as
      plain), idempotent (var already placeheld), newline handling, empty
      var_names, multiple runs each add their own header section.
 
@@ -44,7 +42,6 @@ from brainchild.pipeline.claude_code_import import (
     discover_all_mcps,
     discover_hosted_mcps_via_cli,
     extract_imported_mcps,
-    list_user_skills,
     read_user_claude_md,
     read_user_mcp_config,
 )
@@ -73,7 +70,6 @@ def _with_fake_home(fn):
                         home / ".claude.json",
                         home / ".claude" / "settings.json",
                     ]),
-                    patch.object(mod, "_USER_SKILLS_DIR", home / ".claude" / "skills"),
                     patch.object(mod, "_USER_CLAUDE_MD", home / ".claude" / "CLAUDE.md"),
                 ):
                     fn(home)
@@ -331,29 +327,6 @@ def test_discover_all_merges_both_sources(home):
 
 
 # ---------------------------------------------------------------------------
-# list_user_skills
-# ---------------------------------------------------------------------------
-
-@_with_fake_home
-def test_list_user_skills_missing_dir_empty(home):
-    assert list_user_skills() == []
-    print("PASS  test_list_user_skills_missing_dir_empty")
-
-
-@_with_fake_home
-def test_list_user_skills_skips_dirs_without_skill_md(home):
-    skills = home / ".claude" / "skills"
-    skills.mkdir(parents=True)
-    (skills / "valid").mkdir()
-    (skills / "valid" / "SKILL.md").write_text("---\nname: valid\n---\n")
-    (skills / "incomplete").mkdir()  # no SKILL.md
-    (skills / "stray.txt").write_text("ignore me")
-    got = list_user_skills()
-    assert [p.name for p in got] == ["valid"], got
-    print("PASS  test_list_user_skills_skips_dirs_without_skill_md")
-
-
-# ---------------------------------------------------------------------------
 # read_user_claude_md
 # ---------------------------------------------------------------------------
 
@@ -462,8 +435,6 @@ if __name__ == "__main__":
         test_discover_hosted_mcps_timeout_returns_empty,
         test_discover_hosted_mcps_skips_malformed_lines,
         test_discover_all_merges_both_sources,
-        test_list_user_skills_missing_dir_empty,
-        test_list_user_skills_skips_dirs_without_skill_md,
         test_read_user_claude_md_missing_returns_none,
         test_read_user_claude_md_present_returns_contents,
         test_append_env_placeholders_creates_file_if_missing,

@@ -100,7 +100,7 @@ def test_mcp_required_unexpected_type_ignored():
 def test_bundled_skills_declare_deps_correctly():
     """All five MCP-dependent bundled skills declare their server in mcp-required;
     the three discussion-only skills declare nothing."""
-    src = Path(__file__).resolve().parent.parent / "src" / "brainchild" / "agents"
+    src = Path(__file__).resolve().parent.parent / "src" / "brainchild" / "skills"
     expected = {
         "design-handoff-spec": ["figma"],
         "design-review-feedback": ["figma"],
@@ -115,7 +115,7 @@ def test_bundled_skills_declare_deps_correctly():
     }
     # Collect by name.
     by_name = {}
-    for md in src.rglob("skills/*/SKILL.md"):
+    for md in src.rglob("*/SKILL.md"):
         skill = _parse_skill_md(md)
         assert skill is not None, f"failed to parse {md}"
         by_name[skill.name] = skill.mcp_required
@@ -133,7 +133,11 @@ def test_load_skills_preserves_mcp_required():
     with tempfile.TemporaryDirectory() as td:
         _write_skill(Path(td), "alpha", "mcp-required: [linear]\n")
         _write_skill(Path(td), "beta")
-        skills = load_skills([td])
+        skills = load_skills(
+            None,
+            external_paths=[td],
+            shared_library_dir=Path(td) / "no-library",
+        )
         got = {s.name: s.mcp_required for s in skills}
         assert got == {"alpha": ["linear"], "beta": []}
     print("✓ load_skills surfaces mcp_required end-to-end")

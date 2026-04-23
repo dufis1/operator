@@ -58,7 +58,6 @@ from brainchild.pipeline.claude_code_import import (
     append_env_placeholders,
     claude_code_installed_and_logged_in,
     discover_all_mcps,
-    list_user_skills,
     read_user_claude_md,
 )
 from brainchild.pipeline.picker import Choice, PickerCancelled, select_many, select_one
@@ -108,7 +107,14 @@ class WizardCancel(Exception):
 
 @dataclass
 class WizardState:
-    """Mutable wizard state. Accumulates as the user moves through steps."""
+    """Mutable wizard state. Accumulates as the user moves through steps.
+
+    Skill selection (Phase 15.11): `enabled_skill_names` is the single
+    source of truth for which skills the bot will activate. It's the list
+    written out to config.yaml under `skills.enabled`. External paths
+    from which skills are discovered live on `bot_cfg["skills"]["external_paths"]`
+    and are edited in-place by the skills step.
+    """
 
     mode: str  # "new" | "edit"
     name: str  # bot name (also dir name under agents/)
@@ -117,8 +123,7 @@ class WizardState:
     based_on: str  # baseline bot ("pm" for new, preset name for edit)
     portrait: str  # placeholder in custom mode, real portrait in edit mode
     bot_cfg: dict
-    user_sources: list[Path] = field(default_factory=list)
-    bundled_skill_dirs: list[Path] = field(default_factory=list)
+    enabled_skill_names: list[str] = field(default_factory=list)
 
     def equipped_mcps(self) -> list[str]:
         return [
@@ -127,9 +132,7 @@ class WizardState:
         ]
 
     def equipped_skills(self) -> list[str]:
-        return _resolve_user_skill_names(self.user_sources) + [
-            d.name for d in self.bundled_skill_dirs
-        ]
+        return list(self.enabled_skill_names)
 
     def card(
         self,
@@ -320,14 +323,19 @@ def _edit_preset(name: str) -> WizardState:
 
 
 def _auto_import_claude_setup(state: WizardState) -> None:
-    """Discover the user's Claude Code MCPs + skills + CLAUDE.md and fold
-    them into state so the rest of the wizard just works. Only runs for
-    the `claude` preset. Idempotent — re-running the wizard won't duplicate
-    MCP blocks (collisions keep the existing entry so user curation sticks).
+    """Discover the user's Claude Code MCPs + CLAUDE.md and fold them into
+    state so the rest of the wizard just works. Only runs for the `claude`
+    preset. Idempotent — re-running the wizard won't duplicate MCP blocks
+    (collisions keep the existing entry so user curation sticks).
+
+    Skills: NOT imported via this path — the claude preset's bundled
+    config.yaml ships with `external_paths: [~/.claude/skills]`, so
+    step 3's picker scans that path live and lets the user toggle which
+    skills to enable. No copy, no one-shot import: edits to
+    ~/.claude/skills propagate on next meeting join.
 
     CLAUDE.md content is stashed on state for step 4 to optionally append
-    to ground_rules. Skills dirs are pre-loaded into state.user_sources so
-    step 7's copy loop picks them up; step 3 surfaces what was imported.
+    to ground_rules.
     """
     servers = state.bot_cfg.setdefault("mcp_servers", {})
 
@@ -338,16 +346,6 @@ def _auto_import_claude_setup(state: WizardState) -> None:
             continue
         servers[m.name] = m.block
         added_mcps.append(m.name)
-
-    skill_dirs = list_user_skills()
-    # Avoid duplicate paths if user re-runs the wizard against claude.
-    existing_user_paths = {p.resolve() for p in state.user_sources}
-    added_skills: list[str] = []
-    for s in skill_dirs:
-        if s.resolve() in existing_user_paths:
-            continue
-        state.user_sources.append(s)
-        added_skills.append(s.name)
 
     claude_md = read_user_claude_md()
     # Stash on state via a plain attribute — WizardState is a dataclass
@@ -364,24 +362,15 @@ def _auto_import_claude_setup(state: WizardState) -> None:
         )
     else:
         console.print("    [dim]No new MCPs to import (already present or none configured).[/dim]")
-    if added_skills:
-        console.print(
-            f"    [green]✓[/green] {len(added_skills)} skill(s) from "
-            f"~/.claude/skills/: {', '.join(added_skills)}"
-        )
-    else:
-        console.print("    [dim]No skills found at ~/.claude/skills/.[/dim]")
+    console.print(
+        "    [dim]Skills at ~/.claude/skills/ are available via external_paths — "
+        "toggle them in the next step.[/dim]"
+    )
     if claude_md:
         console.print(
             f"    [dim]Found ~/.claude/CLAUDE.md ({len(claude_md)} chars) — "
             f"step 4 will offer to append it to ground rules.[/dim]"
         )
-
-
-def _base_dir(state: WizardState) -> Path:
-    """Where bundled skills come from in step 3 — pm baseline for new bots,
-    the preset itself for edit-in-place."""
-    return _AGENTS_DIR / ("pm" if state.mode == "new" else state.name)
 
 
 # ── Step 2 — MCP toggle (arrow-key multi-select with build card) ──────────
@@ -583,43 +572,26 @@ def _mcp_choice(name: str, *, locked_by: list[str] | None = None) -> Choice:
 
 
 def _required_mcps_from_skills(state: WizardState) -> dict[str, list[str]]:
-    """Return {mcp_server_name: [skill_name, ...]} for every chosen skill that
-    declared mcp-required in its frontmatter.
+    """Return {mcp_server_name: [skill_name, ...]} for every enabled skill
+    that declares mcp-required in its frontmatter.
 
-    Reads state.bundled_skill_dirs (the bundled skills the user kept in the
-    skills step) and state.user_sources (paths the user added). Malformed
-    SKILL.md files are skipped — they'll surface their own warning via
-    _parse_skill_md.
+    Resolves state.enabled_skill_names against the shared library
+    (~/.brainchild/skills/) + state.bot_cfg["skills"]["external_paths"].
+    Uses the same load_skills path the runtime uses, so the wizard sees
+    what the runtime will see. Unknown names are silently dropped (the
+    loader already warns).
     """
-    by_server: dict[str, list[str]] = {}
+    from brainchild.pipeline.skills import load_skills
 
-    def _record(skill_md: Path) -> None:
-        sk = _parse_skill_md(skill_md)
-        if not sk or not sk.mcp_required:
-            return
+    external = state.bot_cfg.get("skills", {}).get("external_paths") or []
+    skills = load_skills(state.enabled_skill_names, external_paths=external)
+
+    by_server: dict[str, list[str]] = {}
+    for sk in skills:
         for server in sk.mcp_required:
             by_server.setdefault(server, []).append(sk.name)
 
-    for d in state.bundled_skill_dirs:
-        md = d / "SKILL.md"
-        if md.is_file():
-            _record(md)
-
-    for src in state.user_sources:
-        if src.is_file() and src.suffix.lower() == ".md":
-            _record(src)
-            continue
-        if not src.is_dir():
-            continue
-        direct = src / "SKILL.md"
-        if direct.is_file():
-            _record(direct)
-            continue
-        for child in src.iterdir():
-            if child.is_dir() and (child / "SKILL.md").is_file():
-                _record(child / "SKILL.md")
-
-    # Dedup skill names per server while preserving order.
+    # Dedup skill names per server while preserving insertion order.
     return {s: list(dict.fromkeys(names)) for s, names in by_server.items()}
 
 
@@ -635,116 +607,138 @@ def _mcp_sort_key(name: str) -> tuple[int, str]:
 # ── Step 3 — Skills ───────────────────────────────────────────────────────
 
 
-def _step3_skills(state: WizardState, base_dir: Path) -> None:
-    """Mutates state.user_sources and state.bundled_skill_dirs in place.
+def _step3_skills(state: WizardState, _unused: Path | None = None) -> None:
+    """Mutates state.enabled_skill_names + state.bot_cfg["skills"]["external_paths"].
 
-    Bundled-skills picker first (from pm for new bots, preset itself for edit),
-    then a plain y/n for adding the user's own skills. If yes, path-input loop.
+    Scans:
+      - shared library (~/.brainchild/skills/)
+      - state.bot_cfg["skills"]["external_paths"] (opt-in; tilde/absolute only)
+
+    Dedups by skill name (list-order last-wins). Shows one picker with all
+    discovered skills; source sublabel tells the user where each one came
+    from. Default-checked = currently-enabled in bot_cfg (so edit-in-place
+    preserves state, and new bots get the preset's defaults).
+
+    Then offers an "Add external path" sub-prompt that appends to
+    skills.external_paths — tilde-prefixed or absolute paths only, with
+    the hint shown inline.
     """
     console.print("[bold]2. Skills[/bold]\n")
 
-    # Claude preset: surface skills already auto-imported from ~/.claude/skills
-    # so the user sees what's in play before they add more.
-    if state.based_on == "claude" and state.user_sources:
-        imported = [p.name for p in state.user_sources if (p / "SKILL.md").is_file()]
-        if imported:
-            console.print(
-                f"  [dim]Auto-imported from ~/.claude/skills/: "
-                f"{', '.join(imported)}[/dim]"
-            )
-            console.print()
+    state.bot_cfg.setdefault("skills", {})
+    state.bot_cfg["skills"].setdefault("external_paths", [])
+    state.bot_cfg["skills"].setdefault("progressive_disclosure", True)
 
-    bundled_dir = base_dir / "skills"
-    candidates: list[Path] = []
-    if bundled_dir.is_dir():
-        candidates = sorted(
-            p for p in bundled_dir.iterdir()
-            if p.is_dir() and (p / "SKILL.md").is_file()
-        )
-
-    if candidates:
-        choices = [Choice(label=p.name, sublabel=_skill_subtitle(p)) for p in candidates]
-        initial = [True] * len(candidates)
-
-        def right_pane(_cursor, checked):
-            bundled_now = [candidates[i].name for i, on in enumerate(checked or []) if on]
-            return state.card(skills=bundled_now)
-
-        final = select_many(
-            "",
-            choices,
-            initial_checked=initial,
-            right_pane=right_pane,
-            console=console,
-        )
-        state.bundled_skill_dirs = [p for p, keep in zip(candidates, final) if keep]
-
-    console.print()
-    console.print("  Add path to your own skills folder or .md file:")
+    # Loop: show discovered skills + picker, optionally add more external
+    # paths, re-scan after each addition so the picker reflects new sources.
     while True:
-        raw = _prompt_with_hint("Leave empty to skip").strip()
-        if not raw:
-            break
-        resolved = Path(os.path.expanduser(raw)).resolve()
-        if not resolved.exists():
-            console.print(f"    [red]✗ not found: {resolved}[/red]")
-            continue
-        if not _is_valid_skill_source(resolved):
+        candidates = _discover_skill_candidates(state)
+        if not candidates:
             console.print(
-                f"    ✗ {resolved} is not a SKILL.md folder, a parent of one, or a .md file"
+                "  [dim]No skills found in the shared library or external_paths. "
+                "Add an external path below to scan more locations.[/dim]\n"
             )
+        else:
+            _render_skill_picker(state, candidates)
+
+        # Offer to add another external path. Loop until the user skips.
+        if not _prompt_add_external_path(state):
+            break
+
+
+def _discover_skill_candidates(state: WizardState) -> list[tuple[str, str, str]]:
+    """Scan shared library + configured external_paths; return [(name, description, source_label)].
+
+    Last-wins dedup by name, with list order: library first, then each
+    external path. source_label is a short tag shown in the picker row
+    ("shared library" or "from ~/.claude/skills").
+    """
+    from brainchild.pipeline.skills import _resolve_external_path, _scan_skills_dir
+
+    by_name: dict[str, tuple[str, str]] = {}  # name → (description, source_label)
+    shared = Path.home() / ".brainchild" / "skills"
+    if shared.is_dir():
+        for sk in _scan_skills_dir(shared):
+            by_name[sk.name] = (sk.description, "shared library")
+
+    for raw in (state.bot_cfg.get("skills", {}).get("external_paths") or []):
+        p = _resolve_external_path(raw)
+        if p is None:
             continue
-        state.user_sources.append(resolved)
-        console.print(f"    ✓ added {resolved}")
+        for sk in _scan_skills_dir(p):
+            by_name[sk.name] = (sk.description, f"from {raw}")
+
+    return sorted(
+        [(name, desc, src) for name, (desc, src) in by_name.items()],
+        key=lambda t: t[0],
+    )
 
 
-def _is_valid_skill_source(path: Path) -> bool:
-    """True if `path` is a SKILL.md folder, a parent of one, or a .md file."""
-    if path.is_file() and path.suffix.lower() == ".md":
+def _render_skill_picker(
+    state: WizardState,
+    candidates: list[tuple[str, str, str]],
+) -> None:
+    """Present the unified skills picker and update state.enabled_skill_names."""
+    # Preseed from state.enabled_skill_names (if populated) else from the
+    # bot_cfg's skills.enabled list (edit-in-place) else from defaults (new
+    # bot from preset → preset's bundled enabled list).
+    current_enabled = set(state.enabled_skill_names) if state.enabled_skill_names else set(
+        state.bot_cfg.get("skills", {}).get("enabled") or []
+    )
+
+    names = [c[0] for c in candidates]
+    choices = [
+        Choice(label=name, sublabel=f"{desc}  [{src}]")
+        for name, desc, src in candidates
+    ]
+    initial = [n in current_enabled for n in names]
+
+    def right_pane(_cursor, checked):
+        enabled_now = [names[i] for i, on in enumerate(checked or []) if on]
+        return state.card(skills=enabled_now)
+
+    final = select_many(
+        "",
+        choices,
+        initial_checked=initial,
+        right_pane=right_pane,
+        console=console,
+    )
+    state.enabled_skill_names = [names[i] for i, on in enumerate(final) if on]
+
+
+def _prompt_add_external_path(state: WizardState) -> bool:
+    """Prompt once for an additional external path. Returns True iff one
+    was added (caller re-scans + re-renders). Returns False when the user
+    leaves the input blank.
+
+    Hard rule: paths MUST start with `~` or `/`. Relative paths are
+    CWD-dependent at runtime, so we reject them here with a clear error.
+    """
+    console.print()
+    console.print("  [dim]Add an external skills folder (tilde-prefixed or absolute, "
+                  "e.g. `~/team-skills` or `/opt/skills`).[/dim]")
+    raw = _prompt_with_hint("Leave empty to finish").strip()
+    if not raw:
+        return False
+    if not (raw.startswith("~") or raw.startswith("/")):
+        console.print(
+            f"    [red]✗[/red] {raw!r} must start with `~` or `/`. "
+            f"Relative paths are CWD-dependent and will WARN at runtime — use "
+            f"a tilde-prefixed or absolute path."
+        )
+        return True  # keep looping so user can fix
+    resolved = Path(os.path.expanduser(raw)).resolve()
+    if not resolved.exists() or not resolved.is_dir():
+        console.print(f"    [red]✗[/red] not a directory: {resolved}")
         return True
-    if path.is_dir():
-        if (path / "SKILL.md").is_file():
-            return True
-        for child in path.iterdir():
-            if child.is_dir() and (child / "SKILL.md").is_file():
-                return True
-    return False
-
-
-def _resolve_user_skill_names(sources: list[Path]) -> list[str]:
-    """Map user-supplied paths to the skill folder names they'll create
-    inside the new bundle's skills/ directory."""
-    names: list[str] = []
-    for src in sources:
-        if src.is_file() and src.suffix.lower() == ".md":
-            names.append(src.stem)
-            continue
-        if (src / "SKILL.md").is_file():
-            names.append(src.name)
-            continue
-        if src.is_dir():
-            for child in src.iterdir():
-                if child.is_dir() and (child / "SKILL.md").is_file():
-                    names.append(child.name)
-    return names
-
-
-def _skill_subtitle(skill_dir: Path) -> str:
-    """Description from SKILL.md frontmatter. Uncapped — long descriptions
-    wrap naturally in the picker's per-choice sublabel line."""
-    md = skill_dir / "SKILL.md"
-    try:
-        text = md.read_text(encoding="utf-8")
-        if text.startswith("---"):
-            parts = text.split("---", 2)
-            if len(parts) >= 3:
-                fm = yaml.safe_load(parts[1]) or {}
-                desc = (fm.get("description") or "").strip()
-                if desc:
-                    return desc
-    except Exception:
-        pass
-    return ""
+    paths = state.bot_cfg["skills"]["external_paths"]
+    if raw in paths:
+        console.print(f"    [dim]{raw} already added — skipping.[/dim]")
+        return True
+    paths.append(raw)
+    console.print(f"    [green]✓[/green] added {raw}")
+    return True
 
 
 # ── Step 4 — System Prompt (personality + ground rules) ───────────────────
@@ -873,25 +867,21 @@ def _step7_write(state: WizardState) -> Path:
     try:
         if state.mode == "edit" and target.exists():
             shutil.copytree(target, tmp, dirs_exist_ok=True)
-            existing_skills = tmp / "skills"
-            if existing_skills.exists():
-                shutil.rmtree(existing_skills)
+            # Legacy per-agent skills dir (pre-15.11). It's no longer used —
+            # skills live in the shared library ~/.brainchild/skills/. Clean
+            # up so the bundle doesn't ship orphaned copies.
+            legacy_skills = tmp / "skills"
+            if legacy_skills.exists():
+                shutil.rmtree(legacy_skills)
 
-        skills_dir = tmp / "skills"
-        for src in state.user_sources:
-            _copy_user_skill(src, skills_dir)
-        for src in state.bundled_skill_dirs:
-            dst = skills_dir / src.name
-            if dst.exists():
-                continue
-            shutil.copytree(src, dst)
-
+        # New skills block: `enabled: [names]` is canonical; `external_paths`
+        # survives from the input config (in-place edits during step 3);
+        # legacy `paths` key is dropped unconditionally.
         state.bot_cfg.setdefault("skills", {})
-        if skills_dir.exists():
-            state.bot_cfg["skills"]["paths"] = [f"agents/{state.name}/skills"]
-        else:
-            state.bot_cfg["skills"]["paths"] = []
+        state.bot_cfg["skills"]["enabled"] = list(state.enabled_skill_names)
+        state.bot_cfg["skills"].setdefault("external_paths", [])
         state.bot_cfg["skills"].setdefault("progressive_disclosure", True)
+        state.bot_cfg["skills"].pop("paths", None)
 
         _dump_yaml(state.bot_cfg, tmp / "config.yaml")
         face.write_if_missing(state.name, tmp / "portrait.txt")
@@ -913,22 +903,6 @@ def _step7_write(state: WizardState) -> Path:
         shutil.rmtree(backup, ignore_errors=True)
 
     return target
-
-
-def _copy_user_skill(src: Path, skills_root: Path) -> None:
-    """Copy a user-supplied skill source into the new bundle."""
-    skills_root.mkdir(parents=True, exist_ok=True)
-    if src.is_file() and src.suffix.lower() == ".md":
-        dst_dir = skills_root / src.stem
-        dst_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(src, dst_dir / "SKILL.md")
-        return
-    if (src / "SKILL.md").is_file():
-        shutil.copytree(src, skills_root / src.name, dirs_exist_ok=True)
-        return
-    for child in src.iterdir():
-        if child.is_dir() and (child / "SKILL.md").is_file():
-            shutil.copytree(child, skills_root / child.name, dirs_exist_ok=True)
 
 
 def _write_readme(path: Path, name: str, bot_cfg: dict) -> None:
@@ -984,7 +958,7 @@ def run(argv: list[str]) -> int:
 
         # Skills first so step 3 (MCPs) can lock MCPs required by chosen skills.
         console.clear()
-        _step3_skills(state, _base_dir(state))
+        _step3_skills(state)
 
         console.clear()
         _step2_mcps(state)

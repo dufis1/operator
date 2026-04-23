@@ -42,6 +42,7 @@ def test_disabled_server_for_tool_ignores_unknown_prefix():
     """Namespaced tool whose prefix isn't a disabled server returns None."""
     original = dict(config.DISABLED_MCP_SERVERS)
     try:
+        config.DISABLED_MCP_SERVERS.clear()
         config.DISABLED_MCP_SERVERS["linear"] = {}
         # Prefix doesn't match the only disabled server.
         assert disabled_server_for_tool("github__create_issue") is None

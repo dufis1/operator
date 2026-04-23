@@ -330,16 +330,24 @@ mcp_servers:
       User mentions use <@U01234567> syntax; convert display names via slack_get_users first. Raw @name strings don't ping.
       For summaries, lead with who-said-what (display name + one-line quote) rather than raw timestamps.
 
-# Skills — user's ~/.claude/skills auto-inherit first, then any bundled
-# claude-agent skills. The wizard (or first-run bootstrap) also pre-scans
-# ~/.claude/skills and confirms which to wire in; this path declaration is
-# what makes them loadable once confirmed. Order: user skills first so the
-# user's own definitions take precedence.
+# Skills — the claude agent is the one preset that reads the user's
+# ~/.claude/skills/ live via external_paths. No copy happens: edits to a
+# SKILL.md there propagate on next meeting join. The wizard picker scans
+# the shared library PLUS this external path so users can toggle any of
+# their Claude Code skills for this agent without moving files.
+#
+# enabled starts empty because we don't know what the user has in
+# ~/.claude/skills/ until first boot — the wizard populates it on `setup`.
+# Other agents have no external_paths by default; they only see the
+# shared library at ~/.brainchild/skills/.
+#
+# external_paths entries MUST be tilde-prefixed (`~/...`) or absolute
+# (`/...`) — relative paths are CWD-dependent and will WARN + skip.
 skills:
-  progressive_disclosure: true
-  paths:
+  enabled: []
+  external_paths:
     - ~/.claude/skills
-    - agents/claude/skills
+  progressive_disclosure: true
 
 # Ground rules — always-true constraints that bound every response. These
 # land at the end of the composed system prompt (after personality) so the

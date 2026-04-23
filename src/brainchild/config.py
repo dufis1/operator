@@ -54,9 +54,59 @@ GROUND_RULES  = (_config.get("ground_rules") or "").strip()
 SYSTEM_PROMPT = "\n\n".join(b for b in (PERSONALITY, GROUND_RULES) if b)
 
 # Skills
+#
+# Shape (Phase 15.11):
+#   skills:
+#     enabled: [name1, name2]          # skill names to activate for this agent
+#     external_paths: ["~/my-skills"]  # optional extra dirs (tilde-prefixed or absolute)
+#     progressive_disclosure: true
+#
+# Skills are resolved against the shared library at ~/.brainchild/skills/
+# plus each external_paths entry. See pipeline.skills.load_skills.
+#
+# Legacy `skills.paths: [...]` shape (pre-15.11) is still accepted — we
+# translate it in-memory: external_paths = the legacy list, enabled =
+# every skill name discovered by scanning those paths. A one-line INFO
+# nudges the user to re-run `brainchild setup` to update the file.
 _skills = _config.get("skills") or {}
-SKILLS_PATHS                 = _skills.get("paths") or []
+SKILLS_SHARED_LIBRARY         = Path.home() / ".brainchild" / "skills"
 SKILLS_PROGRESSIVE_DISCLOSURE = _skills.get("progressive_disclosure", True)
+
+_legacy_paths = _skills.get("paths")
+if "enabled" in _skills or "external_paths" in _skills:
+    # New shape — honor explicitly (absent keys default to empty lists).
+    SKILLS_ENABLED        = list(_skills.get("enabled") or [])
+    SKILLS_EXTERNAL_PATHS = list(_skills.get("external_paths") or [])
+elif _legacy_paths:
+    # Legacy shape — translate. Derive enabled names by scanning the paths.
+    from brainchild.pipeline.skills import _resolve_external_path, _scan_skills_dir
+    import logging as _skills_logging
+    _derived_names: list[str] = []
+    for _p in _legacy_paths:
+        # Legacy entries could be relative (e.g. "agents/pm/skills"); accept
+        # them here so upgrade doesn't break existing users. New shape
+        # (external_paths) rejects relative entries at load time.
+        _expanded = Path(os.path.expanduser(str(_p))).resolve()
+        for _sk in _scan_skills_dir(_expanded):
+            if _sk.name not in _derived_names:
+                _derived_names.append(_sk.name)
+    SKILLS_ENABLED = _derived_names
+    # Keep only tilde/absolute legacy entries as external_paths; relative
+    # ones can't be re-resolved reliably at runtime — drop them. The
+    # derived-enabled names above still work because the library copy
+    # (seeded on first run) will surface them.
+    SKILLS_EXTERNAL_PATHS = [
+        str(p) for p in _legacy_paths
+        if isinstance(p, str) and (p.startswith("~") or p.startswith("/"))
+    ]
+    _skills_logging.getLogger("config").info(
+        f"SKILLS: legacy 'paths' config shape detected — translating in-memory "
+        f"to enabled={SKILLS_ENABLED} + external_paths={SKILLS_EXTERNAL_PATHS}. "
+        f"Re-run `brainchild setup` to update the file."
+    )
+else:
+    SKILLS_ENABLED        = []
+    SKILLS_EXTERNAL_PATHS = []
 
 # Transcript (captions)
 _transcript = _config.get("transcript", {})

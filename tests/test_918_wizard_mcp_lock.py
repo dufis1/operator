@@ -101,11 +101,28 @@ def test_mcp_choice_with_lock_carries_caption():
     print("✓ _mcp_choice locks + captions when deps provided")
 
 
-# ── _required_mcps_from_skills aggregator ────────────────────────────────
+# ── _required_mcps_from_skills aggregator (Phase 15.11 shape) ──────────
+# State now carries `enabled_skill_names: list[str]` + the skills block in
+# `bot_cfg["skills"]["external_paths"]`. The aggregator resolves the names
+# via load_skills() which unions shared library + external_paths.
+import contextlib
 
 
-def _make_state(bundled: list[Path], users: list[Path]) -> WizardState:
-    # Minimal WizardState — only the skill-related fields matter for this helper.
+@contextlib.contextmanager
+def _no_shared_library():
+    """Redirect DEFAULT_SHARED_LIBRARY to a nonexistent path so the
+    aggregator doesn't pick up the real user library during tests.
+    """
+    from brainchild.pipeline import skills as skills_mod
+    original = skills_mod.DEFAULT_SHARED_LIBRARY
+    skills_mod.DEFAULT_SHARED_LIBRARY = Path("/nonexistent-test-lib-918")
+    try:
+        yield
+    finally:
+        skills_mod.DEFAULT_SHARED_LIBRARY = original
+
+
+def _make_state(enabled_names: list[str], external_paths: list[str]) -> WizardState:
     return WizardState(
         mode="new",
         name="test",
@@ -113,70 +130,58 @@ def _make_state(bundled: list[Path], users: list[Path]) -> WizardState:
         tagline="",
         based_on="pm",
         portrait="",
-        bot_cfg={},
-        bundled_skill_dirs=bundled,
-        user_sources=users,
+        bot_cfg={"skills": {"external_paths": external_paths}},
+        enabled_skill_names=enabled_names,
     )
 
 
-def test_required_mcps_aggregates_bundled():
-    """Bundled skill dirs contribute their mcp-required servers."""
-    with tempfile.TemporaryDirectory() as td:
+def test_required_mcps_aggregates_across_skills():
+    """Enabled skills' mcp-required lists aggregate into one map."""
+    with _no_shared_library(), tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        a = _write_skill(tmp, "a", ["figma"])
-        b = _write_skill(tmp, "b", ["figma", "github"])
-        c = _write_skill(tmp, "c", [])
-        state = _make_state(bundled=[a, b, c], users=[])
+        _write_skill(tmp, "a", ["figma"])
+        _write_skill(tmp, "b", ["figma", "github"])
+        _write_skill(tmp, "c", [])
+        state = _make_state(["a", "b", "c"], [str(tmp)])
         got = _required_mcps_from_skills(state)
         assert set(got.keys()) == {"figma", "github"}
         assert sorted(got["figma"]) == ["a", "b"]
         assert got["github"] == ["b"]
-    print("✓ required_mcps aggregates across bundled skills")
+    print("✓ required_mcps aggregates across enabled skills")
 
 
-def test_required_mcps_includes_user_sources_parent_dir():
-    """User-source path that's a parent of SKILL.md folders is walked."""
-    with tempfile.TemporaryDirectory() as td:
+def test_required_mcps_honors_enabled_filter():
+    """Only enabled skills contribute; discovered-but-not-enabled ones don't."""
+    with _no_shared_library(), tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        _write_skill(tmp / "parent", "x", ["linear"])
-        _write_skill(tmp / "parent", "y", ["sentry"])
-        state = _make_state(bundled=[], users=[tmp / "parent"])
+        _write_skill(tmp, "keep-me", ["linear"])
+        _write_skill(tmp, "drop-me", ["sentry"])  # not in enabled_names
+        state = _make_state(["keep-me"], [str(tmp)])
         got = _required_mcps_from_skills(state)
-        assert got == {"linear": ["x"], "sentry": ["y"]}
-    print("✓ required_mcps walks user-source parent dirs")
-
-
-def test_required_mcps_handles_single_md_file_source():
-    """User-source path pointing directly at a SKILL.md works."""
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td)
-        folder = _write_skill(tmp, "solo", ["github"])
-        state = _make_state(bundled=[], users=[folder / "SKILL.md"])
-        got = _required_mcps_from_skills(state)
-        assert got == {"github": ["solo"]}
-    print("✓ required_mcps handles direct SKILL.md file path")
-
-
-def test_required_mcps_dedups_skill_names():
-    """If the same skill appears in both bundled + user sources, it's listed once."""
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td)
-        folder = _write_skill(tmp, "dup", ["figma"])
-        state = _make_state(bundled=[folder], users=[folder])
-        got = _required_mcps_from_skills(state)
-        assert got == {"figma": ["dup"]}, f"expected dedup; got {got}"
-    print("✓ required_mcps dedups skill names per server")
+        assert got == {"linear": ["keep-me"]}
+    print("✓ required_mcps honors enabled filter")
 
 
 def test_required_mcps_empty_when_no_deps():
-    """Skills with no mcp-required contribute nothing."""
-    with tempfile.TemporaryDirectory() as td:
+    """Enabled skills with no mcp-required contribute nothing."""
+    with _no_shared_library(), tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
-        a = _write_skill(tmp, "a", [])
-        state = _make_state(bundled=[a], users=[])
+        _write_skill(tmp, "a", [])
+        state = _make_state(["a"], [str(tmp)])
         got = _required_mcps_from_skills(state)
         assert got == {}
     print("✓ required_mcps is empty when no skill declares deps")
+
+
+def test_required_mcps_empty_when_enabled_empty():
+    """Empty enabled list short-circuits to empty map."""
+    with _no_shared_library(), tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _write_skill(tmp, "a", ["figma"])  # discovered but not enabled
+        state = _make_state([], [str(tmp)])
+        got = _required_mcps_from_skills(state)
+        assert got == {}
+    print("✓ required_mcps empty when enabled=[]")
 
 
 if __name__ == "__main__":
@@ -184,9 +189,8 @@ if __name__ == "__main__":
     test_picker_locked_row_ignores_space_toggle()
     test_mcp_choice_without_lock_is_unlocked()
     test_mcp_choice_with_lock_carries_caption()
-    test_required_mcps_aggregates_bundled()
-    test_required_mcps_includes_user_sources_parent_dir()
-    test_required_mcps_handles_single_md_file_source()
-    test_required_mcps_dedups_skill_names()
+    test_required_mcps_aggregates_across_skills()
+    test_required_mcps_honors_enabled_filter()
     test_required_mcps_empty_when_no_deps()
+    test_required_mcps_empty_when_enabled_empty()
     print("\nAll test_918 checks passed.")

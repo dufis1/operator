@@ -1,8 +1,8 @@
-"""Auto-import helpers for the `claude` bundled agent — Phase 15.9.
+"""Auto-import helpers for the `claude` bundled agent — Phase 15.9, 15.11.
 
 Discovers the user's existing Claude Code configuration and returns
 structured records the wizard or first-run bootstrap can merge into the
-`claude` agent's config.yaml. Three discovery sources:
+`claude` agent's config.yaml. Two discovery sources:
 
   1. `~/.claude.json` top-level `mcpServers` (locally-configured stdio
      and HTTP/SSE MCPs). Often empty — Claude Code power users tend to
@@ -10,8 +10,12 @@ structured records the wizard or first-run bootstrap can merge into the
   2. `claude mcp list` (text output). This is the authoritative source
      for claude.ai-hosted MCPs (Gmail, Drive, Linear, etc.) that live
      in the user's claude.ai account connectors, not in any local file.
-  3. `~/.claude/skills/` and `~/.claude/CLAUDE.md` (skills + user-level
-     system prompt).
+
+Skills at `~/.claude/skills/` are NOT imported here as of Phase 15.11
+— the bundled claude config ships with
+`skills.external_paths: [~/.claude/skills]`, so the skills loader picks
+them up live without a copy. `read_user_claude_md()` stays because
+CLAUDE.md feeds `ground_rules`, not skills.
 
 Transport handling: Claude Code's MCPs may be stdio (local subprocess
 with `command`+`args`) or remote (HTTP / SSE via `url`). Brainchild's
@@ -47,7 +51,6 @@ _USER_CONFIG_CANDIDATES = [
     Path.home() / ".claude.json",
     Path.home() / ".claude" / "settings.json",
 ]
-_USER_SKILLS_DIR = Path.home() / ".claude" / "skills"
 _USER_CLAUDE_MD = Path.home() / ".claude" / "CLAUDE.md"
 
 
@@ -287,19 +290,6 @@ def discover_all_mcps() -> tuple[list[ImportedMCP], int]:
         if m.transport in ("http", "sse"):
             wrapped_cli += 1
     return out, wrapped_json + wrapped_cli
-
-
-def list_user_skills() -> list[Path]:
-    """Return paths to every ~/.claude/skills/<name>/ directory that has a
-    SKILL.md. Empty list if the skills dir is missing or empty.
-    """
-    if not _USER_SKILLS_DIR.is_dir():
-        return []
-    out: list[Path] = []
-    for sub in sorted(_USER_SKILLS_DIR.iterdir()):
-        if sub.is_dir() and (sub / "SKILL.md").is_file():
-            out.append(sub)
-    return out
 
 
 def read_user_claude_md() -> Optional[str]:

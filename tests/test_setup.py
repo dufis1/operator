@@ -102,49 +102,6 @@ def test_mcp_enabled_flip_round_trip():
 # ── 3. Skill copy — folder, single-file wrap, parent walk ─────────────────
 
 
-def test_skill_copy_folder():
-    """A folder with SKILL.md copies through with its folder name intact."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        src = _make_skill_folder(root / "srcs", "my-skill")
-        dst_root = root / "dst" / "skills"
-        wizard._copy_user_skill(src, dst_root)
-        assert (dst_root / "my-skill" / "SKILL.md").is_file()
-    print("  skill copy (folder): PASS")
-
-
-def test_skill_copy_single_md_wrap():
-    """A single .md file gets wrapped in a stem-named folder as SKILL.md."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        md = root / "lone-skill.md"
-        md.write_text("---\nname: lone\ndescription: d\n---\nbody\n", encoding="utf-8")
-        dst_root = root / "dst" / "skills"
-        wizard._copy_user_skill(md, dst_root)
-        wrapped = dst_root / "lone-skill" / "SKILL.md"
-        assert wrapped.is_file(), wrapped
-        assert "body" in wrapped.read_text(encoding="utf-8")
-    print("  skill copy (single file wrap): PASS")
-
-
-def test_skill_copy_parent_walk():
-    """A parent folder copies each child that has SKILL.md."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        parent = root / "srcs"
-        parent.mkdir()
-        _make_skill_folder(parent, "alpha")
-        _make_skill_folder(parent, "beta")
-        # Non-skill sibling should be ignored.
-        (parent / "not-a-skill").mkdir()
-        dst_root = root / "dst" / "skills"
-        wizard._copy_user_skill(parent, dst_root)
-        assert (dst_root / "alpha" / "SKILL.md").is_file()
-        assert (dst_root / "beta" / "SKILL.md").is_file()
-        assert not (dst_root / "not-a-skill").exists()
-    print("  skill copy (parent walk): PASS")
-
-
 # ── 4. Atomic write — rollback on build failure ──────────────────────────
 
 
@@ -163,28 +120,36 @@ def _make_state(name: str, mode: str = "edit", **overrides) -> "wizard.WizardSta
         based_on="pm" if mode == "new" else name,
         portrait="placeholder",
         bot_cfg=bot_cfg,
-        user_sources=[],
-        bundled_skill_dirs=[],
+        enabled_skill_names=[],
     )
     defaults.update(overrides)
     return wizard.WizardState(**defaults)
 
 
 def test_atomic_write_rollback_on_build_failure():
-    """If build fails mid-flight, the target dir is untouched and no tmpdir lingers."""
+    """If build fails mid-flight, the target dir is untouched and no tmpdir lingers.
+
+    Forces a failure by monkey-patching `face.write_if_missing` to raise —
+    it's called after the skills block is resolved but before the final
+    rename into place, so the rollback path exercises cleanup fully.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         sandbox = Path(tmp) / "agents"
         sandbox.mkdir()
         original_agents_dir = wizard._AGENTS_DIR
+        original_write_if_missing = wizard.face.write_if_missing
         wizard._AGENTS_DIR = sandbox
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("forced build failure")
+        wizard.face.write_if_missing = _boom
+
         try:
             target = sandbox / "victim"
             target.mkdir()
             (target / "sentinel.txt").write_text("keep-me", encoding="utf-8")
 
-            # Bogus user source → _copy_user_skill raises mid-build.
-            bogus = Path(tmp) / "nope"
-            state = _make_state("victim", mode="edit", user_sources=[bogus])
+            state = _make_state("victim", mode="edit")
 
             raised = False
             try:
@@ -192,7 +157,7 @@ def test_atomic_write_rollback_on_build_failure():
             except Exception:
                 raised = True
 
-            assert raised, "expected exception on bogus source"
+            assert raised, "expected exception during build"
             assert (target / "sentinel.txt").read_text(encoding="utf-8") == "keep-me"
             stray = [p for p in sandbox.iterdir() if p.name.startswith(".victim.tmp-")]
             assert not stray, f"tempdir not cleaned up: {stray}"
@@ -200,6 +165,7 @@ def test_atomic_write_rollback_on_build_failure():
             assert not baks, f"backup left behind: {baks}"
         finally:
             wizard._AGENTS_DIR = original_agents_dir
+            wizard.face.write_if_missing = original_write_if_missing
     print("  atomic write rollback: PASS")
 
 
@@ -258,7 +224,9 @@ def test_from_scratch_write_creates_bundle():
             assert (out / "portrait.txt").is_file()
             assert (out / "README.md").is_file()
             loaded = wizard._load_yaml(out / "config.yaml")
-            assert loaded["skills"]["paths"] == []
+            assert loaded["skills"]["enabled"] == []
+            assert loaded["skills"]["external_paths"] == []
+            assert "paths" not in loaded["skills"]
         finally:
             wizard._AGENTS_DIR = original_agents_dir
     print("  from-scratch write: PASS")
@@ -285,8 +253,8 @@ def test_env_append_preserves_existing():
 
 
 def test_wizard_state_equipped_views():
-    """equipped_mcps reflects `enabled` flags; equipped_skills concatenates
-    user-supplied names + bundled folder names."""
+    """equipped_mcps reflects `enabled` flags; equipped_skills reflects
+    state.enabled_skill_names (the Phase 15.11 single source of truth)."""
     cfg = {
         "mcp_servers": {
             "linear": {"enabled": True},
@@ -294,54 +262,22 @@ def test_wizard_state_equipped_views():
             "github": {"enabled": True},
         },
     }
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        # Two bundled skill dirs and one user-added folder.
-        bundled1 = _make_skill_folder(root / "b", "alpha")
-        bundled2 = _make_skill_folder(root / "b", "beta")
-        user = _make_skill_folder(root / "u", "user-skill")
-
-        state = wizard.WizardState(
-            mode="new",
-            name="researcher",
-            display_name="Researcher",
-            tagline="t",
-            based_on="pm",
-            portrait="placeholder",
-            bot_cfg=cfg,
-            user_sources=[user],
-            bundled_skill_dirs=[bundled1, bundled2],
-        )
-        assert state.equipped_mcps() == ["linear", "github"]
-        assert state.equipped_skills() == ["user-skill", "alpha", "beta"]
-        # Card renders without raising; smoke test.
-        assert state.card() is not None
-        assert state.card(mcps=["only-this"]) is not None
+    state = wizard.WizardState(
+        mode="new",
+        name="researcher",
+        display_name="Researcher",
+        tagline="t",
+        based_on="pm",
+        portrait="placeholder",
+        bot_cfg=cfg,
+        enabled_skill_names=["alpha", "beta", "gamma"],
+    )
+    assert state.equipped_mcps() == ["linear", "github"]
+    assert state.equipped_skills() == ["alpha", "beta", "gamma"]
+    # Card renders without raising; smoke test.
+    assert state.card() is not None
+    assert state.card(mcps=["only-this"]) is not None
     print("  wizard state equipped views: PASS")
-
-
-# ── 9. _resolve_user_skill_names — three input shapes ────────────────────
-
-
-def test_resolve_user_skill_names():
-    """Resolves to: <stem> for .md, <name> for SKILL.md folder,
-    each child for parent walks."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        md = root / "lone.md"
-        md.write_text("---\nname: lone\ndescription: d\n---\n", encoding="utf-8")
-        folder = _make_skill_folder(root, "single-folder")
-        parent = root / "many"
-        parent.mkdir()
-        _make_skill_folder(parent, "child-a")
-        _make_skill_folder(parent, "child-b")
-
-        names = wizard._resolve_user_skill_names([md, folder, parent])
-        assert "lone" in names
-        assert "single-folder" in names
-        assert "child-a" in names
-        assert "child-b" in names
-    print("  resolve user skill names: PASS")
 
 
 # ── 10. Reveal — placeholder swaps for real portrait ─────────────────────
@@ -501,7 +437,7 @@ def test_collect_env_refs_from_enabled_servers():
     }
     state = wizard.WizardState(
         mode="new", name="x", display_name="X", tagline="", based_on="pm",
-        portrait="placeholder", bot_cfg=cfg, user_sources=[], bundled_skill_dirs=[],
+        portrait="placeholder", bot_cfg=cfg, enabled_skill_names=[],
     )
     refs = wizard._collect_env_refs(state)
     assert refs == {"LINEAR_API_KEY", "GITHUB_TOKEN"}, refs
@@ -525,7 +461,7 @@ def test_collect_env_refs_skips_disabled_servers():
     }
     state = wizard.WizardState(
         mode="new", name="x", display_name="X", tagline="", based_on="pm",
-        portrait="placeholder", bot_cfg=cfg, user_sources=[], bundled_skill_dirs=[],
+        portrait="placeholder", bot_cfg=cfg, enabled_skill_names=[],
     )
     refs = wizard._collect_env_refs(state)
     assert refs == {"KEEP_THIS"}, refs
@@ -536,49 +472,10 @@ def test_collect_env_refs_empty_when_no_mcps():
     """A bot with no mcp_servers section yields the empty set."""
     state = wizard.WizardState(
         mode="new", name="x", display_name="X", tagline="", based_on="pm",
-        portrait="placeholder", bot_cfg={}, user_sources=[], bundled_skill_dirs=[],
+        portrait="placeholder", bot_cfg={}, enabled_skill_names=[],
     )
     assert wizard._collect_env_refs(state) == set()
     print("  collect_env_refs empty when no mcps: PASS")
-
-
-# ── 15. _is_valid_skill_source (S4) ───────────────────────────────────────
-
-
-def test_is_valid_skill_source_accepts_three_shapes():
-    """.md file, SKILL.md folder, and parent-of-SKILL.md all validate."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        md = root / "lone.md"
-        md.write_text("---\nname: lone\ndescription: d\n---\n", encoding="utf-8")
-        folder = _make_skill_folder(root, "single")
-        parent = root / "parent"
-        parent.mkdir()
-        _make_skill_folder(parent, "kid")
-
-        assert wizard._is_valid_skill_source(md) is True, "md file should validate"
-        assert wizard._is_valid_skill_source(folder) is True, "SKILL.md folder should validate"
-        assert wizard._is_valid_skill_source(parent) is True, "parent-of-SKILL.md should validate"
-    print("  is_valid_skill_source accepts three shapes: PASS")
-
-
-def test_is_valid_skill_source_rejects_unrelated_paths():
-    """Random folder without SKILL.md and non-md file return False."""
-    with tempfile.TemporaryDirectory() as tmp:
-        root = Path(tmp)
-        empty_dir = root / "empty"
-        empty_dir.mkdir()
-        txt = root / "notes.txt"
-        txt.write_text("not a skill", encoding="utf-8")
-        readme = root / "README.md"  # md file but let's see: _is_valid accepts any .md
-        readme.write_text("plain readme", encoding="utf-8")
-
-        assert wizard._is_valid_skill_source(empty_dir) is False
-        assert wizard._is_valid_skill_source(txt) is False
-        # README.md is technically accepted by the .md shape — confirm so
-        # future readers know the validator doesn't re-check frontmatter here.
-        assert wizard._is_valid_skill_source(readme) is True
-    print("  is_valid_skill_source rejects non-skill paths: PASS")
 
 
 # ── 16. build_card.render + _wrap_cells (S5) ──────────────────────────────
@@ -642,15 +539,11 @@ if __name__ == "__main__":
     print("Setup wizard tests:")
     test_name_validation_reserved_and_collision()
     test_mcp_enabled_flip_round_trip()
-    test_skill_copy_folder()
-    test_skill_copy_single_md_wrap()
-    test_skill_copy_parent_walk()
     test_atomic_write_rollback_on_build_failure()
     test_edit_in_place_swap_cleans_backup()
     test_from_scratch_write_creates_bundle()
     test_env_append_preserves_existing()
     test_wizard_state_equipped_views()
-    test_resolve_user_skill_names()
     test_reveal_swaps_portrait()
     test_picker_select_one_with_key_source()
     test_picker_select_many_with_key_source()
@@ -663,8 +556,6 @@ if __name__ == "__main__":
     test_collect_env_refs_from_enabled_servers()
     test_collect_env_refs_skips_disabled_servers()
     test_collect_env_refs_empty_when_no_mcps()
-    test_is_valid_skill_source_accepts_three_shapes()
-    test_is_valid_skill_source_rejects_unrelated_paths()
     test_build_card_render_panel_mode()
     test_build_card_empty_bullets_show_placeholder()
     test_wrap_cells_hard_splits_oversized_token()

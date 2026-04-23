@@ -17,6 +17,8 @@ from pathlib import Path
 
 _AGENTS_DIR = Path.home() / ".brainchild" / "agents"
 _BUNDLED_AGENTS_DIR = Path(__file__).resolve().parent / "agents"
+_SKILLS_DIR = Path.home() / ".brainchild" / "skills"
+_BUNDLED_SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 
 
 def _bootstrap_claude_imports() -> None:
@@ -109,6 +111,28 @@ def _ensure_user_agents():
         if not bundled.is_dir():
             continue
         dest = _AGENTS_DIR / bundled.name
+        if not dest.exists():
+            shutil.copytree(bundled, dest)
+
+
+def _ensure_user_skills():
+    """Sync-on-every-run: copy any bundled skill that is missing from the
+    user's ~/.brainchild/skills/ dir. Existing user skills are never touched
+    or overwritten — only missing ones are seeded.
+
+    Same shape as `_ensure_user_agents` — additive, non-destructive. A user
+    who edits a bundled skill post-seed keeps their edits on subsequent
+    runs. A user who deletes a bundled skill sees it reappear on next run
+    (matches the agents-dir behavior).
+    """
+    import shutil
+    if not _BUNDLED_SKILLS_DIR.exists():
+        return
+    _SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+    for bundled in _BUNDLED_SKILLS_DIR.iterdir():
+        if not bundled.is_dir():
+            continue
+        dest = _SKILLS_DIR / bundled.name
         if not dest.exists():
             shutil.copytree(bundled, dest)
 
@@ -312,6 +336,7 @@ from brainchild.pipeline.auth import (
 
 def main():
     _ensure_user_agents()
+    _ensure_user_skills()
     argv = sys.argv[1:]
 
     if not argv or argv[0] in ("-h", "--help"):
@@ -409,7 +434,11 @@ def _run_try(name):
     from brainchild.pipeline.providers import build_provider
     from brainchild.pipeline.skills import load_skills
 
-    skills = load_skills(config.SKILLS_PATHS)
+    skills = load_skills(
+        config.SKILLS_ENABLED,
+        external_paths=config.SKILLS_EXTERNAL_PATHS,
+        shared_library_dir=config.SKILLS_SHARED_LIBRARY,
+    )
     _print_startup_banner(skills)
 
     llm = LLMClient(build_provider())
@@ -578,7 +607,11 @@ def _run_macos(meeting_url=None, force=False):
     # the system prompt, and so the banner can show skill count before MCP
     # connects. Banner prints immediately after, as the boot splash.
     from brainchild.pipeline.skills import load_skills
-    skills = load_skills(config.SKILLS_PATHS)
+    skills = load_skills(
+        config.SKILLS_ENABLED,
+        external_paths=config.SKILLS_EXTERNAL_PATHS,
+        shared_library_dir=config.SKILLS_SHARED_LIBRARY,
+    )
     _print_startup_banner(skills)
     ui.say("Launching Chrome…")
 
@@ -752,7 +785,11 @@ def _run_linux(meeting_url, force=False):
     from brainchild import config
 
     from brainchild.pipeline.skills import load_skills
-    skills = load_skills(config.SKILLS_PATHS)
+    skills = load_skills(
+        config.SKILLS_ENABLED,
+        external_paths=config.SKILLS_EXTERNAL_PATHS,
+        shared_library_dir=config.SKILLS_SHARED_LIBRARY,
+    )
     _print_startup_banner(skills)
     ui.say("Launching Chromium…")
 

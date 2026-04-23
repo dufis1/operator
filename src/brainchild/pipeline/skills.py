@@ -1,33 +1,45 @@
 """
 Skill loader — reads Claude Code-style SKILL.md folders for Brainchild.
 
-Each skill lives in a folder with a `SKILL.md` file whose YAML frontmatter
-declares:
+Skill library model (Phase 15.11, session 152):
+  - Shared library at ~/.brainchild/skills/<name>/SKILL.md (one per user,
+    shared across all agents). Seeded on first run from the bundled package.
+  - Optional per-agent `external_paths` list declared in config.yaml
+    (skills.external_paths). Entries must be tilde-prefixed (`~/…`) or
+    absolute (`/…`); relative paths are CWD-dependent and WARN + skipped.
+  - Agent config names the skills it uses via `skills.enabled: [names]`.
 
+Resolution order (last-wins for name collisions):
+  1. Shared library.
+  2. Each external_paths entry, in list order.
+
+So an agent can override a library skill by pointing at an external path
+containing a same-named SKILL.md — the external one wins. Useful for
+testing a local skill variant without touching the library copy.
+
+SKILL.md frontmatter:
   - `name` — required. Unique identifier shown in the wizard + LLM prompts.
-  - `description` — required. Trigger-phrase-first one-liner the LLM matches
-    against. Lead with the phrases that should fire the skill.
-  - `allowed-tools` — optional list/csv. Non-MCP tool hints; anything outside
-    SUPPORTED_ALLOWED_TOOLS logs a WARN but still loads.
-  - `mcp-required` (alias `mcp_required`) — optional list/csv of MCP server
-    names this skill fundamentally depends on. Consumed by the setup wizard
-    to lock the matching MCP toggles on (you can't disable an MCP a chosen
-    skill needs — remove the skill first). Missing = no declared deps
-    (honest default). User-authored skills that omit this field load
-    unconditionally; the runtime safety net in mcp_client.execute_tool
-    raises an actionable "server disabled" error if the LLM actually tries
-    to call a tool from a disabled server.
+  - `description` — required. Trigger-phrase-first one-liner the LLM
+    matches against. Lead with the phrases that should fire the skill.
+  - `allowed-tools` — optional list/csv. Non-MCP tool hints; anything
+    outside SUPPORTED_ALLOWED_TOOLS logs a WARN but still loads.
+  - `mcp-required` (alias `mcp_required`) — optional list/csv of MCP
+    server names this skill fundamentally relies on. Consumed by the
+    setup wizard to lock matching MCP toggles on. Missing = no declared
+    deps (honest default). User-authored skills that omit this field
+    load unconditionally; the runtime safety net in
+    mcp_client.disabled_server_for_tool raises an actionable
+    "server disabled" error if the LLM actually tries to call a tool
+    from a disabled server.
 
-The remainder of the file is the skill body — free-form instructions fed to
-the LLM when the skill is invoked.
+The remainder of the file is the skill body — free-form instructions fed
+to the LLM when the skill is invoked.
 
-Two path shapes are supported in `config.SKILLS_PATHS`:
+A skill location can be either shape:
   - A folder containing SKILL.md  → single skill.
-  - A parent folder                → scanned one level deep for */SKILL.md.
+  - A parent folder               → scanned one level deep for */SKILL.md.
 
 Malformed or missing entries WARN and are skipped rather than crashing.
-Duplicate names across paths resolve last-wins so users can order their
-`skills:` list broader → more specific to layer overrides.
 """
 from __future__ import annotations
 
@@ -44,6 +56,9 @@ log = logging.getLogger(__name__)
 # Bash/Edit/Write/Read) because the meeting bot can't honour those — the skill
 # still loads; the model may decline to use it.
 SUPPORTED_ALLOWED_TOOLS = {"load_skill"}
+
+# Default shared-library location. Overridable for tests.
+DEFAULT_SHARED_LIBRARY = Path.home() / ".brainchild" / "skills"
 
 
 @dataclass
@@ -131,59 +146,122 @@ def _parse_skill_md(path: Path) -> Skill | None:
     )
 
 
-def _resolve_entry(entry: str) -> list[Path]:
-    """Resolve one config entry to a list of SKILL.md file paths."""
-    root = Path(os.path.expanduser(entry)).resolve()
-    if not root.exists() or not root.is_dir():
-        log.warning(f"SKILLS: path not found or not a directory: {entry} — skipping")
-        return []
+def _resolve_external_path(entry: str) -> Path | None:
+    """Resolve an external_paths entry; None if invalid or missing.
 
+    Entries must be tilde-prefixed (starts with `~`) or absolute (starts
+    with `/`). Relative paths would resolve against the process CWD, which
+    is unreliable for a long-running meeting bot — WARN and skip.
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        log.warning(f"SKILLS: external_paths entry is empty or non-string — skipping")
+        return None
+    raw = entry.strip()
+    # Tilde-prefixed is treated as absolute once expanded.
+    if not (raw.startswith("~") or raw.startswith("/")):
+        log.warning(
+            f"SKILLS: external_paths entry {raw!r} is not tilde-prefixed or "
+            f"absolute — skipping. Use `~/...` or `/...` (relative paths are "
+            f"CWD-dependent and unreliable)."
+        )
+        return None
+    p = Path(os.path.expanduser(raw)).resolve()
+    if not p.exists() or not p.is_dir():
+        log.warning(f"SKILLS: external_paths entry {raw!r} not found — skipping")
+        return None
+    return p
+
+
+def _scan_skills_dir(root: Path) -> list[Skill]:
+    """Scan one directory for SKILL.md files. Returns all parsed Skill objects.
+
+    Accepts both shapes:
+      - root/SKILL.md       → a single-skill folder.
+      - root/*/SKILL.md     → a parent folder with one skill per child dir.
+    """
+    results: list[Skill] = []
+    if not root.is_dir():
+        return results
     direct = root / "SKILL.md"
     if direct.is_file():
-        return [direct]
+        sk = _parse_skill_md(direct)
+        if sk:
+            results.append(sk)
+        return results
+    for child in sorted(root.iterdir()):
+        if child.is_dir() and (child / "SKILL.md").is_file():
+            sk = _parse_skill_md(child / "SKILL.md")
+            if sk:
+                results.append(sk)
+    return results
 
-    children = sorted(
-        p for p in root.iterdir()
-        if p.is_dir() and (p / "SKILL.md").is_file()
-    )
-    if not children:
-        log.warning(f"SKILLS: no SKILL.md found under {entry} — skipping")
-        return []
-    return [c / "SKILL.md" for c in children]
 
+def load_skills(
+    enabled_names: list[str] | None,
+    external_paths: list[str] | None = None,
+    shared_library_dir: Path | None = None,
+) -> list[Skill]:
+    """Load skills from shared library + external_paths, filtered by enabled_names.
 
-def load_skills(paths: list[str]) -> list[Skill]:
-    """Load all skills declared in config. Duplicates resolve last-wins."""
-    if not paths:
-        return []
+    Args:
+      enabled_names: names to keep. None means "return all discovered."
+      external_paths: list of extra paths to scan. Tilde-prefixed or
+        absolute; relative paths WARN + skip.
+      shared_library_dir: override ~/.brainchild/skills/ (used by tests).
+
+    Returns at most one Skill per name. Name collisions resolve last-wins
+    in source order: shared library first, then each external path. So
+    an external path's same-named skill overrides the library's.
+
+    Unknown enabled names WARN once and are silently dropped from the
+    result (the LLM is unaffected; they simply don't appear in the
+    system prompt).
+    """
+    if shared_library_dir is None:
+        shared_library_dir = DEFAULT_SHARED_LIBRARY
+
+    source_dirs: list[Path] = []
+    shared = Path(shared_library_dir).expanduser().resolve()
+    if shared.exists() and shared.is_dir():
+        source_dirs.append(shared)
+
+    for entry in (external_paths or []):
+        p = _resolve_external_path(entry)
+        if p is not None:
+            source_dirs.append(p)
 
     by_name: dict[str, Skill] = {}
-    attempted = 0
-
-    for entry in paths:
-        for md in _resolve_entry(entry):
-            attempted += 1
-            skill = _parse_skill_md(md)
-            if not skill:
-                continue
-            if skill.name in by_name:
-                prev = by_name[skill.name].source_path
-                log.warning(
-                    f"SKILLS: duplicate name {skill.name!r} — "
-                    f"{skill.source_path} overrides {prev} (last-wins)"
+    for src in source_dirs:
+        for sk in _scan_skills_dir(src):
+            if sk.name in by_name:
+                prev = by_name[sk.name].source_path
+                log.info(
+                    f"SKILLS: {sk.name!r} from {sk.source_path} "
+                    f"overrides {prev} (last-wins)"
                 )
-            by_name[skill.name] = skill
+            by_name[sk.name] = sk
 
-    skills = list(by_name.values())
-    _log_banner(skills, attempted)
-    return skills
+    discovered = list(by_name.values())
+
+    if enabled_names is None:
+        selected = discovered
+    else:
+        missing = [n for n in enabled_names if n not in by_name]
+        for n in missing:
+            log.warning(
+                f"SKILLS: enabled skill {n!r} not found in library or "
+                f"external_paths — skipping"
+            )
+        selected = [by_name[n] for n in enabled_names if n in by_name]
+
+    _log_banner(selected, discovered)
+    return selected
 
 
-def _log_banner(skills: list[Skill], attempted: int):
+def _log_banner(selected: list[Skill], discovered: list[Skill]) -> None:
     """Mirror the MCP startup banner shape."""
-    loaded = len(skills)
-    if attempted == 0:
-        log.info("SKILLS: no skill paths configured")
+    if not discovered:
+        log.info("SKILLS: no skills discovered in library or external_paths")
         return
-    names = ", ".join(f"{s.name} ✓" for s in skills)
-    log.info(f"SKILLS: {loaded}/{attempted} loaded ({names})")
+    names = ", ".join(f"{s.name} ✓" for s in selected)
+    log.info(f"SKILLS: {len(selected)}/{len(discovered)} enabled ({names})")

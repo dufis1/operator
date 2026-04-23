@@ -131,7 +131,8 @@ def test_happy_path_parses_fields():
     assert mod.LLM_MODEL == "gpt-4o-mini"
     assert mod.HISTORY_MESSAGES == 40               # default
     assert mod.CAPTIONS_ENABLED is False            # default
-    assert mod.SKILLS_PATHS == []                   # default
+    assert mod.SKILLS_ENABLED == []                 # default
+    assert mod.SKILLS_EXTERNAL_PATHS == []           # default
     assert mod.SKILLS_PROGRESSIVE_DISCLOSURE is True  # default
     assert mod.MCP_SERVERS == {}                    # no servers configured
     # Internal tuning constants are always present
@@ -277,6 +278,97 @@ mcp_servers:
 
 
 # ---------------------------------------------------------------------------
+# Skills — new shape (Phase 15.11) and legacy-paths migration
+# ---------------------------------------------------------------------------
+
+
+def test_skills_new_shape_parses():
+    """`skills.enabled + external_paths` parse directly, no migration."""
+    yaml_text = MIN_YAML + """
+skills:
+  enabled: [alpha, beta]
+  external_paths:
+    - ~/my-skills
+  progressive_disclosure: false
+"""
+    mod, _ = load_config(yaml_text)
+    assert mod.SKILLS_ENABLED == ["alpha", "beta"]
+    assert mod.SKILLS_EXTERNAL_PATHS == ["~/my-skills"]
+    assert mod.SKILLS_PROGRESSIVE_DISCLOSURE is False
+    print("PASS  test_skills_new_shape_parses")
+
+
+def test_skills_legacy_paths_migrates_in_memory():
+    """Legacy `skills.paths` translates to enabled + external_paths at load time.
+
+    Only tilde/absolute entries survive as external_paths; relative ones drop.
+    Enabled names are derived by scanning the legacy paths. This test writes
+    a SKILL.md into a tilde-expanded path so the derivation has something to
+    pick up — the load_config helper already redirects HOME to a tmp dir, so
+    '~/seed-skill' resolves safely inside the sandbox.
+    """
+    # We'll need to seed a skill dir that's tilde-reachable. Because
+    # load_config redirects HOME inside the sandbox, we plant the skill
+    # there by pre-creating it under the sandboxed HOME.
+    # Roll our own minimal loader to avoid retrofitting load_config.
+    import importlib.util
+    import shutil as _shutil
+    import tempfile as _tempfile
+
+    tmp = Path(_tempfile.mkdtemp())
+    try:
+        # Seed sandboxed HOME + agent config + a tilde-reachable skill.
+        agents_root = tmp / ".brainchild" / "agents" / "testbot"
+        agents_root.mkdir(parents=True)
+        agents_root.joinpath("config.yaml").write_text(MIN_YAML + """
+skills:
+  paths:
+    - ~/seed-skill
+    - agents/pm/skills
+""")
+        skill_dir = tmp / "seed-skill" / "prd-drafter"
+        skill_dir.mkdir(parents=True)
+        skill_dir.joinpath("SKILL.md").write_text(
+            "---\nname: prd-drafter\ndescription: draft a PRD.\n---\nbody\n"
+        )
+
+        saved = {k: os.environ.get(k) for k in ("BRAINCHILD_BOT", "HOME")}
+        try:
+            os.environ["BRAINCHILD_BOT"] = "testbot"
+            os.environ["HOME"] = str(tmp)
+            spec = importlib.util.spec_from_file_location(f"config_legacy_{id(tmp)}", REAL_CONFIG_PY)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+
+            # Enabled derived from scanning the legacy paths (only ~/seed-skill
+            # has a resolvable SKILL.md; agents/pm/skills is relative + cwd-
+            # dependent and may or may not resolve — the enabled list still
+            # contains prd-drafter from the tilde path).
+            assert "prd-drafter" in mod.SKILLS_ENABLED, mod.SKILLS_ENABLED
+            # External paths only retain the tilde-prefixed entry; the
+            # relative 'agents/pm/skills' is dropped.
+            assert mod.SKILLS_EXTERNAL_PATHS == ["~/seed-skill"], mod.SKILLS_EXTERNAL_PATHS
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        _shutil.rmtree(tmp)
+    print("PASS  test_skills_legacy_paths_migrates_in_memory")
+
+
+def test_skills_absent_block_defaults_empty():
+    """Config with no `skills:` block → both lists empty, progressive True."""
+    mod, _ = load_config(MIN_YAML)
+    assert mod.SKILLS_ENABLED == []
+    assert mod.SKILLS_EXTERNAL_PATHS == []
+    assert mod.SKILLS_PROGRESSIVE_DISCLOSURE is True
+    print("PASS  test_skills_absent_block_defaults_empty")
+
+
+# ---------------------------------------------------------------------------
 # Run all
 # ---------------------------------------------------------------------------
 
@@ -290,6 +382,9 @@ if __name__ == "__main__":
         test_mcp_servers_filter_and_overrides,
         test_mcp_env_strips_unsafe_keys,
         test_relativize_home_renders_tilde,
+        test_skills_new_shape_parses,
+        test_skills_legacy_paths_migrates_in_memory,
+        test_skills_absent_block_defaults_empty,
     ]
     failures = []
     for t in tests:
