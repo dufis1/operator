@@ -19,21 +19,91 @@ _AGENTS_DIR = Path.home() / ".brainchild" / "agents"
 _BUNDLED_AGENTS_DIR = Path(__file__).resolve().parent / "agents"
 
 
-def _ensure_user_agents():
-    """First-run hook: seed ~/.brainchild/agents/ from the bundled agents.
+def _bootstrap_claude_imports() -> None:
+    """First-run Claude Code auto-import for the `claude` agent — Phase 15.9.
 
-    Runs from main() before any CLI dispatch. If the user agents dir is
-    missing or has no bot with a config.yaml, copies every bundled bot
-    (pm, engineer, designer) in one shot — single pick framing was a reach,
-    so it's all-three-every-time. No-op once the user has at least one bot.
+    Loads ~/.brainchild/agents/claude/config.yaml, merges in any MCPs
+    discovered from the user's `~/.claude.json` and `claude mcp list`
+    output, and appends commented env-var placeholders to ~/.brainchild/.env
+    for any unset vars the imported MCPs reference.
+
+    Idempotent via `_claude_import_done: true` in the agent config — first
+    run does the work, subsequent runs skip entirely (important: keeps
+    the ~3s `claude mcp list` shell-out off the hot path for every boot).
+
+    Comments in config.yaml are lost on the first write (PyYAML drops
+    them on round-trip); matches the wizard's existing write behavior.
+    """
+    cfg_path = _AGENTS_DIR / "claude" / "config.yaml"
+    if not cfg_path.is_file():
+        return
+
+    import yaml
+    try:
+        with cfg_path.open(encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return
+
+    if cfg.get("_claude_import_done"):
+        return
+
+    from brainchild.pipeline.claude_code_import import (
+        append_env_placeholders,
+        discover_all_mcps,
+    )
+
+    mcps, wrapped = discover_all_mcps()
+    servers = cfg.setdefault("mcp_servers", {})
+    added: list[str] = []
+    env_refs: set[str] = set()
+    for m in mcps:
+        if m.name in servers:
+            continue
+        servers[m.name] = m.block
+        added.append(m.name)
+        env_refs.update(m.env_vars_referenced)
+
+    env_file = Path.home() / ".brainchild" / ".env"
+    placeheld: list[str] = []
+    if env_refs:
+        placeheld = append_env_placeholders(sorted(env_refs), env_file)
+
+    cfg["_claude_import_done"] = True
+    try:
+        with cfg_path.open("w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, sort_keys=False, allow_unicode=True)
+    except OSError as e:
+        print(f"[claude] WARN: could not write {cfg_path}: {e}", file=sys.stderr)
+        return
+
+    if added:
+        msg = f"[claude] auto-imported {len(added)} MCP(s): {', '.join(added)}"
+        if wrapped:
+            msg += f" ({wrapped} hosted, wrapped via mcp-remote)"
+        print(msg, file=sys.stderr)
+    if placeheld:
+        print(
+            f"[claude] added {len(placeheld)} env placeholder(s) to {env_file}: "
+            f"{', '.join(placeheld)} — edit the file to fill in values.",
+            file=sys.stderr,
+        )
+
+
+def _ensure_user_agents():
+    """Sync-on-every-run: copy any bundled bot that is missing from the
+    user's ~/.brainchild/agents/ dir. Existing user bots are never touched
+    or overwritten — only missing ones are seeded.
+
+    Runs from main() before any CLI dispatch. This keeps new bundled agents
+    (e.g., `claude` added post-first-run) discoverable by existing users
+    without forcing them to delete their agents dir. Tradeoff: if a user
+    deliberately deletes a bundled bot, it reappears on next run — delete
+    it again, or configure around it.
     """
     import shutil
     if not _BUNDLED_AGENTS_DIR.exists():
         return
-    if _AGENTS_DIR.exists():
-        for p in _AGENTS_DIR.iterdir():
-            if p.is_dir() and (p / "config.yaml").is_file():
-                return
     _AGENTS_DIR.mkdir(parents=True, exist_ok=True)
     for bundled in _BUNDLED_AGENTS_DIR.iterdir():
         if not bundled.is_dir():
@@ -425,6 +495,30 @@ def _run_bot(name, rest):
         else:
             print(f"Unexpected argument: {arg}")
             return 2
+
+    # Claude agent — Phase 15.9 hard-fail gate. The `claude` bundled agent's
+    # entire identity is "inherit your Claude Code setup." If Claude Code
+    # isn't installed or the user isn't logged in, there's nothing for the
+    # agent to be. Fail loudly before any config loads or browser spins up.
+    # Other agents bypass this check entirely.
+    if name == "claude":
+        from brainchild.pipeline.claude_code_import import (
+            claude_code_installed_and_logged_in,
+        )
+        ok, reason = claude_code_installed_and_logged_in()
+        if not ok:
+            print(
+                f"\nThe `claude` agent requires the Claude Code CLI.\n"
+                f"  {reason}\n"
+                f"\nInstall Claude Code (https://claude.ai/code) and run "
+                f"`claude login`, then re-run `brainchild run claude`.\n",
+                file=sys.stderr,
+            )
+            return 2
+        # First-run auto-import of Claude Code MCPs (+ env placeholders).
+        # Idempotent via a marker in config.yaml; safe to call every run
+        # but skips the ~3s `claude mcp list` shell-out after first run.
+        _bootstrap_claude_imports()
 
     # MUST be set before any `from brainchild import config` fires in the pipeline modules.
     os.environ["BRAINCHILD_BOT"] = name

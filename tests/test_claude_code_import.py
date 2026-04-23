@@ -1,0 +1,486 @@
+"""
+Phase 15.9 — claude-code auto-import helpers.
+
+Covers:
+  1. _classify_transport — stdio (command), http/sse (type), url-only → http,
+     empty dict → stdio fallback.
+  2. _slugify_mcp_name — display-name → yaml-key normalization, edge cases.
+  3. read_user_mcp_config — missing, malformed, valid JSON.
+  4. extract_imported_mcps — stdio passthrough, http/sse wrapped via
+     mcp-remote, env-var refs captured, malformed entries skipped,
+     wrapped count correct.
+  5. discover_hosted_mcps_via_cli — mocked subprocess.run: happy path
+     (4 hosted MCPs parsed), non-zero return, FileNotFoundError, timeout,
+     malformed lines skipped.
+  6. discover_all_mcps — merges both sources, dedup by slug, wrapped
+     count sums correctly.
+  7. list_user_skills — missing dir, empty dir, skill dirs without
+     SKILL.md skipped, valid dirs returned sorted.
+  8. read_user_claude_md — missing, present.
+  9. append_env_placeholders — new file creation, idempotent (var set as
+     plain), idempotent (var already placeheld), newline handling, empty
+     var_names, multiple runs each add their own header section.
+
+Run:
+    source venv/bin/activate
+    python tests/test_claude_code_import.py
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+from brainchild.pipeline.claude_code_import import (
+    ImportedMCP,
+    _classify_transport,
+    _slugify_mcp_name,
+    _wrap_http_as_stdio,
+    append_env_placeholders,
+    discover_all_mcps,
+    discover_hosted_mcps_via_cli,
+    extract_imported_mcps,
+    list_user_skills,
+    read_user_claude_md,
+    read_user_mcp_config,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _with_fake_home(fn):
+    """Run fn(tmp_home: Path) with ~/.claude.json, ~/.claude/, ~/.brainchild/
+    all sandboxed under a fresh temp dir.
+    """
+    def wrapper():
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            with patch(
+                "brainchild.pipeline.claude_code_import.Path.home",
+                return_value=home,
+            ):
+                # Re-patch module-level constants derived from Path.home() at
+                # import time — they won't pick up the patched Path.home.
+                import brainchild.pipeline.claude_code_import as mod
+                with (
+                    patch.object(mod, "_USER_CONFIG_CANDIDATES", [
+                        home / ".claude.json",
+                        home / ".claude" / "settings.json",
+                    ]),
+                    patch.object(mod, "_USER_SKILLS_DIR", home / ".claude" / "skills"),
+                    patch.object(mod, "_USER_CLAUDE_MD", home / ".claude" / "CLAUDE.md"),
+                ):
+                    fn(home)
+    wrapper.__name__ = fn.__name__
+    return wrapper
+
+
+def _run_ok(stdout: str, returncode: int = 0) -> MagicMock:
+    r = MagicMock()
+    r.stdout = stdout
+    r.stderr = ""
+    r.returncode = returncode
+    return r
+
+
+# ---------------------------------------------------------------------------
+# _classify_transport
+# ---------------------------------------------------------------------------
+
+def test_classify_transport_stdio_when_command_present():
+    assert _classify_transport({"command": "npx", "args": ["foo"]}) == "stdio"
+    print("PASS  test_classify_transport_stdio_when_command_present")
+
+
+def test_classify_transport_http_when_type_http():
+    assert _classify_transport({"type": "http", "url": "https://x"}) == "http"
+    print("PASS  test_classify_transport_http_when_type_http")
+
+
+def test_classify_transport_sse_when_type_sse():
+    assert _classify_transport({"type": "sse", "url": "https://x"}) == "sse"
+    print("PASS  test_classify_transport_sse_when_type_sse")
+
+
+def test_classify_transport_http_fallback_from_url():
+    # URL present without explicit type → http
+    assert _classify_transport({"url": "https://x"}) == "http"
+    print("PASS  test_classify_transport_http_fallback_from_url")
+
+
+def test_classify_transport_stdio_when_empty():
+    assert _classify_transport({}) == "stdio"
+    print("PASS  test_classify_transport_stdio_when_empty")
+
+
+# ---------------------------------------------------------------------------
+# _slugify_mcp_name
+# ---------------------------------------------------------------------------
+
+def test_slugify_normalizes_display_name():
+    assert _slugify_mcp_name("claude.ai Linear") == "claude-ai-linear"
+    assert _slugify_mcp_name("claude.ai Google Drive") == "claude-ai-google-drive"
+    print("PASS  test_slugify_normalizes_display_name")
+
+
+def test_slugify_handles_edge_cases():
+    assert _slugify_mcp_name("") == "imported"
+    assert _slugify_mcp_name("---") == "imported"
+    assert _slugify_mcp_name("  UPPER  case  ") == "upper-case"
+    print("PASS  test_slugify_handles_edge_cases")
+
+
+# ---------------------------------------------------------------------------
+# read_user_mcp_config
+# ---------------------------------------------------------------------------
+
+@_with_fake_home
+def test_read_user_mcp_config_missing_returns_empty(home):
+    # No ~/.claude.json, no ~/.claude/settings.json
+    assert read_user_mcp_config() == {}
+    print("PASS  test_read_user_mcp_config_missing_returns_empty")
+
+
+@_with_fake_home
+def test_read_user_mcp_config_malformed_returns_empty(home):
+    (home / ".claude.json").write_text("{ not valid json")
+    assert read_user_mcp_config() == {}
+    print("PASS  test_read_user_mcp_config_malformed_returns_empty")
+
+
+@_with_fake_home
+def test_read_user_mcp_config_reads_top_level_json(home):
+    payload = {"mcpServers": {"a": {"command": "x"}}}
+    (home / ".claude.json").write_text(json.dumps(payload))
+    got = read_user_mcp_config()
+    assert got == payload, got
+    print("PASS  test_read_user_mcp_config_reads_top_level_json")
+
+
+@_with_fake_home
+def test_read_user_mcp_config_fallback_to_settings_json(home):
+    (home / ".claude").mkdir()
+    payload = {"mcpServers": {"b": {"command": "y"}}}
+    (home / ".claude" / "settings.json").write_text(json.dumps(payload))
+    got = read_user_mcp_config()
+    assert got == payload, got
+    print("PASS  test_read_user_mcp_config_fallback_to_settings_json")
+
+
+# ---------------------------------------------------------------------------
+# extract_imported_mcps
+# ---------------------------------------------------------------------------
+
+def test_extract_imported_mcps_empty_returns_nothing():
+    mcps, wrapped = extract_imported_mcps({})
+    assert mcps == []
+    assert wrapped == 0
+    print("PASS  test_extract_imported_mcps_empty_returns_nothing")
+
+
+def test_extract_imported_mcps_stdio_passthrough():
+    cfg = {"mcpServers": {
+        "fs": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"], "env": {"K": "v"}},
+    }}
+    mcps, wrapped = extract_imported_mcps(cfg)
+    assert wrapped == 0
+    assert len(mcps) == 1
+    assert mcps[0].name == "fs"
+    assert mcps[0].transport == "stdio"
+    assert mcps[0].block["command"] == "npx"
+    assert mcps[0].block["args"] == ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    assert mcps[0].block["env"] == {"K": "v"}
+    print("PASS  test_extract_imported_mcps_stdio_passthrough")
+
+
+def test_extract_imported_mcps_http_wrapped_via_mcp_remote():
+    cfg = {"mcpServers": {
+        "notion": {"type": "http", "url": "https://mcp.notion.com/v1"},
+    }}
+    mcps, wrapped = extract_imported_mcps(cfg)
+    assert wrapped == 1
+    assert mcps[0].name == "notion"
+    assert mcps[0].transport == "http"
+    assert mcps[0].block["command"] == "npx"
+    assert mcps[0].block["args"][0] == "-y"
+    assert mcps[0].block["args"][1].startswith("mcp-remote@")
+    assert mcps[0].block["args"][2] == "https://mcp.notion.com/v1"
+    assert mcps[0].block["auth"] == "oauth"
+    assert mcps[0].block["auth_url"] == "https://mcp.notion.com/v1"
+    print("PASS  test_extract_imported_mcps_http_wrapped_via_mcp_remote")
+
+
+def test_extract_imported_mcps_sse_wrapped_via_mcp_remote():
+    cfg = {"mcpServers": {
+        "svc": {"type": "sse", "url": "https://x.example/sse"},
+    }}
+    mcps, wrapped = extract_imported_mcps(cfg)
+    assert wrapped == 1
+    assert mcps[0].transport == "sse"
+    assert mcps[0].block["auth"] == "oauth"
+    print("PASS  test_extract_imported_mcps_sse_wrapped_via_mcp_remote")
+
+
+def test_extract_imported_mcps_env_vars_captured():
+    cfg = {"mcpServers": {
+        "gh": {"command": "x", "env": {"T": "${GITHUB_TOKEN}", "H": "static", "N": "${NOTION_API_KEY}${FOO}"}},
+    }}
+    mcps, _ = extract_imported_mcps(cfg)
+    assert set(mcps[0].env_vars_referenced) == {"GITHUB_TOKEN", "NOTION_API_KEY", "FOO"}
+    print("PASS  test_extract_imported_mcps_env_vars_captured")
+
+
+def test_extract_imported_mcps_skips_malformed_entries():
+    cfg = {"mcpServers": {
+        "string-not-dict": "oops",
+        "empty-dict": {},             # no command, no url → skipped
+        "ok": {"command": "x"},
+    }}
+    mcps, _ = extract_imported_mcps(cfg)
+    names = {m.name for m in mcps}
+    assert names == {"ok"}, names
+    print("PASS  test_extract_imported_mcps_skips_malformed_entries")
+
+
+# ---------------------------------------------------------------------------
+# discover_hosted_mcps_via_cli
+# ---------------------------------------------------------------------------
+
+def test_discover_hosted_mcps_parses_claude_mcp_list():
+    stdout = (
+        "Checking MCP server health…\n"
+        "\n"
+        "claude.ai Google Calendar: https://calendarmcp.googleapis.com/mcp/v1 - ! Needs authentication\n"
+        "claude.ai Gmail: https://gmailmcp.googleapis.com/mcp/v1 - ! Needs authentication\n"
+        "claude.ai Linear: https://mcp.linear.app/sse - ✓ Connected\n"
+    )
+    with patch("brainchild.pipeline.claude_code_import.subprocess.run",
+               return_value=_run_ok(stdout)):
+        mcps = discover_hosted_mcps_via_cli()
+    names = [m.name for m in mcps]
+    assert names == ["claude-ai-google-calendar", "claude-ai-gmail", "claude-ai-linear"], names
+    # SSE detection for /sse URLs
+    linear = [m for m in mcps if m.name == "claude-ai-linear"][0]
+    assert linear.transport == "sse", linear.transport
+    # All get wrapped as mcp-remote stdio
+    assert linear.block["command"] == "npx"
+    assert linear.block["auth"] == "oauth"
+    print("PASS  test_discover_hosted_mcps_parses_claude_mcp_list")
+
+
+def test_discover_hosted_mcps_returncode_nonzero_returns_empty():
+    with patch("brainchild.pipeline.claude_code_import.subprocess.run",
+               return_value=_run_ok("", returncode=1)):
+        assert discover_hosted_mcps_via_cli() == []
+    print("PASS  test_discover_hosted_mcps_returncode_nonzero_returns_empty")
+
+
+def test_discover_hosted_mcps_file_not_found_returns_empty():
+    with patch("brainchild.pipeline.claude_code_import.subprocess.run",
+               side_effect=FileNotFoundError):
+        assert discover_hosted_mcps_via_cli() == []
+    print("PASS  test_discover_hosted_mcps_file_not_found_returns_empty")
+
+
+def test_discover_hosted_mcps_timeout_returns_empty():
+    with patch("brainchild.pipeline.claude_code_import.subprocess.run",
+               side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=10)):
+        assert discover_hosted_mcps_via_cli() == []
+    print("PASS  test_discover_hosted_mcps_timeout_returns_empty")
+
+
+def test_discover_hosted_mcps_skips_malformed_lines():
+    stdout = (
+        "garbage\n"
+        "ok-entry: https://x/sse - Connected\n"
+        "another garbage line without the expected shape\n"
+    )
+    with patch("brainchild.pipeline.claude_code_import.subprocess.run",
+               return_value=_run_ok(stdout)):
+        mcps = discover_hosted_mcps_via_cli()
+    assert [m.name for m in mcps] == ["ok-entry"]
+    print("PASS  test_discover_hosted_mcps_skips_malformed_lines")
+
+
+# ---------------------------------------------------------------------------
+# discover_all_mcps
+# ---------------------------------------------------------------------------
+
+@_with_fake_home
+def test_discover_all_merges_both_sources(home):
+    # Seed both: json-level stdio + CLI-level hosted
+    json_cfg = {"mcpServers": {"local-thing": {"command": "npx", "args": ["x"]}}}
+    (home / ".claude.json").write_text(json.dumps(json_cfg))
+
+    cli_stdout = "claude.ai Linear: https://mcp.linear.app/sse - ✓ Connected\n"
+    with patch("brainchild.pipeline.claude_code_import.subprocess.run",
+               return_value=_run_ok(cli_stdout)):
+        mcps, wrapped = discover_all_mcps()
+
+    names = {m.name for m in mcps}
+    assert names == {"local-thing", "claude-ai-linear"}, names
+    # 1 from CLI wrap, 0 from json (stdio)
+    assert wrapped == 1, wrapped
+    print("PASS  test_discover_all_merges_both_sources")
+
+
+# ---------------------------------------------------------------------------
+# list_user_skills
+# ---------------------------------------------------------------------------
+
+@_with_fake_home
+def test_list_user_skills_missing_dir_empty(home):
+    assert list_user_skills() == []
+    print("PASS  test_list_user_skills_missing_dir_empty")
+
+
+@_with_fake_home
+def test_list_user_skills_skips_dirs_without_skill_md(home):
+    skills = home / ".claude" / "skills"
+    skills.mkdir(parents=True)
+    (skills / "valid").mkdir()
+    (skills / "valid" / "SKILL.md").write_text("---\nname: valid\n---\n")
+    (skills / "incomplete").mkdir()  # no SKILL.md
+    (skills / "stray.txt").write_text("ignore me")
+    got = list_user_skills()
+    assert [p.name for p in got] == ["valid"], got
+    print("PASS  test_list_user_skills_skips_dirs_without_skill_md")
+
+
+# ---------------------------------------------------------------------------
+# read_user_claude_md
+# ---------------------------------------------------------------------------
+
+@_with_fake_home
+def test_read_user_claude_md_missing_returns_none(home):
+    assert read_user_claude_md() is None
+    print("PASS  test_read_user_claude_md_missing_returns_none")
+
+
+@_with_fake_home
+def test_read_user_claude_md_present_returns_contents(home):
+    (home / ".claude").mkdir()
+    (home / ".claude" / "CLAUDE.md").write_text("# hi\n")
+    assert read_user_claude_md() == "# hi\n"
+    print("PASS  test_read_user_claude_md_present_returns_contents")
+
+
+# ---------------------------------------------------------------------------
+# append_env_placeholders
+# ---------------------------------------------------------------------------
+
+def test_append_env_placeholders_creates_file_if_missing():
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / "nested" / ".env"
+        added = append_env_placeholders(["FOO", "BAR"], env_file)
+        assert added == ["BAR", "FOO"]
+        content = env_file.read_text()
+        assert "# BAR=" in content and "# FOO=" in content
+        assert "# Added by brainchild" in content
+    print("PASS  test_append_env_placeholders_creates_file_if_missing")
+
+
+def test_append_env_placeholders_idempotent_when_var_set():
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / ".env"
+        env_file.write_text("FOO=already_set\n")
+        added = append_env_placeholders(["FOO", "NEW"], env_file)
+        assert added == ["NEW"]
+        content = env_file.read_text()
+        assert content.count("# NEW=") == 1
+        # Existing plain-set FOO untouched
+        assert "FOO=already_set" in content
+    print("PASS  test_append_env_placeholders_idempotent_when_var_set")
+
+
+def test_append_env_placeholders_idempotent_when_placeheld():
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / ".env"
+        env_file.write_text("# FOO=\n")
+        added = append_env_placeholders(["FOO"], env_file)
+        assert added == []
+        # File untouched
+        assert env_file.read_text() == "# FOO=\n"
+    print("PASS  test_append_env_placeholders_idempotent_when_placeheld")
+
+
+def test_append_env_placeholders_empty_input_is_noop():
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / ".env"
+        env_file.write_text("X=y\n")
+        added = append_env_placeholders([], env_file)
+        assert added == []
+        assert env_file.read_text() == "X=y\n"
+    print("PASS  test_append_env_placeholders_empty_input_is_noop")
+
+
+def test_append_env_placeholders_fixes_missing_trailing_newline():
+    with tempfile.TemporaryDirectory() as tmp:
+        env_file = Path(tmp) / ".env"
+        env_file.write_text("OLD=x")  # no trailing \n
+        added = append_env_placeholders(["NEW"], env_file)
+        assert added == ["NEW"]
+        content = env_file.read_text()
+        # Should not have glued the header onto OLD=x; leading \n added.
+        assert content.startswith("OLD=x\n"), repr(content[:40])
+        assert "# NEW=" in content
+    print("PASS  test_append_env_placeholders_fixes_missing_trailing_newline")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    tests = [
+        test_classify_transport_stdio_when_command_present,
+        test_classify_transport_http_when_type_http,
+        test_classify_transport_sse_when_type_sse,
+        test_classify_transport_http_fallback_from_url,
+        test_classify_transport_stdio_when_empty,
+        test_slugify_normalizes_display_name,
+        test_slugify_handles_edge_cases,
+        test_read_user_mcp_config_missing_returns_empty,
+        test_read_user_mcp_config_malformed_returns_empty,
+        test_read_user_mcp_config_reads_top_level_json,
+        test_read_user_mcp_config_fallback_to_settings_json,
+        test_extract_imported_mcps_empty_returns_nothing,
+        test_extract_imported_mcps_stdio_passthrough,
+        test_extract_imported_mcps_http_wrapped_via_mcp_remote,
+        test_extract_imported_mcps_sse_wrapped_via_mcp_remote,
+        test_extract_imported_mcps_env_vars_captured,
+        test_extract_imported_mcps_skips_malformed_entries,
+        test_discover_hosted_mcps_parses_claude_mcp_list,
+        test_discover_hosted_mcps_returncode_nonzero_returns_empty,
+        test_discover_hosted_mcps_file_not_found_returns_empty,
+        test_discover_hosted_mcps_timeout_returns_empty,
+        test_discover_hosted_mcps_skips_malformed_lines,
+        test_discover_all_merges_both_sources,
+        test_list_user_skills_missing_dir_empty,
+        test_list_user_skills_skips_dirs_without_skill_md,
+        test_read_user_claude_md_missing_returns_none,
+        test_read_user_claude_md_present_returns_contents,
+        test_append_env_placeholders_creates_file_if_missing,
+        test_append_env_placeholders_idempotent_when_var_set,
+        test_append_env_placeholders_idempotent_when_placeheld,
+        test_append_env_placeholders_empty_input_is_noop,
+        test_append_env_placeholders_fixes_missing_trailing_newline,
+    ]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+        except AssertionError as e:
+            print(f"FAIL  {t.__name__}: {e}")
+            failed += 1
+        except Exception as e:
+            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
+            failed += 1
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)

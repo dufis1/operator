@@ -54,6 +54,13 @@ from rich.text import Text
 
 from brainchild.pipeline import build_card, face
 from brainchild.pipeline.auth import run_auth
+from brainchild.pipeline.claude_code_import import (
+    append_env_placeholders,
+    claude_code_installed_and_logged_in,
+    discover_all_mcps,
+    list_user_skills,
+    read_user_claude_md,
+)
 from brainchild.pipeline.picker import Choice, PickerCancelled, select_many, select_one
 from brainchild.pipeline.readiness import STATUS_GLYPH, report_mcp_readiness
 
@@ -222,6 +229,20 @@ def _step1_fighter_select() -> WizardState:
     console.print()
     if picked.value == "__custom__":
         return _from_scratch()
+    if picked.value == "claude":
+        # claude preset is a hard dependency on the Claude Code CLI — the
+        # whole agent identity is "inherit the user's claude-code setup."
+        # Gate selection at the picker so the user fixes the prereq first
+        # rather than discovering it mid-wizard. Option (b) from the plan:
+        # show the preset, block with hint, send back to the gallery.
+        ok, reason = claude_code_installed_and_logged_in()
+        if not ok:
+            console.print(f"  [red]✗ claude preset requires Claude Code:[/red] {reason}")
+            console.print(
+                "  [dim]Install Claude Code (https://claude.ai/code) and run "
+                "`claude login`, then re-run `brainchild setup`.[/dim]\n"
+            )
+            return _step1_fighter_select()
     return _edit_preset(picked.value)
 
 
@@ -283,7 +304,7 @@ def _edit_preset(name: str) -> WizardState:
     portrait = face.load_or_render(name, portrait_path)
     agent = cfg.get("agent") or {}
     console.print(f"  [dim]editing agents/{name}/ in place[/dim]")
-    return WizardState(
+    state = WizardState(
         mode="edit",
         name=name,
         display_name=agent.get("name", name),
@@ -292,6 +313,68 @@ def _edit_preset(name: str) -> WizardState:
         portrait=portrait,
         bot_cfg=cfg,
     )
+    if name == "claude":
+        _auto_import_claude_setup(state)
+    return state
+
+
+def _auto_import_claude_setup(state: WizardState) -> None:
+    """Discover the user's Claude Code MCPs + skills + CLAUDE.md and fold
+    them into state so the rest of the wizard just works. Only runs for
+    the `claude` preset. Idempotent — re-running the wizard won't duplicate
+    MCP blocks (collisions keep the existing entry so user curation sticks).
+
+    CLAUDE.md content is stashed on state for step 4 to optionally append
+    to ground_rules. Skills dirs are pre-loaded into state.user_sources so
+    step 7's copy loop picks them up; step 3 surfaces what was imported.
+    """
+    servers = state.bot_cfg.setdefault("mcp_servers", {})
+
+    mcps, wrapped = discover_all_mcps()
+    added_mcps: list[str] = []
+    for m in mcps:
+        if m.name in servers:
+            continue
+        servers[m.name] = m.block
+        added_mcps.append(m.name)
+
+    skill_dirs = list_user_skills()
+    # Avoid duplicate paths if user re-runs the wizard against claude.
+    existing_user_paths = {p.resolve() for p in state.user_sources}
+    added_skills: list[str] = []
+    for s in skill_dirs:
+        if s.resolve() in existing_user_paths:
+            continue
+        state.user_sources.append(s)
+        added_skills.append(s.name)
+
+    claude_md = read_user_claude_md()
+    # Stash on state via a plain attribute — WizardState is a dataclass
+    # but Python still permits ad-hoc attrs. Step 4 reads it.
+    state._claude_md_content = claude_md  # type: ignore[attr-defined]
+
+    console.print()
+    console.print("  [bold]Claude Code auto-import:[/bold]")
+    if added_mcps:
+        console.print(
+            f"    [green]✓[/green] {len(added_mcps)} MCP(s) imported"
+            f"{f' ({wrapped} hosted, wrapped via mcp-remote)' if wrapped else ''}: "
+            f"{', '.join(added_mcps)}"
+        )
+    else:
+        console.print("    [dim]No new MCPs to import (already present or none configured).[/dim]")
+    if added_skills:
+        console.print(
+            f"    [green]✓[/green] {len(added_skills)} skill(s) from "
+            f"~/.claude/skills/: {', '.join(added_skills)}"
+        )
+    else:
+        console.print("    [dim]No skills found at ~/.claude/skills/.[/dim]")
+    if claude_md:
+        console.print(
+            f"    [dim]Found ~/.claude/CLAUDE.md ({len(claude_md)} chars) — "
+            f"step 4 will offer to append it to ground rules.[/dim]"
+        )
 
 
 def _base_dir(state: WizardState) -> Path:
@@ -330,6 +413,27 @@ def _step2_mcps(state: WizardState) -> None:
     )
     for i, n in enumerate(names):
         servers[n]["enabled"] = bool(final[i])
+
+    # Claude preset: append commented env-var placeholders for any MCP the
+    # user just approved, so step 5 has a ready list to prompt for and
+    # later `brainchild run claude` gets a clear "set X in .env" from the
+    # preflight instead of silent boot failures. Idempotent — vars already
+    # set or placeheld are skipped.
+    if state.based_on == "claude":
+        needed: set[str] = set()
+        for n in names:
+            if not servers[n].get("enabled"):
+                continue
+            for v in (servers[n].get("env") or {}).values():
+                if isinstance(v, str):
+                    needed.update(_ENV_REF_RE.findall(v))
+        if needed:
+            added = append_env_placeholders(sorted(needed), _ENV_FILE)
+            if added:
+                console.print(
+                    f"  [dim]+ appended {len(added)} env-var placeholder(s) to "
+                    f".env: {', '.join(added)}[/dim]"
+                )
 
     _render_mcp_readiness(servers)
 
@@ -456,6 +560,17 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
     """
     console.print("[bold]3. Skills[/bold]\n")
 
+    # Claude preset: surface skills already auto-imported from ~/.claude/skills
+    # so the user sees what's in play before they add more.
+    if state.based_on == "claude" and state.user_sources:
+        imported = [p.name for p in state.user_sources if (p / "SKILL.md").is_file()]
+        if imported:
+            console.print(
+                f"  [dim]Auto-imported from ~/.claude/skills/: "
+                f"{', '.join(imported)}[/dim]"
+            )
+            console.print()
+
     bundled_dir = base_dir / "skills"
     candidates: list[Path] = []
     if bundled_dir.is_dir():
@@ -568,6 +683,23 @@ def _step4_system_prompt(state: WizardState) -> None:
         console.print(f"  ✓ system prompt saved ({len(new_text)} chars)")
     else:
         console.print(f"  [dim]system prompt left blank[/dim]")
+
+    # Claude preset: offer to append the user's ~/.claude/CLAUDE.md to
+    # ground_rules. Opt-in (default N) because these files can be long
+    # and project-specific content sometimes leaks in. Appending keeps
+    # whatever the user just typed for personality intact.
+    claude_md = getattr(state, "_claude_md_content", None)
+    if state.based_on == "claude" and claude_md:
+        console.print()
+        answer = Prompt.ask(
+            f"  Append your [bold]~/.claude/CLAUDE.md[/bold] ({len(claude_md)} chars) "
+            f"to ground rules?",
+            choices=["y", "n"],
+            default="n",
+        )
+        if answer.lower() == "y":
+            state.bot_cfg["ground_rules"] = claude_md.strip()
+            console.print("  [green]✓[/green] ~/.claude/CLAUDE.md appended to ground rules.")
 
 
 def _prompt_with_hint(hint: str) -> str:
