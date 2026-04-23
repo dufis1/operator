@@ -365,6 +365,90 @@ def test_run_bot_unknown_flag_returns_2():
 
 
 # ---------------------------------------------------------------------------
+# 15.7.4.5 — --no-preflight flag + pre-flight integration
+# ---------------------------------------------------------------------------
+
+def test_run_bot_no_preflight_flag_bypasses_readiness():
+    """--no-preflight must skip the readiness check entirely (CI/scripted use)."""
+    preflight_called = []
+
+    def fake_preflight(servers):
+        preflight_called.append(True)
+        return 0
+
+    def fake_macos(meeting_url=None, force=False):
+        pass
+
+    saved_env = os.environ.get("BRAINCHILD_BOT")
+    try:
+        os.environ.pop("BRAINCHILD_BOT", None)
+        with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
+            # Inject a fake preflight module into sys.modules so the lazy
+            # import inside _run_bot picks it up. Same shape as the real
+            # brainchild.pipeline.readiness.
+            import types
+            fake_module = types.ModuleType("brainchild.pipeline.readiness")
+            fake_module.preflight_mcp_readiness = fake_preflight
+            fake_module.PREFLIGHT_OK = 0
+            saved = sys.modules.get("brainchild.pipeline.readiness")
+            sys.modules["brainchild.pipeline.readiness"] = fake_module
+            try:
+                with patched_dispatch(_run_macos=fake_macos, _run_linux=fake_macos):
+                    rc = entry._run_bot("pm", ["--no-preflight"])
+            finally:
+                if saved is not None:
+                    sys.modules["brainchild.pipeline.readiness"] = saved
+                else:
+                    sys.modules.pop("brainchild.pipeline.readiness", None)
+        assert rc == 0
+        assert preflight_called == [], "preflight must not run with --no-preflight"
+    finally:
+        if saved_env is None:
+            os.environ.pop("BRAINCHILD_BOT", None)
+        else:
+            os.environ["BRAINCHILD_BOT"] = saved_env
+    print("PASS  test_run_bot_no_preflight_flag_bypasses_readiness")
+
+
+def test_run_bot_aborts_when_preflight_returns_nonzero():
+    """Preflight user-abort must stop before browser spin-up."""
+    dispatched = []
+
+    def fake_preflight(_servers):
+        return 2  # PREFLIGHT_USER_ABORT
+
+    def fake_macos(meeting_url=None, force=False):
+        dispatched.append("macos")
+
+    saved_env = os.environ.get("BRAINCHILD_BOT")
+    try:
+        os.environ.pop("BRAINCHILD_BOT", None)
+        with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
+            import types
+            fake_module = types.ModuleType("brainchild.pipeline.readiness")
+            fake_module.preflight_mcp_readiness = fake_preflight
+            fake_module.PREFLIGHT_OK = 0
+            saved = sys.modules.get("brainchild.pipeline.readiness")
+            sys.modules["brainchild.pipeline.readiness"] = fake_module
+            try:
+                with patched_dispatch(_run_macos=fake_macos, _run_linux=fake_macos):
+                    rc = entry._run_bot("pm", [])
+            finally:
+                if saved is not None:
+                    sys.modules["brainchild.pipeline.readiness"] = saved
+                else:
+                    sys.modules.pop("brainchild.pipeline.readiness", None)
+        assert rc == 2
+        assert dispatched == [], "dispatch must not run after preflight abort"
+    finally:
+        if saved_env is None:
+            os.environ.pop("BRAINCHILD_BOT", None)
+        else:
+            os.environ["BRAINCHILD_BOT"] = saved_env
+    print("PASS  test_run_bot_aborts_when_preflight_returns_nonzero")
+
+
+# ---------------------------------------------------------------------------
 # _run_try validation
 # ---------------------------------------------------------------------------
 
@@ -421,6 +505,8 @@ if __name__ == "__main__":
         test_main_known_bot_dispatches_to_run_bot,
         test_run_bot_parses_url_and_flags_and_sets_env,
         test_run_bot_unknown_flag_returns_2,
+        test_run_bot_no_preflight_flag_bypasses_readiness,
+        test_run_bot_aborts_when_preflight_returns_nonzero,
         test_run_try_unknown_bot_returns_2,
         test_package_import_exposes_main,
     ]

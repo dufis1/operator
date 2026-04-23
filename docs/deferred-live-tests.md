@@ -105,6 +105,35 @@ matches — a failure gets a 🔄 and a note of what actually happened.
   git repo. No stack trace, no generic "tool failed" message.
 - **Why deferred:** Needs a live Meet + claude-code subprocess.
 
+### Phase 15.7.4.5 — runtime MCP pre-flight (session 149)
+
+- **Setup A (happy path):** With all enabled MCPs ready (GitHub token
+  set, Linear OAuth cache fresh), run `brainchild pm`. Expected: no
+  pre-flight output at all — the command proceeds straight to
+  "Launching Chrome…".
+- **Setup B (OAuth missing):** Move the Linear token aside
+  (`mv ~/.mcp-auth/mcp-remote-*/fcc436b0d1e0a1ed9a2b15bbd638eb13_tokens.json /tmp/`)
+  and run `brainchild pm`. Expected:
+  1. Pre-flight block prints `⚠ linear — run \`brainchild auth linear\` once to authorize (...)`.
+  2. Prompt: `linear: authorize now? (browser popup; runs \`brainchild auth linear\`) [y/N]`.
+  3. Pressing Enter (default N) → "continuing" → bot boots with linear runtime-disabled + 15.7.3 mid-meeting banner fires as usual.
+  4. Alternative: answer `y` → mcp-remote takes over terminal, browser
+     opens, approval seeds the cache, pre-flight prints `✓ linear authorized`,
+     then bot boots with Linear enabled.
+- **Setup C (missing env var):** Temporarily unset `GITHUB_TOKEN` and
+  run `brainchild engineer`. Expected:
+  1. `✗ github — set GITHUB_TOKEN in .env (https://github.com/settings/tokens)`.
+  2. Prompt: `github: continue without it? [Y/n]`.
+  3. Default Y → bot boots with github runtime-disabled.
+  4. `n` → prints `Aborting. Set GITHUB_TOKEN in .env and re-run.` and
+     exits with code 2 (no browser launched).
+- **Setup D (--no-preflight):** With broken state from Setup B or C
+  still in place, run `brainchild pm --no-preflight`. Expected: zero
+  pre-flight output, bot boots immediately and the 15.7.3 banner (or
+  15.7.1 missing_env surfacing) handles it mid-meeting.
+- **Why deferred:** Needs a real terminal for interactive prompts +
+  a real OAuth browser round-trip for the y-path of Setup B.
+
 ## Closed
 
 *(none yet)*

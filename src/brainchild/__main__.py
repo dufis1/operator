@@ -217,6 +217,7 @@ def _print_usage():
     print()
     print("Flags:")
     print("  --force                   Retry join even if a session is flagged stuck")
+    print("  --no-preflight            Skip the MCP readiness check (for CI/scripted launches)")
     print()
     bots = _available_bots()
     if bots:
@@ -392,9 +393,14 @@ def _run_try(name):
 def _run_bot(name, rest):
     url = None
     force = False
+    no_preflight = False
     for arg in rest:
         if arg == "--force":
             force = True
+        elif arg == "--no-preflight":
+            # 15.7.4.5 escape hatch — skips the readiness check for
+            # CI/scripted launches that can't answer interactive prompts.
+            no_preflight = True
         elif arg.startswith("-"):
             print(f"Unknown flag: {arg}")
             return 2
@@ -406,6 +412,20 @@ def _run_bot(name, rest):
 
     # MUST be set before any `from brainchild import config` fires in the pipeline modules.
     os.environ["BRAINCHILD_BOT"] = name
+
+    # 15.7.4.5 runtime pre-flight — catches hand-edit-config cases the
+    # wizard status screen doesn't. All-ok state is silent (zero visible
+    # cost on the happy path). Non-zero exit means the user opted out
+    # mid-prompt; skip browser spin-up entirely.
+    if not no_preflight:
+        from brainchild import config
+        from brainchild.pipeline.readiness import (
+            PREFLIGHT_OK,
+            preflight_mcp_readiness,
+        )
+        rc = preflight_mcp_readiness(config.MCP_SERVERS)
+        if rc != PREFLIGHT_OK:
+            return rc
 
     if sys.platform == "darwin":
         _run_macos(url, force=force)

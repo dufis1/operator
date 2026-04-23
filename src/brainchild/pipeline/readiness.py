@@ -201,3 +201,157 @@ STATUS_GLYPH = {
     "oauth_needed": "⚠",
     "prereq_missing": "✗",
 }
+
+
+# Runtime pre-flight: exit codes returned to the CLI. 0 = proceed to
+# browser spin-up; non-zero = abort before join so the user can fix
+# their .env or finish an authorization out-of-band.
+PREFLIGHT_OK = 0
+PREFLIGHT_USER_ABORT = 2
+
+
+def preflight_mcp_readiness(
+    mcp_servers: dict[str, dict],
+    *,
+    input_fn=input,
+    output_fn=print,
+    run_auth_fn=None,
+) -> int:
+    """Runtime MCP pre-flight — Phase 15.7.4.5.
+
+    Runs inside `_run_bot()` after `BRAINCHILD_BOT` is set and config is
+    loaded, but before the browser spins up. Catches the hand-edit-config
+    case where a user enables an OAuth/env MCP outside the wizard — the
+    15.7.3 banner handles this mid-meeting, but that's obtrusive.
+    Wizard + runtime are belt-and-suspenders.
+
+    All-ok state exits 0 silently (zero latency cost on the happy path —
+    no printing, no prompts). Only speaks when something needs attention.
+
+    Per-status behavior when there's a gap:
+      oauth_needed  → "Authorize X now? [y/N]" default N. `y` runs
+                      `run_auth(name)` inline (foreground mcp-remote
+                      spawn + browser popup); on success re-checks the
+                      same server and continues if now ok.
+      missing_env   → "Continue without X? [Y/n]" default Y. `n` returns
+                      PREFLIGHT_USER_ABORT so the shell wrapper exits
+                      with a non-zero code — user edits .env and re-runs.
+      prereq_missing → "Continue anyway? [Y/n]" default Y. Non-blocking;
+                      bundled claude-code binary probe uses this so
+                      meetings without claude-code calls don't pay for
+                      a stale auth gate.
+
+    input_fn / output_fn / run_auth_fn are injected for testability
+    (defaults wire to stdin/stdout + the real OAuth seed flow). Callers
+    flipping `--no-preflight` bypass this entirely in `_run_bot`.
+
+    Intentionally uses check_claude_code_auth=False: the 5s `claude
+    auth status` subprocess adds noticeable latency to every bot launch
+    even on the happy path. The 15.7.2 mid-meeting banner catches the
+    claude-code stale-login case with a clear "re-auth" message — the
+    wizard's proactive probe (15.7.4) is where we pay for a thorough
+    check, not on every runtime boot.
+    """
+    if run_auth_fn is None:
+        from brainchild.pipeline.auth import run_auth as run_auth_fn
+
+    report = report_mcp_readiness(
+        mcp_servers,
+        enabled_only=True,
+        check_claude_code_auth=False,
+    )
+    problems = {n: r for n, r in report.items() if r["status"] != "ok"}
+    if not problems:
+        return PREFLIGHT_OK
+
+    output_fn("")
+    output_fn("Pre-flight — some MCPs need attention before the meeting:")
+    for name, rec in problems.items():
+        glyph = STATUS_GLYPH[rec["status"]]
+        line = f"  {glyph} {name} — {rec['fix']}"
+        if rec.get("fix_url"):
+            line += f" ({rec['fix_url']})"
+        output_fn(line)
+    output_fn("")
+
+    for name, rec in problems.items():
+        status = rec["status"]
+        if status == "oauth_needed":
+            # Default N (skip) — authorize-now is the non-default opt-in
+            # because it takes over the terminal with mcp-remote's output
+            # and opens a browser. User who prefers to auth later can hit
+            # Enter and the bot still boots (linear will be runtime_disabled
+            # but the rest of the meeting works).
+            answer = _ask(
+                input_fn,
+                output_fn,
+                f"{name}: authorize now? (browser popup; runs "
+                f"`brainchild auth {name}`) [y/N] ",
+                default="n",
+            )
+            if answer.lower() == "y":
+                rc = run_auth_fn(name)
+                if rc == 0:
+                    output_fn(f"  ✓ {name} authorized — continuing.")
+                else:
+                    output_fn(
+                        f"  ⚠ {name} not authorized (exit {rc}) — "
+                        f"continuing without it. Run `brainchild auth {name}` later."
+                    )
+            # either way, fall through — runtime will skip the server via
+            # the same 15.7.3 oauth_needed gate that catches it today.
+            continue
+
+        if status == "missing_env":
+            # Default Y (continue) — missing creds usually means the user
+            # intentionally hasn't set up that MCP yet. n exits so they
+            # can edit .env and re-run without having to Ctrl+C mid-join.
+            answer = _ask(
+                input_fn,
+                output_fn,
+                f"{name}: continue without it? [Y/n] ",
+                default="y",
+            )
+            if answer.lower() == "n":
+                output_fn(
+                    f"Aborting. Set {', '.join(rec.get('missing_vars', []))} in .env and re-run."
+                )
+                return PREFLIGHT_USER_ABORT
+            continue
+
+        if status == "prereq_missing":
+            # Default Y — same logic as missing_env: user may not use this
+            # MCP this meeting, and a stale claude-code auth shouldn't
+            # block a pm or designer run.
+            answer = _ask(
+                input_fn,
+                output_fn,
+                f"{name}: continue anyway? [Y/n] ",
+                default="y",
+            )
+            if answer.lower() == "n":
+                output_fn(f"Aborting. Fix {name} prereqs and re-run.")
+                return PREFLIGHT_USER_ABORT
+            continue
+
+    return PREFLIGHT_OK
+
+
+def _ask(input_fn, output_fn, prompt: str, *, default: str) -> str:
+    """Prompt with a single-char default. Empty input returns `default`.
+
+    Thin wrapper so the rest of the module stays testable without
+    pulling in rich.Prompt (which the wizard uses but the runtime
+    pre-flight doesn't — we're in the plain CLI pre-browser phase and
+    want no Rich console noise here).
+    """
+    try:
+        raw = input_fn(prompt)
+    except EOFError:
+        # Non-interactive stdin (pipe, redirected input): fall back to
+        # the default so CI/scripted launches don't hang waiting for a
+        # keypress. Users who want full non-interactive are expected to
+        # pass --no-preflight instead.
+        return default
+    raw = (raw or "").strip()
+    return raw or default
