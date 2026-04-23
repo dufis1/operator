@@ -152,11 +152,17 @@ def _resolve_env_vars(env_dict, server_name):
     return resolved, missing_vars
 
 MCP_SERVERS = {}
+# Parallel set of server *names* that are configured but disabled. Kept so
+# MCPClient can produce a granular "<server> is disabled" error when the LLM
+# calls a tool whose namespaced prefix matches a disabled server, instead of
+# the generic "Unknown tool" — see mcp_client.disabled_server_for_tool().
+DISABLED_MCP_SERVERS = {}
 for _name, _srv in _config.get("mcp_servers", {}).items():
     # Blocks with `enabled: false` are declared but dormant — kept in config so
     # the setup wizard can toggle them on without re-authoring env/hints/tools.
     # Default is enabled when the field is absent (backward-compat).
     if not _srv.get("enabled", True):
+        DISABLED_MCP_SERVERS[_name] = {}
         continue
     _resolved_env, _missing_vars = _resolve_env_vars(_srv.get("env", {}), _name)
     # Auth style: "env" (API key via .env — default) or "oauth" (mcp-remote

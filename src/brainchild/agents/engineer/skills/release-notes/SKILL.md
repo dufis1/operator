@@ -1,6 +1,7 @@
 ---
 name: release-notes
 description: Draft release notes from a commit range — use when the user asks for "release notes", "changelog", "what shipped", or "what changed between X and Y".
+mcp-required: [github]
 ---
 
 # Release notes

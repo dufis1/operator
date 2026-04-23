@@ -1,6 +1,7 @@
 ---
 name: pr-review
 description: Review a GitHub pull request — use when the user asks to "review", "look at", "critique", or "check" a specific PR URL.
+mcp-required: [github]
 ---
 
 # PR review

@@ -63,6 +63,7 @@ from brainchild.pipeline.claude_code_import import (
 )
 from brainchild.pipeline.picker import Choice, PickerCancelled, select_many, select_one
 from brainchild.pipeline.readiness import STATUS_GLYPH, report_mcp_readiness
+from brainchild.pipeline.skills import _parse_skill_md
 
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -387,18 +388,48 @@ def _base_dir(state: WizardState) -> Path:
 
 
 def _step2_mcps(state: WizardState) -> None:
-    """Mutates state.bot_cfg['mcp_servers'][*]['enabled'] in place."""
-    console.print("\n[bold]2. MCPs[/bold]\n")
+    """Mutates state.bot_cfg['mcp_servers'][*]['enabled'] in place.
+
+    Runs AFTER the skills step (see run()) so we can lock MCPs that the
+    user's chosen skills declared via `mcp-required`. Locked rows preseed to
+    enabled=true and can't be toggled off — to disable the MCP the user
+    must first remove the skill that requires it.
+    """
+    console.print("\n[bold]3. MCPs[/bold]\n")
     servers = state.bot_cfg.get("mcp_servers") or {}
     if not servers:
         console.print("  [dim]No MCP servers declared in the base config.[/dim]")
         return
 
+    required_map = _required_mcps_from_skills(state)
+
+    # Warn (not fail) if a skill declared a dep the preset doesn't scaffold —
+    # typically a user-authored skill added to a bundle that didn't include
+    # that MCP. The run still proceeds; the skill will hit the granular
+    # "server disabled" error (test_916) at tool-call time.
+    unscaffolded = {s: ss for s, ss in required_map.items() if s not in servers}
+    if unscaffolded:
+        for server, skill_names in unscaffolded.items():
+            console.print(
+                f"  [yellow]⚠[/yellow] skill(s) {', '.join(skill_names)} declare "
+                f"[bold]{server}[/bold] as required, but this agent doesn't have "
+                f"{server} configured — add it manually to mcp_servers in "
+                f"config.yaml or remove the skill."
+            )
+        console.print()
+
     # Sort: officials first (alphabetical), then other third-party, claude-code
     # always last — trust signal reads top-down.
     names = sorted(servers.keys(), key=_mcp_sort_key)
-    choices = [_mcp_choice(n) for n in names]
-    initial = [bool(servers[n].get("enabled", False)) for n in names]
+    choices = []
+    initial = []
+    for n in names:
+        locked_skills = required_map.get(n, [])
+        choices.append(_mcp_choice(n, locked_by=locked_skills))
+        # Preseed required rows to enabled=true even if the scaffolded default
+        # had enabled=false; the picker enforces the lock but we still feed
+        # the truth so the right-pane card reflects it on first render.
+        initial.append(True if locked_skills else bool(servers[n].get("enabled", False)))
 
     def right_pane(_cursor, checked):
         enabled = [names[i] for i, on in enumerate(checked or []) if on]
@@ -534,10 +565,62 @@ def _print_readiness_rows(report: dict) -> None:
         console.print(f"    [{tag}]{glyph}[/{tag}] {name}{suffix}")
 
 
-def _mcp_choice(name: str) -> Choice:
-    """Render one MCP row. Officials get an `(official)` tag."""
+def _mcp_choice(name: str, *, locked_by: list[str] | None = None) -> Choice:
+    """Render one MCP row. Officials get an `(official)` tag.
+
+    When `locked_by` is a non-empty list of skill names, the row renders as
+    locked-on with a caption naming the skill(s) that require this server.
+    """
     tag = " (official)" if name in _OFFICIAL_MCPS else ""
-    return Choice(label=f"{name}{tag}")
+    locked_by = locked_by or []
+    return Choice(
+        label=f"{name}{tag}",
+        locked=bool(locked_by),
+        locked_note=(
+            f"required by: {', '.join(locked_by)}" if locked_by else ""
+        ),
+    )
+
+
+def _required_mcps_from_skills(state: WizardState) -> dict[str, list[str]]:
+    """Return {mcp_server_name: [skill_name, ...]} for every chosen skill that
+    declared mcp-required in its frontmatter.
+
+    Reads state.bundled_skill_dirs (the bundled skills the user kept in the
+    skills step) and state.user_sources (paths the user added). Malformed
+    SKILL.md files are skipped — they'll surface their own warning via
+    _parse_skill_md.
+    """
+    by_server: dict[str, list[str]] = {}
+
+    def _record(skill_md: Path) -> None:
+        sk = _parse_skill_md(skill_md)
+        if not sk or not sk.mcp_required:
+            return
+        for server in sk.mcp_required:
+            by_server.setdefault(server, []).append(sk.name)
+
+    for d in state.bundled_skill_dirs:
+        md = d / "SKILL.md"
+        if md.is_file():
+            _record(md)
+
+    for src in state.user_sources:
+        if src.is_file() and src.suffix.lower() == ".md":
+            _record(src)
+            continue
+        if not src.is_dir():
+            continue
+        direct = src / "SKILL.md"
+        if direct.is_file():
+            _record(direct)
+            continue
+        for child in src.iterdir():
+            if child.is_dir() and (child / "SKILL.md").is_file():
+                _record(child / "SKILL.md")
+
+    # Dedup skill names per server while preserving order.
+    return {s: list(dict.fromkeys(names)) for s, names in by_server.items()}
 
 
 def _mcp_sort_key(name: str) -> tuple[int, str]:
@@ -558,7 +641,7 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
     Bundled-skills picker first (from pm for new bots, preset itself for edit),
     then a plain y/n for adding the user's own skills. If yes, path-input loop.
     """
-    console.print("[bold]3. Skills[/bold]\n")
+    console.print("[bold]2. Skills[/bold]\n")
 
     # Claude preset: surface skills already auto-imported from ~/.claude/skills
     # so the user sees what's in play before they add more.
@@ -899,11 +982,12 @@ def run(argv: list[str]) -> int:
     try:
         state = _step1_fighter_select()
 
-        console.clear()
-        _step2_mcps(state)
-
+        # Skills first so step 3 (MCPs) can lock MCPs required by chosen skills.
         console.clear()
         _step3_skills(state, _base_dir(state))
+
+        console.clear()
+        _step2_mcps(state)
 
         console.clear()
         _step4_system_prompt(state)

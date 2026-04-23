@@ -55,6 +55,20 @@ class MCPToolError(Exception):
     pass
 
 
+def disabled_server_for_tool(tool_name: str) -> str | None:
+    """Return the server name if tool_name's namespaced prefix is a disabled server.
+
+    Tool names are registered as "<server>__<tool>" (see MCPClient._tools). When
+    the LLM calls a tool that isn't in _tools, we want to distinguish "the server
+    is configured but disabled" from "the tool really doesn't exist" so the error
+    back to the LLM carries actionable remediation for the user.
+    """
+    if "__" not in tool_name:
+        return None
+    prefix = tool_name.split("__", 1)[0]
+    return prefix if prefix in config.DISABLED_MCP_SERVERS else None
+
+
 # Consecutive tool-call failures per server before we disable it for the session.
 RUNTIME_FAILURE_THRESHOLD = 3
 
@@ -325,6 +339,14 @@ class MCPClient:
         Raises MCPToolError on failure.
         """
         if tool_name not in self._tools:
+            disabled = disabled_server_for_tool(tool_name)
+            if disabled:
+                raise MCPToolError(
+                    f"Tool '{tool_name}' unavailable — the '{disabled}' MCP server is "
+                    f"disabled in this agent's config. Tell the user to enable it via "
+                    f"`brainchild setup` or by setting `enabled: true` under "
+                    f"mcp_servers.{disabled} in ~/.brainchild/agents/<name>/config.yaml."
+                )
             raise MCPToolError(f"Unknown tool: {tool_name}")
 
         info = self._tools[tool_name]

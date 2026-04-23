@@ -1,6 +1,7 @@
 ---
 name: design-handoff-spec
 description: Produce an engineer-facing handoff spec from a Figma frame — use when the user asks for a "handoff", "spec", "engineering notes", or "dev-ready" version of a design.
+mcp-required: [figma]
 ---
 
 # Design handoff spec

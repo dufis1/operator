@@ -102,7 +102,7 @@ Every run names an agent explicitly (`brainchild run <name> [url]`). Config load
 - `llm` — `provider` (`openai` | `anthropic`), `model`, `history_messages` (tail size replayed from the meeting record)
 - `transcript` — `captions_enabled`
 - `mcp_servers` (wizard: **Tools**) — per-server `command`, `args`, `env`, `hints`, `read_tools`, `confirm_tools`, and an optional `tool_timeout_seconds` override for slow servers like `claude-code`
-- `skills` (wizard: **Playbooks**) — `paths`, `progressive_disclosure`
+- `skills` (wizard: **Playbooks**) — `paths`, `progressive_disclosure`. Individual SKILL.md files may declare `mcp-required: [server, ...]` in frontmatter; the wizard locks those MCP toggles on so the skill can't be chosen without the server it needs. Omitting the field is fine — user-authored skills without deps load unconditionally, and if the LLM calls a tool from a disabled server the runtime raises a granular "server disabled" error (`pipeline/mcp_client.disabled_server_for_tool`) that the bot relays to the user in chat.
 - `ground_rules` — always-true constraints (string). Composed *last* into the system prompt.
 - `personality` — who the bot is; voice, tone, disposition (string). Composed *first* into the system prompt.
 

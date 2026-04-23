@@ -1,6 +1,7 @@
 ---
 name: design-review-feedback
 description: Deliver structured design critique on a Figma frame or screen — use when the user asks for a "review", "critique", "feedback", or "design pass" on a specific design.
+mcp-required: [figma]
 ---
 
 # Design review feedback

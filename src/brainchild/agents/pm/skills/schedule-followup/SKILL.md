@@ -1,6 +1,7 @@
 ---
 name: schedule-followup
 description: Schedule a follow-up on Google Calendar from a spoken commitment — use when the user says "schedule", "book", "put X on my calendar", or names a follow-up meeting for a commitment that just landed.
+mcp-required: [calendar]
 ---
 
 # Schedule follow-up

@@ -2,8 +2,23 @@
 Skill loader — reads Claude Code-style SKILL.md folders for Brainchild.
 
 Each skill lives in a folder with a `SKILL.md` file whose YAML frontmatter
-declares `name` and `description` (and optionally `allowed-tools`). The
-remainder of the file is the skill body — free-form instructions fed to
+declares:
+
+  - `name` — required. Unique identifier shown in the wizard + LLM prompts.
+  - `description` — required. Trigger-phrase-first one-liner the LLM matches
+    against. Lead with the phrases that should fire the skill.
+  - `allowed-tools` — optional list/csv. Non-MCP tool hints; anything outside
+    SUPPORTED_ALLOWED_TOOLS logs a WARN but still loads.
+  - `mcp-required` (alias `mcp_required`) — optional list/csv of MCP server
+    names this skill fundamentally depends on. Consumed by the setup wizard
+    to lock the matching MCP toggles on (you can't disable an MCP a chosen
+    skill needs — remove the skill first). Missing = no declared deps
+    (honest default). User-authored skills that omit this field load
+    unconditionally; the runtime safety net in mcp_client.execute_tool
+    raises an actionable "server disabled" error if the LLM actually tries
+    to call a tool from a disabled server.
+
+The remainder of the file is the skill body — free-form instructions fed to
 the LLM when the skill is invoked.
 
 Two path shapes are supported in `config.SKILLS_PATHS`:
@@ -37,6 +52,12 @@ class Skill:
     description: str
     body: str
     allowed_tools: list[str] = field(default_factory=list)
+    # MCP servers whose tools this skill fundamentally relies on. Consumed by
+    # the setup wizard to preseed enabled=true on the MCP step and to grey out
+    # toggles the user can't safely disable. Missing field → empty list → no
+    # declared deps (honest default; runtime falls back on the granular
+    # "disabled server" error in mcp_client.disabled_server_for_tool).
+    mcp_required: list[str] = field(default_factory=list)
     source_path: str = ""
 
 
@@ -91,11 +112,21 @@ def _parse_skill_md(path: Path) -> Skill | None:
             f"loading anyway; model may decline to use them"
         )
 
+    raw_required = fm.get("mcp-required") or fm.get("mcp_required") or []
+    if isinstance(raw_required, str):
+        mcp_required = [t.strip() for t in raw_required.split(",") if t.strip()]
+    elif isinstance(raw_required, list):
+        mcp_required = [str(t).strip() for t in raw_required if str(t).strip()]
+    else:
+        log.warning(f"SKILLS: {path} mcp-required has unexpected type — ignoring")
+        mcp_required = []
+
     return Skill(
         name=name,
         description=description,
         body=body.strip(),
         allowed_tools=allowed,
+        mcp_required=mcp_required,
         source_path=str(path),
     )
 

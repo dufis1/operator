@@ -1,6 +1,7 @@
 ---
 name: live-bug-triage
 description: Triage a live production bug — use when the user says "prod is broken", "we're seeing errors", "X is throwing", or names a Sentry issue / error ID mid-meeting.
+mcp-required: [sentry]
 ---
 
 # Live bug triage
