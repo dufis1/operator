@@ -5,10 +5,10 @@ via an LLM with tool access (Linear, GitHub, and other MCP servers you wire
 up), and leaves when everyone else does.
 
 ```bash
-brainchild pm                                        # open a fresh Meet
-brainchild pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
-brainchild try pm                                    # terminal test-drive, no Meet
-brainchild                                           # show available agents
+brainchild run pm                                        # open a fresh Meet
+brainchild run pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
+brainchild try pm                                        # terminal test-drive, no Meet
+brainchild                                               # show available agents
 ```
 
 `pm` is a sample bot under `agents/`. Drop in `brainchild setup` to create your own.
@@ -44,6 +44,13 @@ secrets or logged-in Google session state and must stay local:
 All of the above are ignored by `.gitignore`. If you see one show up in
 `git status` untracked, something has gone wrong — don't `git add .` blindly.
 See `docs/security.md` for the full threat model.
+
+## Uninstall
+
+```bash
+uv tool uninstall brainchild   # removes the CLI + PATH shim
+rm -rf ~/.brainchild           # removes agents, history, and .env
+```
 
 ## More
 

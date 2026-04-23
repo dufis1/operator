@@ -11,16 +11,16 @@ Brainchild is a chat-based AI meeting participant. It joins Google Meet, opens t
 ### Run
 
 ```bash
-brainchild pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
-brainchild pm                                        # auto-open meet.new
-brainchild                                           # usage + agent list
+brainchild run pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
+brainchild run pm                                        # auto-open meet.new
+brainchild                                               # usage + agent list
 ```
 
 Replace `pm` with any bot under `agents/` (`engineer`, `designer`, …). Every
 run selects an agent explicitly — there is no ambient root `config.yaml`
 anymore. The `brainchild` wrapper (symlinked into `~/.local/bin/`) handles venv
-activation; you can also call `python __main__.py <name> [url]` directly if
-the venv is already active.
+activation; you can also call `python __main__.py run <name> [url]` directly
+if the venv is already active.
 
 ### Logs & Diagnostics
 
@@ -84,7 +84,7 @@ Pipeline (platform-agnostic)
 
 ### Configuration
 
-Every run names an agent explicitly (`brainchild <name> [url]`). Config loading is driven by the `BRAINCHILD_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks (top-to-bottom ordering mirrors the setup wizard's four-layer view of a bot):
+Every run names an agent explicitly (`brainchild run <name> [url]`). Config loading is driven by the `BRAINCHILD_BOT` env var — the CLI sets this before importing `config`, which then reads `agents/<name>/config.yaml` into module-level constants. There is no root `config.yaml`; there is one config file per bot under `agents/`. User-facing blocks (top-to-bottom ordering mirrors the setup wizard's four-layer view of a bot):
 - `agent` — `name`, `trigger_phrase`, `first_contact_hint`, `tagline`, `intro_on_join`
 - `llm` — `provider` (`openai` | `anthropic`), `model`, `history_messages` (tail size replayed from the meeting record)
 - `transcript` — `captions_enabled`

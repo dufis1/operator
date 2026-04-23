@@ -29,8 +29,8 @@ cp agents/designer/.env.example .env
 # Edit .env with ANTHROPIC_API_KEY and FIGMA_TOKEN
 
 # 2. Run — direct URL or auto-open meet.new
-brainchild designer https://meet.google.com/xxx-yyyy-zzz
-brainchild designer
+brainchild run designer https://meet.google.com/xxx-yyyy-zzz
+brainchild run designer
 ```
 
 ## Using it

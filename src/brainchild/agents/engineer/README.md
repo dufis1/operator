@@ -24,8 +24,8 @@ cp agents/engineer/.env.example .env
 # Edit .env with your keys
 
 # 2. Run — direct URL or auto-open meet.new
-brainchild engineer https://meet.google.com/xxx-yyyy-zzz
-brainchild engineer
+brainchild run engineer https://meet.google.com/xxx-yyyy-zzz
+brainchild run engineer
 ```
 
 ## How delegation works

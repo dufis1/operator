@@ -26,8 +26,8 @@ cp agents/pm/.env.example .env
 # Edit .env with your keys
 
 # 2. Run — direct URL or auto-open meet.new
-brainchild pm https://meet.google.com/xxx-yyyy-zzz
-brainchild pm
+brainchild run pm https://meet.google.com/xxx-yyyy-zzz
+brainchild run pm
 ```
 
 **First run:** Linear MCP opens a browser window for OAuth. Authenticate once;

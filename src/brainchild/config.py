@@ -11,7 +11,7 @@ BOT_NAME = os.environ.get("BRAINCHILD_BOT", "").strip()
 if not BOT_NAME:
     sys.stderr.write(
         "ERROR: BRAINCHILD_BOT env var is not set.\n"
-        "Run via the CLI: `brainchild <name> [url]`.\n"
+        "Run via the CLI: `brainchild run <name> [url]`.\n"
     )
     raise SystemExit(2)
 

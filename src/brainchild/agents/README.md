@@ -27,8 +27,8 @@ is Claude-specific. Swap the model in `config.yaml` and the same skills work.
 brainchild try engineer                                  # chat in-terminal, no Meet
 
 # 3. Run — name the bot you want, optionally pass a Meet URL
-brainchild engineer https://meet.google.com/xxx-yyyy-zzz
-brainchild engineer                                      # auto-opens meet.new
+brainchild run engineer https://meet.google.com/xxx-yyyy-zzz
+brainchild run engineer                                  # auto-opens meet.new
 brainchild                                               # show all bots
 ```
 

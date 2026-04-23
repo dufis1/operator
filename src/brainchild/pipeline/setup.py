@@ -725,7 +725,7 @@ def _write_readme(path: Path, name: str, bot_cfg: dict) -> None:
     body = (
         f"# {display}\n\n"
         f"{tagline}\n\n"
-        f"Run: `brainchild {name}` or `brainchild {name} <meet-url>`.\n\n"
+        f"Run: `brainchild run {name}` or `brainchild run {name} <meet-url>`.\n\n"
         f"MCPs: {mcp_line}\n\n"
         "## Note\n\n"
         "Skills and MCPs are independent in this bundle — enabling a skill\n"
@@ -751,7 +751,7 @@ def _reveal(state: WizardState) -> None:
     console.print()
     console.print(f"Your agent config lives in [bold]{config_path}[/bold].")
     console.print()
-    console.print(f"Take [bold]{state.name}[/bold] for a spin: [bold]brainchild {state.name}[/bold]")
+    console.print(f"Take [bold]{state.name}[/bold] for a spin: [bold]brainchild run {state.name}[/bold]")
     console.print()
     console.print(state.card(title=f"Meet {state.name}"))
 

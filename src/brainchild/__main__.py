@@ -3,8 +3,8 @@ Brainchild — AI Meeting Participant
 Cross-platform entry point. Auto-detects OS and dispatches to the right adapter.
 
 Usage:
-    brainchild <name> <url>     Run named agent in a specific Meet
-    brainchild <name>           Auto-open a new Meet, join as that bot
+    brainchild run <name> <url> Run named agent in a specific Meet
+    brainchild run <name>       Auto-open a new Meet, join as that bot
     brainchild try <name>       Terminal test-drive (no Meet)
     brainchild setup            Create a new agent (wizard)
     brainchild                  Print usage + agent list
@@ -209,8 +209,7 @@ def _bot_tagline(name):
 
 def _print_usage():
     print("Usage:")
-    print("  brainchild <name> [url]     Run an agent in a Meet")
-    print("  brainchild <name>           Auto-open a new Meet, join as that bot")
+    print("  brainchild run <name> [url] Run an agent in a Meet (auto-opens one if no url)")
     print("  brainchild try <name>       Terminal test-drive (no Meet)")
     print("  brainchild setup            Create a new agent (wizard)")
     print("  brainchild auth <mcp>       Authorize an OAuth MCP (Linear, etc.)")
@@ -269,18 +268,35 @@ def main():
             _print_usage()
             return 2
         return _run_auth(argv[1])
+    if first == "run":
+        if len(argv) < 2:
+            print("Usage: brainchild run <name> [url]\n")
+            _print_usage()
+            return 2
+        name = argv[1]
+        if name not in _available_bots():
+            print(f"Unknown bot: {name!r}\n")
+            _print_usage()
+            return 2
+        return _run_bot(name, argv[2:])
 
     if first.startswith("-"):
         print(f"Unknown option: {first}\n")
         _print_usage()
         return 2
 
-    if first not in _available_bots():
-        print(f"Unknown bot or subcommand: {first!r}\n")
-        _print_usage()
+    # Phase 15.8: bare `brainchild <name>` is no longer accepted. A known bot
+    # name gets a pointed hint pointing at the new form; anything else falls
+    # through to the generic unknown-subcommand message.
+    if first in _available_bots():
+        print(
+            f"Run agents via `brainchild run {first}`. "
+            f"Bare `brainchild {first}` is no longer supported.\n"
+        )
         return 2
-
-    return _run_bot(first, argv[1:])
+    print(f"Unknown bot or subcommand: {first!r}\n")
+    _print_usage()
+    return 2
 
 
 def _run_try(name):
@@ -592,7 +608,7 @@ def _run_macos(meeting_url=None, force=False):
         log.info(f"Starting Brainchild — joining {meeting_url}")
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            ui.say(f"Restart with: brainchild {os.environ.get('BRAINCHILD_BOT', '<name>')} {meeting_url}")
+            ui.say(f"Restart with: brainchild run {os.environ.get('BRAINCHILD_BOT', '<name>')} {meeting_url}")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
@@ -621,8 +637,8 @@ def _run_linux(meeting_url, force=False):
     if not meeting_url:
         bot = os.environ.get("BRAINCHILD_BOT", "<name>")
         print("A meeting URL is required on Linux:", file=sys.stderr)
-        print(f"   brainchild {bot} <meet-url>", file=sys.stderr)
-        print(f"   MEETING_URL=<url> brainchild {bot}", file=sys.stderr)
+        print(f"   brainchild run {bot} <meet-url>", file=sys.stderr)
+        print(f"   MEETING_URL=<url> brainchild run {bot}", file=sys.stderr)
         sys.exit(1)
 
     display = os.environ.get("DISPLAY")
@@ -698,7 +714,7 @@ def _run_linux(meeting_url, force=False):
     try:
         runner.run(meeting_url)
         if not runner._stop_event.is_set():
-            ui.say(f"Restart with: brainchild {os.environ.get('BRAINCHILD_BOT', '<name>')} {meeting_url}")
+            ui.say(f"Restart with: brainchild run {os.environ.get('BRAINCHILD_BOT', '<name>')} {meeting_url}")
     except KeyboardInterrupt:
         log.info("Interrupted — leaving meeting")
     finally:
