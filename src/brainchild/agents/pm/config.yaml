@@ -25,16 +25,16 @@ transcript:
 # are pinned so runtime behavior stays stable through launch; bump
 # deliberately when upstream ships a fix or feature you want.
 mcp_servers:
-  delegate:
+  claude-code:
     enabled: false
     description: "spin up a Claude Code instance to write code for you, from inside the meeting"
     command: "python"
-    args: ["agents/engineer/delegate_to_claude_code.py"]
+    args: ["agents/engineer/claude_code.py"]
     env:
       # bypassPermissions = auto-approve every tool (incl. Bash). acceptEdits =
       # file edits auto-run, Bash is blocked. Brainchild confirm-gates each
       # delegate call either way, and --worktree isolates file changes.
-      DELEGATE_PERMISSION_MODE: "bypassPermissions"
+      CLAUDE_CODE_PERMISSION_MODE: "bypassPermissions"
     read_tools: []     # delegate_to_claude_code is a write — always confirm
     confirm_tools: []
     hints: |

@@ -82,7 +82,7 @@ def relativize_home(p):
     """Return path with $HOME replaced by `~`, else unchanged.
 
     Used when rendering local paths into strings that will flow to the LLM
-    or meeting chat (delegate footers, log lines). Keeps the absolute path
+    or meeting chat (claude-code footers, log lines). Keeps the absolute path
     off the wire so it doesn't leak the user's directory layout.
     """
     if not p:
@@ -162,7 +162,7 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         # the read tool names here; the pipeline carries no per-MCP defaults.
         "read_tools": set(_srv.get("read_tools", [])),
     }
-    # Optional per-server hard timeout override (e.g. delegate runs minutes).
+    # Optional per-server hard timeout override (e.g. claude-code runs minutes).
     if "tool_timeout_seconds" in _srv:
         _block["tool_timeout_seconds"] = _srv["tool_timeout_seconds"]
     MCP_SERVERS[_name] = _block

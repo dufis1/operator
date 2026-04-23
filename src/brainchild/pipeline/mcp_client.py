@@ -235,7 +235,7 @@ class MCPClient:
     def tool_timeout_for(self, tool_name: str) -> int | None:
         """Return per-server tool_timeout_seconds override, or None to use the global default.
 
-        Lets a slow MCP (e.g. delegate running a multi-minute Claude Code task)
+        Lets a slow MCP (e.g. claude-code running a multi-minute task)
         carry its own timeout in the bot's config.yaml without bumping the
         global default for quick read tools.
         """

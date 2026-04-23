@@ -3,17 +3,14 @@
 
 All wrapping happens inside ``_compose_body`` so every emitted row is
 already ≤ ``_INNER`` cells with the ``"  "`` left indent preserved
-(hanging indent on continuations). The frame then just decorates —
-Panel for steps 2 & 3 (``rainbow=False``), per-glyph rainbow ANSI for
-the reveal (``rainbow=True``).
+(hanging indent on continuations). ``render`` then wraps the body in a
+plain white ``Panel`` and colorizes the ⚡ power-up and ★ skill glyphs.
 
 Tagline is wrapped into the right-hand meta column *before* being
 zipped with the portrait, so a long tagline extends meta_lines
 downward without breaking the face grid.
 """
 from __future__ import annotations
-
-from itertools import cycle
 
 from rich.cells import cell_len
 from rich.console import RenderableType
@@ -27,15 +24,6 @@ PLACEHOLDER_PORTRAIT = (
     "█ ?? █\n"
     "▀▀▀▀▀▀"
 )
-
-_COLORS = [
-    "\033[0;31;40m",  # red
-    "\033[0;32;40m",  # green
-    "\033[0;33;40m",  # yellow
-    "\033[0;34;40m",  # blue
-    "\033[0;35;40m",  # magenta
-]
-_RESET = "\033[0m"
 
 _WIDTH = 40
 _INNER = _WIDTH - 2  # 38
@@ -131,33 +119,6 @@ def _compose_body(
     return [r + " " * max(0, _INNER - cell_len(r)) for r in rows]
 
 
-def _rainbow_wrap(body_rows: list[str], title: str) -> str:
-    """Wrap body rows in a per-character rainbow frame. Returns raw ANSI.
-
-    Rows are assumed pre-padded to ``_INNER`` cells by ``_compose_body``.
-    """
-    c = cycle(_COLORS)
-
-    title_str = f" {title} "
-    remaining = _INNER - cell_len(title_str)
-    left_fill = max(0, remaining // 2)
-    right_fill = max(0, remaining - left_fill)
-    top_chars = ["╭"] + ["─"] * left_fill + list(title_str) + ["─"] * right_fill + ["╮"]
-    top = "".join(f"{next(c)}{ch}{_RESET}" for ch in top_chars)
-
-    body_out: list[str] = []
-    for line in body_rows:
-        pad = " " * max(0, _INNER - cell_len(line))
-        left = f"{next(c)}│{_RESET}"
-        right = f"{next(c)}│{_RESET}"
-        body_out.append(f"{left}{line}{pad}{right}")
-
-    bot_chars = ["╰"] + ["─"] * _INNER + ["╯"]
-    bot = "".join(f"{next(c)}{ch}{_RESET}" for ch in bot_chars)
-
-    return "\n".join([top, *body_out, bot])
-
-
 def render(
     *,
     name: str,
@@ -166,22 +127,18 @@ def render(
     power_ups: list[str],
     skills: list[str],
     title: str = "Your build",
-    rainbow: bool = False,
 ) -> RenderableType:
-    """Build the card as a Rich renderable.
-
-    ``rainbow=False`` (default) draws a plain white ``Panel`` that
-    wraps long lines. ``rainbow=True`` draws the per-character rainbow
-    frame; long lines are truncated to the inner width.
-    """
+    """Build the card as a plain white ``Panel`` with colorized icons."""
     body = _compose_body(name, tagline, portrait, power_ups, skills)
     blank = " " * _INNER
     framed_body = [blank] + body + [blank]
-    if rainbow:
-        return Text.from_ansi(_rainbow_wrap(framed_body, title))
     # Pre-padded rows fit _INNER exactly — turn off Rich's reflow so it
-    # doesn't strip leading indent on any row.
-    inner = Text("\n".join(framed_body), no_wrap=True, overflow="crop")
+    # doesn't strip leading indent on any row. Markup injection is safe
+    # because ⚡/★ are only emitted by _compose_body itself.
+    raw = "\n".join(framed_body)
+    markup = raw.replace("⚡", "[bold blue]⚡[/bold blue]").replace("★", "[bold yellow]★[/bold yellow]")
+    inner = Text.from_markup(markup, overflow="crop")
+    inner.no_wrap = True
     return Panel(
         inner,
         title=title,

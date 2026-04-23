@@ -585,7 +585,7 @@ def test_is_valid_skill_source_rejects_unrelated_paths():
 
 
 def test_build_card_render_panel_mode():
-    """rainbow=False returns a Rich Panel titled with the given title."""
+    """render returns a plain white Panel with the given title and icon colorization."""
     from brainchild.pipeline import build_card
     from rich.panel import Panel
 
@@ -596,7 +596,6 @@ def test_build_card_render_panel_mode():
         power_ups=["linear", "github"],
         skills=["review"],
         title="Your build",
-        rainbow=False,
     )
     assert isinstance(out, Panel), f"expected Panel, got {type(out).__name__}"
     assert out.title == "Your build"
@@ -606,29 +605,9 @@ def test_build_card_render_panel_mode():
     assert "task wrangler" in body_plain
     assert "linear" in body_plain and "github" in body_plain
     assert "review" in body_plain
+    # ⚡ and ★ glyphs survive markup parsing into the plain form.
+    assert "⚡" in body_plain and "★" in body_plain, body_plain
     print("  build_card render Panel mode: PASS")
-
-
-def test_build_card_render_rainbow_emits_ansi():
-    """rainbow=True returns a Text built from ANSI — contains escape codes."""
-    from brainchild.pipeline import build_card
-    from rich.text import Text
-
-    out = build_card.render(
-        name="Fresh",
-        tagline="reveal",
-        portrait=build_card.PLACEHOLDER_PORTRAIT,
-        power_ups=[],
-        skills=[],
-        rainbow=True,
-    )
-    assert isinstance(out, Text), f"expected Text, got {type(out).__name__}"
-    # Text.from_ansi strips the escape codes into Text spans; the plain form
-    # should still contain the frame-plus-title glyphs.
-    plain = out.plain
-    assert "Your build" in plain
-    assert "╭" in plain and "╯" in plain, f"expected rainbow frame glyphs, got: {plain[:100]!r}"
-    print("  build_card render rainbow path: PASS")
 
 
 def test_build_card_empty_bullets_show_placeholder():
@@ -659,25 +638,6 @@ def test_wrap_cells_hard_splits_oversized_token():
     print("  wrap_cells hard-splits wide token: PASS")
 
 
-# ── 17. _first_line (S6) ──────────────────────────────────────────────────
-
-
-def test_first_line_basic_truncation_and_empty():
-    """Picks the first non-empty line; truncates with ellipsis past max_chars;
-    empty input returns empty string."""
-    # Skips leading blank lines
-    assert wizard._first_line("\n\nhello world\nsecond\n") == "hello world"
-    # Truncation adds an ellipsis
-    long = "a" * 80
-    out = wizard._first_line(long, max_chars=20)
-    assert out.endswith("…"), out
-    assert len(out) == 20, out  # max_chars-1 chars + "…" = max_chars
-    # Empty / whitespace-only input
-    assert wizard._first_line("") == ""
-    assert wizard._first_line("   \n\t\n") == ""
-    print("  first_line basic + truncate + empty: PASS")
-
-
 if __name__ == "__main__":
     print("Setup wizard tests:")
     test_name_validation_reserved_and_collision()
@@ -706,8 +666,6 @@ if __name__ == "__main__":
     test_is_valid_skill_source_accepts_three_shapes()
     test_is_valid_skill_source_rejects_unrelated_paths()
     test_build_card_render_panel_mode()
-    test_build_card_render_rainbow_emits_ansi()
     test_build_card_empty_bullets_show_placeholder()
     test_wrap_cells_hard_splits_oversized_token()
-    test_first_line_basic_truncation_and_empty()
     print("\nAll tests passed.")

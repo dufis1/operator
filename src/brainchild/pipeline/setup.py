@@ -39,7 +39,6 @@ from __future__ import annotations
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -50,7 +49,7 @@ from typing import Any
 import yaml
 from rich.align import Align
 from rich.console import Console, Group, RenderableType
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 from rich.text import Text
 
 from brainchild.pipeline import build_card, face
@@ -71,6 +70,11 @@ NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
 # Env-var references inside MCP env blocks look like "${VAR_NAME}".
 _ENV_REF_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+
+# First-party MCP servers — labeled "(official)" in the step 2 picker so
+# users know which are trustworthy out of the gate. figma is GLips community;
+# claude-code is Brainchild's own.
+_OFFICIAL_MCPS = {"github", "linear", "notion"}
 
 console = Console()
 
@@ -123,7 +127,6 @@ class WizardState:
         mcps: list[str] | None = None,
         skills: list[str] | None = None,
         title: str = "Your build",
-        rainbow: bool = False,
     ) -> RenderableType:
         return build_card.render(
             name=self.display_name or self.name or "(unnamed)",
@@ -132,7 +135,6 @@ class WizardState:
             power_ups=mcps if mcps is not None else self.equipped_mcps(),
             skills=skills if skills is not None else self.equipped_skills(),
             title=title,
-            rainbow=rainbow,
         )
 
 
@@ -201,8 +203,7 @@ def _step1_fighter_select() -> WizardState:
 
     choices: list[Choice] = [
         Choice(
-            label="Custom",
-            sublabel="build from scratch",
+            label="custom",
             value="__custom__",
             preview=_custom_preview(),
         ),
@@ -211,7 +212,6 @@ def _step1_fighter_select() -> WizardState:
         tag = _bot_tagline(bot)
         choices.append(Choice(
             label=bot,
-            sublabel=tag,
             value=bot,
             preview=_preset_preview(bot, tag),
         ))
@@ -227,8 +227,8 @@ def _custom_preview() -> RenderableType:
     return Group(
         Align.center(Text(build_card.PLACEHOLDER_PORTRAIT, style="bold")),
         Text(""),
-        Align.center(Text("Custom", style="bold")),
-        Align.center(Text("Build from scratch.", style="dim")),
+        Align.center(Text("custom", style="bold")),
+        Align.center(Text("build from scratch", style="dim")),
     )
 
 
@@ -260,10 +260,8 @@ def _from_scratch() -> WizardState:
     for srv in cfg.get("mcp_servers", {}).values():
         srv["enabled"] = False
 
-    # From-scratch also starts with blank personality + ground_rules — the
-    # user authors both in steps 4 and 5 (or leaves blank if they want).
-    cfg["personality"] = ""
-    cfg["ground_rules"] = ""
+    # Personality + ground_rules carry pm's defaults through — steps 4/5
+    # offer approve-or-start-blank so users can inherit or replace.
 
     return WizardState(
         mode="new",
@@ -305,19 +303,16 @@ def _base_dir(state: WizardState) -> Path:
 
 def _step2_mcps(state: WizardState) -> None:
     """Mutates state.bot_cfg['mcp_servers'][*]['enabled'] in place."""
-    console.print("\n[bold]2. Tools (MCPs)[/bold]")
-    console.print("  [dim]External systems your bot can reach — GitHub, Linear, Figma, etc.[/dim]")
-    console.print("  [dim]Toggle with SPACE, confirm with ENTER.[/dim]\n")
+    console.print("\n[bold]2. MCPs[/bold]\n")
     servers = state.bot_cfg.get("mcp_servers") or {}
     if not servers:
         console.print("  [dim]No MCP servers declared in the base config.[/dim]")
         return
 
-    names = list(servers.keys())
-    choices = [
-        Choice(label=n, sublabel=(servers[n].get("description") or "").strip())
-        for n in names
-    ]
+    # Sort: officials first (alphabetical), then other third-party, claude-code
+    # always last — trust signal reads top-down.
+    names = sorted(servers.keys(), key=_mcp_sort_key)
+    choices = [_mcp_choice(n) for n in names]
     initial = [bool(servers[n].get("enabled", False)) for n in names]
 
     def right_pane(_cursor, checked):
@@ -335,6 +330,21 @@ def _step2_mcps(state: WizardState) -> None:
         servers[n]["enabled"] = bool(final[i])
 
 
+def _mcp_choice(name: str) -> Choice:
+    """Render one MCP row. Officials get an `(official)` tag."""
+    tag = " (official)" if name in _OFFICIAL_MCPS else ""
+    return Choice(label=f"{name}{tag}")
+
+
+def _mcp_sort_key(name: str) -> tuple[int, str]:
+    """Officials bucket first, claude-code last, everything else in between."""
+    if name == "claude-code":
+        return (2, name)
+    if name in _OFFICIAL_MCPS:
+        return (0, name)
+    return (1, name)
+
+
 # ── Step 3 — Skills ───────────────────────────────────────────────────────
 
 
@@ -344,9 +354,7 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
     Bundled-skills picker first (from pm for new bots, preset itself for edit),
     then a plain y/n for adding the user's own skills. If yes, path-input loop.
     """
-    console.print("[bold]3. Playbooks (Skills)[/bold]")
-    console.print("  [dim]Specific procedures your bot knows — often compose the tools above.[/dim]\n")
-    console.print(f"  Your [bold]{state.name}[/bold] agent comes with the following:\n")
+    console.print("[bold]3. Skills[/bold]\n")
 
     bundled_dir = base_dir / "skills"
     candidates: list[Path] = []
@@ -374,16 +382,9 @@ def _step3_skills(state: WizardState, base_dir: Path) -> None:
         state.bundled_skill_dirs = [p for p, keep in zip(candidates, final) if keep]
 
     console.print()
-    if not Confirm.ask("  Add your own skills?", default=False):
-        return
-
-    console.print()
+    console.print("  Add path to your own skills folder or .md file:")
     while True:
-        raw = Prompt.ask(
-            "  Enter path to your SKILLS folder or single .md file",
-            default="",
-            show_default=False,
-        ).strip()
+        raw = _prompt_with_hint("Leave empty to skip").strip()
         if not raw:
             break
         resolved = Path(os.path.expanduser(raw)).resolve()
@@ -448,100 +449,40 @@ def _skill_subtitle(skill_dir: Path) -> str:
     return ""
 
 
-# ── Step 4 — Ground rules ─────────────────────────────────────────────────
+# ── Step 4 — System Prompt (personality + ground rules) ───────────────────
 
 
-def _step4_ground_rules(state: WizardState) -> None:
-    """Edit the bot's always-true constraints via $EDITOR."""
-    console.print("[bold]4. Ground rules[/bold]")
-    console.print("  [dim]Always-true constraints — what the bot should do or avoid on every turn.[/dim]")
-    console.print("  [dim]Land last in the composed system prompt, so the model weights them heavily.[/dim]\n")
-    _edit_prompt_block(state, key="ground_rules", label="ground rules")
+def _step4_system_prompt(state: WizardState) -> None:
+    """Author the agent's system prompt — one input covers voice and rules.
 
-
-# ── Step 5 — Personality ──────────────────────────────────────────────────
-
-
-def _step5_personality(state: WizardState) -> None:
-    """Edit the bot's voice/tone via $EDITOR."""
-    console.print("[bold]5. Personality[/bold]")
-    console.print("  [dim]Who the bot is — voice, tone, how it shows up in chat.[/dim]")
-    console.print("  [dim]Leads the composed system prompt.[/dim]\n")
-    _edit_prompt_block(state, key="personality", label="personality")
-
-
-def _edit_prompt_block(state: WizardState, *, key: str, label: str) -> None:
-    """Author a multi-line prompt block (ground_rules or personality).
-
-    From-scratch: blank $EDITOR pop — user can leave empty and nothing breaks.
-    Edit-preset: two-path — (a) inherit existing text and keep typing, or
-    (b) start from a blank editor.
+    Stored on `personality`; `ground_rules` is cleared. config.py joins the
+    two blocks with a blank line when either is non-empty, so leaving rules
+    empty is fine — the user's one input flows straight through.
     """
-    current = (state.bot_cfg.get(key) or "").strip()
-
-    if state.mode == "new" or not current:
-        console.print(f"  [dim]Blank by default — leave empty if you don't want to customize.[/dim]")
-        console.print(f"  [dim]Your $EDITOR will open; save and exit when done.[/dim]\n")
-        input("  Press Enter to open editor… ")
-        new_text = _edit_in_editor(seed="", label=label)
-    else:
-        choices = [
-            Choice(
-                label=f"Inherit {state.name}'s {label} — edit with cursor",
-                sublabel=f"{_first_line(current)} …",
-                value="keep",
-            ),
-            Choice(
-                label="Start blank",
-                sublabel="write your own from scratch (or leave empty)",
-                value="blank",
-            ),
-        ]
-        picked = select_one("", choices, console=console)
-        console.print()
-        seed = current if picked.value == "keep" else ""
-        new_text = _edit_in_editor(seed=seed, label=label)
-
-    state.bot_cfg[key] = new_text
+    console.print("[bold]4. System Prompt[/bold]")
+    console.print("  [dim]Give your agent personality and some ground rules.[/dim]\n")
+    new_text = _prompt_with_hint("Leave empty to skip").strip()
+    state.bot_cfg["personality"] = new_text
+    state.bot_cfg["ground_rules"] = ""
     if new_text:
-        console.print(f"  ✓ {label} saved ({len(new_text)} chars)")
+        console.print(f"  ✓ system prompt saved ({len(new_text)} chars)")
     else:
-        console.print(f"  [dim]{label} left blank[/dim]")
+        console.print(f"  [dim]system prompt left blank[/dim]")
 
 
-def _first_line(text: str, *, max_chars: int = 60) -> str:
-    """Best-effort preview of a multi-line block for the picker sublabel."""
-    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
-    if len(first) > max_chars:
-        return first[: max_chars - 1].rstrip() + "…"
-    return first
-
-
-def _edit_in_editor(*, seed: str, label: str) -> str:
-    """Pop $EDITOR on a tempfile containing `seed`. Return stripped final content.
-
-    Falls back to `vi` if neither $EDITOR nor $VISUAL is set.
+def _prompt_with_hint(hint: str) -> str:
+    """Single-line input. Hint is dim-printed one line above — a workable
+    stand-in for the in-field placeholder we'd use with prompt_toolkit.
     """
-    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
-    fd, tmp_path = tempfile.mkstemp(prefix=f"brainchild-{label.replace(' ', '_')}-", suffix=".txt")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(seed)
-        subprocess.call([editor, tmp_path])
-        with open(tmp_path, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    console.print(f"  [dim]{hint}[/dim]")
+    return Prompt.ask("  ›", default="", show_default=False)
 
 
-# ── Step 6 — API keys ─────────────────────────────────────────────────────
+# ── Step 5 — API keys ─────────────────────────────────────────────────────
 
 
 def _step6_api_keys(needed: set[str]) -> None:
-    console.print("\n[bold]6. API keys[/bold]")
+    console.print("\n[bold]5. API keys[/bold]")
     if not needed:
         console.print("  [dim]Nothing to prompt for — no enabled MCP needs an env var.[/dim]")
         return
@@ -606,7 +547,6 @@ def _step7_write(state: WizardState) -> Path:
     `agents/<name>.bak-<ts>/`, renames the new bundle into place, and only
     deletes the `.bak` once the swap succeeds.
     """
-    console.print("\n[bold]7. Writing bundle[/bold]")
     _AGENTS_DIR.mkdir(parents=True, exist_ok=True)
 
     tmp_parent = tempfile.mkdtemp(prefix=f".{state.name}.tmp-", dir=_AGENTS_DIR)
@@ -657,7 +597,6 @@ def _step7_write(state: WizardState) -> Path:
     if backup and backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
 
-    console.print(f"  ✓ agents/{state.name}/")
     return target
 
 
@@ -693,7 +632,7 @@ def _write_readme(path: Path, name: str, bot_cfg: dict) -> None:
         "that references an MCP tool doesn't auto-enable the MCP, and vice\n"
         "versa. If a skill asks for a tool that isn't wired, the model will\n"
         "either ask for it or degrade gracefully. Re-run `brainchild setup`\n"
-        "and pick this bot as a preset to adjust either list.\n"
+        "and pick this agent as a preset to adjust either list.\n"
     )
     path.write_text(body, encoding="utf-8")
 
@@ -706,9 +645,15 @@ def _reveal(state: WizardState) -> None:
     state.portrait = face.load_or_render(
         state.name, _AGENTS_DIR / state.name / "portrait.txt",
     )
+    config_path = f"~/.brainchild/agents/{state.name}/config.yaml"
     console.print()
-    console.print("[bold]✨ bot reveal 🎁[/bold]")
-    console.print(state.card(title=f"Meet {state.name}", rainbow=True))
+    console.print("[bold]✨ All set! 🎁[/bold]")
+    console.print()
+    console.print(f"Your agent config lives in [bold]{config_path}[/bold].")
+    console.print()
+    console.print(f"Take [bold]{state.name}[/bold] for a spin: [bold]brainchild {state.name}[/bold]")
+    console.print()
+    console.print(state.card(title=f"Meet {state.name}"))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────
@@ -718,7 +663,7 @@ def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
     console.print("[bold]Brainchild setup wizard[/bold]")
-    console.print("[dim]Seven steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
+    console.print("[dim]Six steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
 
@@ -729,17 +674,14 @@ def run(argv: list[str]) -> int:
         _step3_skills(state, _base_dir(state))
 
         console.clear()
-        _step4_ground_rules(state)
-
-        console.clear()
-        _step5_personality(state)
+        _step4_system_prompt(state)
 
         console.clear()
         envs = _collect_env_refs(state)
         _step6_api_keys(envs)
 
         console.print()
-        console.input("  [bold]Press Enter to reveal your bot ✨🎁[/bold] ")
+        console.input("  [bold]Press Enter to reveal your agent ✨🎁[/bold] ")
 
         console.clear()
         _step7_write(state)
@@ -751,7 +693,7 @@ def run(argv: list[str]) -> int:
         console.print(f"\n✗ setup failed: {e}")
         raise
 
-    console.print(f"\n[bold]Done.[/bold] Try it: [bold]brainchild {state.name}[/bold]\n")
+    console.print()
     return 0
 
 

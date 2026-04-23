@@ -88,7 +88,7 @@ Every run names an agent explicitly (`brainchild <name> [url]`). Config loading 
 - `agent` — `name`, `trigger_phrase`, `first_contact_hint`, `tagline`, `intro_on_join`
 - `llm` — `provider` (`openai` | `anthropic`), `model`, `history_messages` (tail size replayed from the meeting record)
 - `transcript` — `captions_enabled`
-- `mcp_servers` (wizard: **Tools**) — per-server `command`, `args`, `env`, `hints`, `read_tools`, `confirm_tools`, and an optional `tool_timeout_seconds` override for slow servers like `delegate`
+- `mcp_servers` (wizard: **Tools**) — per-server `command`, `args`, `env`, `hints`, `read_tools`, `confirm_tools`, and an optional `tool_timeout_seconds` override for slow servers like `claude-code`
 - `skills` (wizard: **Playbooks**) — `paths`, `progressive_disclosure`
 - `ground_rules` — always-true constraints (string). Composed *last* into the system prompt.
 - `personality` — who the bot is; voice, tone, disposition (string). Composed *first* into the system prompt.

@@ -28,7 +28,7 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 import mcp.types as types
 
-server = Server("delegate")
+server = Server("claude_code")
 
 # repo_path (canonical) -> {"session_id": str, "worktree_path": str, "base_sha": str}
 _SESSIONS: dict[str, dict] = {}
@@ -194,7 +194,7 @@ async def _delegate(arguments: dict):
     # bypassPermissions = Claude Code auto-approves every tool (incl. Bash). Safe
     # default here because the Brainchild layer already confirm-gates each delegate
     # call, and --worktree isolates file changes. acceptEdits blocks Bash.
-    permission_mode = os.environ.get("DELEGATE_PERMISSION_MODE", "bypassPermissions")
+    permission_mode = os.environ.get("CLAUDE_CODE_PERMISSION_MODE", "bypassPermissions")
 
     # Opportunistic cleanup of stale entries before we potentially add a new one.
     subprocess.run(

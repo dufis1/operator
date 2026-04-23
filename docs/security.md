@@ -119,9 +119,9 @@ When truncation fires, the message appends `(Full values in
 
 `config.relativize_home(p)` swaps `$HOME` prefix for `~`. Used in:
 
-- `agents/engineer/delegate_to_claude_code.py` — the `[workdir: …]` /
-  `[repo: …]` footer in delegate tool-results that flows into meeting chat.
-  Before this fix, a delegate reply carried `/Users/jojo/Desktop/brainchild/…`
+- `agents/engineer/claude_code.py` — the `[workdir: …]` /
+  `[repo: …]` footer in claude-code tool-results that flows into meeting chat.
+  Before this fix, a claude-code reply carried `/Users/jojo/Desktop/brainchild/…`
   into meeting chat, leaking the machine username and directory layout to
   every participant.
 - `connectors/linux_adapter.py` — two log lines that printed the absolute
@@ -191,16 +191,16 @@ every spoken word. It never leaves your machine. macOS typically clears
 `/tmp` on reboot; Linux may not. Delete it manually if the meeting content
 was sensitive. See the README "Privacy & logs" section for the fuller note.
 
-### L4 — `delegate` default permission mode
+### L4 — `claude-code` default permission mode
 
-The `delegate` MCP server (bundled in `agents/engineer/`) runs with
+The `claude-code` MCP server (bundled in `agents/engineer/`) runs with
 `bypassPermissions` by default, which in a worktree means a delegated task
 could e.g. `curl | sh`. The trade-off is that with stricter permission modes
 the delegated sub-agent keeps asking for approvals inside the worktree, and
 those prompts never reach the meeting chat, so delegation stalls.
 
 **Recommendation:** if you're delegating work that touches anything you
-wouldn't run yourself blindly, set `DELEGATE_PERMISSION_MODE=acceptEdits` in
+wouldn't run yourself blindly, set `CLAUDE_CODE_PERMISSION_MODE=acceptEdits` in
 your `.env`. The trade-off is slower delegation and some stalled tasks.
 
 ## Pointers
