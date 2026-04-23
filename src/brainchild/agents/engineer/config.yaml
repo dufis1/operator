@@ -318,12 +318,15 @@ mcp_servers:
       User mentions use <@U01234567> syntax; convert display names via slack_get_users first. Raw @name strings don't ping.
       For summaries, lead with who-said-what (display name + one-line quote) rather than raw timestamps.
 
-# Skills — loads your Claude Code skills so the bot knows your team conventions.
-# Point at ~/.claude/skills to bring your existing skills into meetings.
+# Skills — bundled Engineer skills (scope-estimate, pr-review, release-notes,
+# live-bug-triage) + user's own skills from ~/.claude/skills.
+# Order: user skills first, bundle second, so bundled skills override user copies
+# by the same name (last-wins). Flip the order if you prefer the opposite.
 skills:
   progressive_disclosure: true
   paths:
     - ~/.claude/skills
+    - agents/engineer/skills
 
 # Ground rules — always-true constraints that bound every response. These
 # land at the end of the composed system prompt (after personality) so the
