@@ -16,11 +16,24 @@ brainchild run pm                                        # auto-open meet.new
 brainchild                                               # usage + agent list
 ```
 
-Replace `pm` with any bot under `agents/` (`engineer`, `designer`, …). Every
+Replace `pm` with any bot under `agents/` (`engineer`, `designer`, `claude`, …). Every
 run selects an agent explicitly — there is no ambient root `config.yaml`
 anymore. The `brainchild` wrapper (symlinked into `~/.local/bin/`) handles venv
 activation; you can also call `python __main__.py run <name> [url]` directly
 if the venv is already active.
+
+The `claude` agent (session 151, Phase 15.9) is different from the other three
+in one respect: it hard-depends on the Claude Code CLI being installed and
+logged in. `brainchild run claude` exits 2 with a clear stderr message if
+`claude` isn't on PATH or `claude auth status --json` reports not logged in.
+On first run it auto-imports the user's Claude Code MCP servers (both from
+`~/.claude.json#mcpServers` and `claude mcp list` — the latter is how
+claude.ai-hosted connectors like Gmail/Drive/Linear reach us) and skills
+(`~/.claude/skills/`). Hosted MCPs get auto-wrapped via `mcp-remote@0.1.38`
+(same bridge as bundled Linear/Sentry) and auth flows through the existing
+15.7.3 `brainchild auth <name>` path. Idempotent — marker
+`_claude_import_done: true` in `~/.brainchild/agents/claude/config.yaml`
+short-circuits re-import on subsequent boots.
 
 ### Logs & Diagnostics
 

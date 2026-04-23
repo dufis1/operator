@@ -204,6 +204,54 @@ test matrix — one run per MCP to confirm tools appear in
 - **Why deferred:** Each requires real credentials, network roundtrips,
   and in some cases a browser OAuth dance.
 
+### Phase 15.9 — `claude` bundled agent (session 151)
+
+- **Wizard preset live pick:**
+  - Run `brainchild setup`, pick `claude` from the fighter-select gallery
+    on a machine where Claude Code is installed + logged in.
+  - Verify: step 1 shows the agent, selection proceeds (not blocked),
+    step 2 shows auto-imported MCPs pre-ticked in the picker (expect
+    `claude-ai-*` entries matching whatever `claude mcp list` returns),
+    step 3 surfaces the "Auto-imported from ~/.claude/skills/:" line
+    with real skill names, step 4 offers the CLAUDE.md-append prompt
+    if `~/.claude/CLAUDE.md` exists.
+  - Env placeholder verify: after step 2 completes, check
+    `~/.brainchild/.env` has commented `# VAR=` lines for any env vars
+    the imported MCPs reference (mostly a no-op — hosted mcp-remote
+    imports reference none).
+
+- **CLI first-run with real `~/.claude.json`:**
+  - Delete `~/.brainchild/agents/claude/` (or fresh install) and run
+    `brainchild run claude`. Expect: stderr prints
+    `[claude] auto-imported N MCP(s): ...` on first run, followed by
+    normal boot. Re-run `brainchild run claude` — expect silent boot
+    (marker `_claude_import_done: true` short-circuits the re-import).
+  - Verify config write: `~/.brainchild/agents/claude/config.yaml` now
+    has both the bundled `claude-code` block AND the imported hosted
+    MCP blocks; marker present.
+  - Known limitation: PyYAML round-trip drops comments from config.yaml
+    on first write. Confirm the file still parses and the agent boots.
+
+- **Hard-fail when `claude` CLI uninstalled:**
+  - Temporarily rename `$(which claude)` or run on a machine without
+    Claude Code. Run `brainchild run claude`. Expect: exit code 2,
+    stderr block starting "The `claude` agent requires the Claude Code
+    CLI." with install link. No browser launch, no config write.
+  - Cross-check: `brainchild run pm` on the same machine boots normally
+    (hard-fail is scoped to `claude` agent only).
+
+- **`claude mcp list` format drift canary:**
+  - If a future Claude Code release changes `claude mcp list` output
+    shape, the regex parser in `claude_code_import.py` silently returns
+    zero hosted MCPs. Symptom: wizard / first-run imports 0 hosted MCPs
+    even when `claude mcp list` in a terminal shows them. Check
+    `_CLAUDE_MCP_LIST_RE` against the new format and update.
+
+- **Why deferred:** Live tests require a real Claude Code install +
+  login + account-level connector setup (claude.ai Gmail/Drive/etc.),
+  which varies per user. Unit tests (32/32 in `test_claude_code_import.py`)
+  cover every code path via mocked subprocess + tempdir fixtures.
+
 ## Closed
 
 *(none yet)*
