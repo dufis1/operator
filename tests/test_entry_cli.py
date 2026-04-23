@@ -240,6 +240,40 @@ def test_main_try_without_name_returns_2():
     print("PASS  test_main_try_without_name_returns_2")
 
 
+def test_main_auth_dispatches_with_name():
+    """`brainchild auth <mcp>` routes to _run_auth with the mcp name."""
+    spy = MagicMock(return_value=0)
+    with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
+        with patched_argv(["auth", "linear"]), patched_dispatch(_run_auth=spy):
+            rc = entry.main()
+    assert rc == 0
+    assert spy.call_args.args == ("linear",)
+    print("PASS  test_main_auth_dispatches_with_name")
+
+
+def test_main_auth_without_name_returns_2():
+    """Missing `<mcp>` arg → usage + exit 2."""
+    with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
+        with patched_argv(["auth"]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = entry.main()
+    assert rc == 2
+    assert "Usage:" in buf.getvalue()
+    print("PASS  test_main_auth_without_name_returns_2")
+
+
+def test_main_auth_rejects_extra_args():
+    """Extra args after `auth <mcp>` → exit 2."""
+    with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
+        with patched_argv(["auth", "linear", "extra"]):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = entry.main()
+    assert rc == 2
+    print("PASS  test_main_auth_rejects_extra_args")
+
+
 def test_main_unknown_flag_returns_2():
     with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
         with patched_argv(["--nonsense"]):
@@ -379,6 +413,9 @@ if __name__ == "__main__":
         test_main_setup_rejects_extra_args,
         test_main_try_dispatches_with_name,
         test_main_try_without_name_returns_2,
+        test_main_auth_dispatches_with_name,
+        test_main_auth_without_name_returns_2,
+        test_main_auth_rejects_extra_args,
         test_main_unknown_flag_returns_2,
         test_main_unknown_bot_returns_2,
         test_main_known_bot_dispatches_to_run_bot,

@@ -31,6 +31,29 @@ matches — a failure gets a 🔄 and a note of what actually happened.
 - **Why deferred:** Requires a live Meet join; can't be exercised
   without the Chrome profile + LLM provider.
 
+### Phase 15.7.3 — OAuth cache-path fail-fast + `brainchild auth` (session 148)
+
+- **Setup:** Move the Linear token cache aside:
+  ```
+  mv ~/.mcp-auth/mcp-remote-*/fcc436b0d1e0a1ed9a2b15bbd638eb13_tokens.json /tmp/
+  ```
+  (Filename is `md5("https://mcp.linear.app/mcp")_tokens.json`.) Then
+  launch `brainchild pm` and join a Meet.
+- **Verify:**
+  1. Bot joins in normal time — **no 30+s hang** waiting for OAuth.
+  2. On-join banner fires: `Heads-up — linear didn't load (needs auth — run brainchild auth linear). Ask for details.`
+  3. When prompted in chat ("why did linear fail?"), LLM reply relays
+     the specific fix (run the auth command) rather than "check logs."
+  4. Exit the bot.
+- **Re-authorize step:** Run `brainchild auth linear`. Browser should
+  open for Linear OAuth. Approve. CLI should print
+  `✓ Token cached at ~/.mcp-auth/mcp-remote-<ver>/<hash>_tokens.json`
+  and exit 0 within seconds of approval.
+- **Post-test:** Launch `brainchild pm` again — no banner, Linear loads,
+  Linear tool calls work.
+- **Why deferred:** Needs a real Linear OAuth roundtrip, a browser, and
+  a live Meet join.
+
 ## Closed
 
 *(none yet)*

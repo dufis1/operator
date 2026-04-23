@@ -128,6 +128,7 @@ class ChatRunner:
         "binary_missing": "binary not found",
         "startup_timeout": "didn't respond",
         "handshake_crash": "crashed on startup",
+        "oauth_needed": "needs auth — run `brainchild auth {name}`",
         "unknown": "error",
     }
 
@@ -151,6 +152,8 @@ class ChatRunner:
                 vars_list = info.get("vars") or []
                 vars_str = vars_list[0] if len(vars_list) == 1 else "credentials"
                 label = template.format(vars=vars_str)
+            elif kind == "oauth_needed":
+                label = template.format(name=name)
             else:
                 label = template
             fragments.append(f"{name} didn't load ({label})")

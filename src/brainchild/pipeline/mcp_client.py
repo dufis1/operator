@@ -8,10 +8,12 @@ the MCP SDK's stdio_client uses anyio task groups that must stay in one task).
 All public methods are synchronous and safe to call from any thread.
 """
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import threading
+from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -81,6 +83,44 @@ _AUTH_ERROR_PATTERNS = (
     "invalid_session_id",        # Salesforce
     "unauthenticated",           # Google APIs (gRPC)
 )
+
+
+def _mcp_remote_cache_dir() -> Path | None:
+    """Return the most recent ~/.mcp-auth/mcp-remote-<version>/ dir, or None.
+
+    mcp-remote bumps the version suffix on each release (today: 0.1.37).
+    We pick the lexicographically largest match so a user who has upgraded
+    locally doesn't start hitting a stale lower version's token cache.
+    """
+    base = Path.home() / ".mcp-auth"
+    if not base.exists():
+        return None
+    candidates = sorted(d for d in base.glob("mcp-remote-*") if d.is_dir())
+    return candidates[-1] if candidates else None
+
+
+def _oauth_cache_exists(auth_url: str) -> bool:
+    """True iff mcp-remote has a valid-looking token cache for auth_url.
+
+    Hashing mirrors mcp-remote's getServerUrlHash (dist/chunk-*.js):
+    md5(serverUrl) when no authorize_resource/headers are in play — the
+    happy path for every OAuth MCP we ship. Bundle configs are required
+    to declare auth_url verbatim so we don't have to guess at mcp-remote's
+    internal URL normalization (e.g. Linear's args use /sse while the
+    cache key derives from /mcp).
+
+    Existence ≠ validity — a revoked/expired token still has a file on
+    disk. Surfacing that requires a real tool call, which is 15.7.1d's
+    runtime sniff (kind="auth_failed"). This check is only about "will
+    mcp-remote hang waiting for browser OAuth at meeting join."
+    """
+    if not auth_url:
+        return False
+    cache_dir = _mcp_remote_cache_dir()
+    if cache_dir is None:
+        return False
+    url_hash = hashlib.md5(auth_url.encode()).hexdigest()
+    return (cache_dir / f"{url_hash}_tokens.json").exists()
 
 
 def _looks_like_auth_error(error_text: str | None) -> bool:
@@ -206,10 +246,30 @@ class MCPClient:
         Returns list of discovered tool names. Logs and skips servers
         that fail to start; structured failure records land in
         self.startup_failures for downstream UI surfaces.
+
+        Servers with auth="oauth" get a cache-path pre-check before any
+        subprocess is spawned — missing token cache → kind="oauth_needed"
+        and a skip, so OAuth can never hang meeting join waiting for a
+        browser popup. User runs `brainchild auth <name>` once to seed
+        the cache.
         """
         self._start_loop()
         tool_names = []
         for name, srv_config in config.MCP_SERVERS.items():
+            if srv_config.get("auth") == "oauth":
+                auth_url = srv_config.get("auth_url", "")
+                if not _oauth_cache_exists(auth_url):
+                    self.startup_failures[name] = {
+                        "kind": "oauth_needed",
+                        "fix": f"run `brainchild auth {name}` once to authorize — token is cached after",
+                        "auth_url": auth_url,
+                        "raw": "oauth cache missing",
+                    }
+                    log.warning(
+                        f"MCP server '{name}' skipped — oauth cache absent for {auth_url!r}; "
+                        f"run `brainchild auth {name}`"
+                    )
+                    continue
             try:
                 tools = self._connect_server(name, srv_config)
                 tool_names.extend(tools)

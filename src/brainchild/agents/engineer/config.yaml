@@ -117,6 +117,13 @@ mcp_servers:
   linear:
     enabled: false
     description: "file, query, and update Linear tickets the moment decisions land"
+    # auth:oauth + auth_url drives the meeting-join cache-path check (Phase 15.7.3) —
+    # missing ~/.mcp-auth/mcp-remote-<ver>/<md5(auth_url)>_tokens.json means we skip
+    # spawn and tell the user to run `brainchild auth linear` once. auth_url must
+    # match what mcp-remote hashes internally (for Linear that's the same /mcp URL
+    # passed as the positional arg).
+    auth: oauth
+    auth_url: "https://mcp.linear.app/mcp"
     command: "npx"
     args: ["-y", "mcp-remote@0.1.38", "https://mcp.linear.app/mcp"]
     read_tools:

@@ -159,6 +159,24 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
     if not _srv.get("enabled", True):
         continue
     _resolved_env, _missing_vars = _resolve_env_vars(_srv.get("env", {}), _name)
+    # Auth style: "env" (API key via .env — default) or "oauth" (mcp-remote
+    # browser OAuth, token cached at ~/.mcp-auth/mcp-remote-<version>/<md5(url)>_tokens.json).
+    # For "oauth" servers auth_url is required — it's the URL mcp-remote uses
+    # to derive the cache key (for Linear that's /mcp, not the /sse arg passed
+    # to the binary). MCPClient.connect_all fails fast with kind=oauth_needed
+    # if the cache is absent, so OAuth can never hang meeting join.
+    _auth = _srv.get("auth", "env")
+    if _auth not in ("env", "oauth"):
+        _mcp_log.warning(
+            f"MCP USER CONFIG: server '{_name}' has unknown auth='{_auth}' — treating as 'env'"
+        )
+        _auth = "env"
+    _auth_url = _srv.get("auth_url", "")
+    if _auth == "oauth" and not _auth_url:
+        _mcp_log.warning(
+            f"MCP USER CONFIG: server '{_name}' has auth='oauth' but no auth_url — "
+            f"cache-path check cannot run, server will be treated as needing auth until configured"
+        )
     _block = {
         "command": _srv["command"],
         "args": _srv.get("args", []),
@@ -167,6 +185,8 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         # startup classifier to surface "missing_creds" before the binary's
         # crash-on-boot message buries the real cause.
         "missing_vars": _missing_vars,
+        "auth": _auth,
+        "auth_url": _auth_url,
         "hints": _srv.get("hints", "").strip(),
         "confirm_tools": set(_srv.get("confirm_tools", [])),
         # Tools that auto-execute without user confirmation. Empty set = every
