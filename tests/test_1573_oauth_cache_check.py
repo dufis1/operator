@@ -48,7 +48,7 @@ def _with_fake_home(fn):
     def wrapper():
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            with patch("brainchild.pipeline.mcp_client.Path.home", return_value=tmp_path):
+            with patch("brainchild.pipeline.oauth_cache.Path.home", return_value=tmp_path):
                 fn(tmp_path)
     wrapper.__name__ = fn.__name__
     return wrapper
@@ -136,7 +136,7 @@ def test_connect_all_skips_spawn_when_oauth_cache_missing():
         }
         spawn_attempts = []
 
-        with patch("brainchild.pipeline.mcp_client.Path.home", return_value=tmp_path), \
+        with patch("brainchild.pipeline.oauth_cache.Path.home", return_value=tmp_path), \
              patch.object(config, "MCP_SERVERS", fake_servers):
             client = MCPClient()
             client._start_loop = lambda: None  # skip event-loop startup
@@ -177,7 +177,7 @@ def test_connect_all_spawns_when_oauth_cache_present():
         }
         spawn_attempts = []
 
-        with patch("brainchild.pipeline.mcp_client.Path.home", return_value=tmp_path), \
+        with patch("brainchild.pipeline.oauth_cache.Path.home", return_value=tmp_path), \
              patch.object(config, "MCP_SERVERS", fake_servers):
             client = MCPClient()
             client._start_loop = lambda: None
@@ -208,7 +208,7 @@ def test_connect_all_env_auth_ignores_cache_path():
         }
         spawn_attempts = []
 
-        with patch("brainchild.pipeline.mcp_client.Path.home", return_value=tmp_path), \
+        with patch("brainchild.pipeline.oauth_cache.Path.home", return_value=tmp_path), \
              patch.object(config, "MCP_SERVERS", fake_servers):
             client = MCPClient()
             client._start_loop = lambda: None

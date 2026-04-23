@@ -53,7 +53,9 @@ from rich.prompt import Prompt
 from rich.text import Text
 
 from brainchild.pipeline import build_card, face
+from brainchild.pipeline.auth import run_auth
 from brainchild.pipeline.picker import Choice, PickerCancelled, select_many, select_one
+from brainchild.pipeline.readiness import STATUS_GLYPH, report_mcp_readiness
 
 
 _ROOT = Path(__file__).resolve().parents[3]
@@ -328,6 +330,104 @@ def _step2_mcps(state: WizardState) -> None:
     )
     for i, n in enumerate(names):
         servers[n]["enabled"] = bool(final[i])
+
+    _render_mcp_readiness(servers)
+
+
+def _render_mcp_readiness(servers: dict) -> None:
+    """Show ✓/⚠/✗ per enabled MCP, and offer inline auth for OAuth gaps.
+
+    Skipped silently when nothing is enabled. For env servers that are
+    missing vars, we just show the glyph + hint — step 5 (API keys) is
+    where the user actually types them in. For OAuth servers, we offer
+    to run `brainchild auth <name>` inline so the browser popup happens
+    while the user is already in setup context; declining leaves the
+    user with the command they need to run later. For claude-code prereq
+    gaps there's no in-wizard fix — just surface the hint + URL.
+    """
+    report = report_mcp_readiness(servers, enabled_only=True)
+    if not report:
+        console.print()
+        console.print("  [dim]No MCPs enabled — skipping readiness check.[/dim]")
+        console.input("\n  [dim]Press Enter to continue.[/dim] ")
+        return
+
+    console.print()
+    console.print("  [bold]Readiness:[/bold]")
+    _print_readiness_rows(report)
+
+    # claude-code specifically needs a git-initialized repo at invocation
+    # time (the MCP takes repo_path — not a wizard-time concern, a per-call
+    # one). Remind users who enabled it so they aren't surprised later.
+    # Surfacing here because there's no clean mid-meeting place to say it.
+    if report.get("claude-code"):
+        console.print()
+        console.print(
+            "  [dim]ℹ claude-code delegations need a git-initialized repo. "
+            "If you point it at a folder without `.git`, the delegation will "
+            "tell you to run `git init` — no crash.[/dim]"
+        )
+
+    # Offer inline auth for each oauth_needed server. Re-check after each
+    # attempt so subsequent renders reflect the newly-seeded token.
+    while True:
+        pending = [n for n, rec in report.items() if rec["status"] == "oauth_needed"]
+        if not pending:
+            break
+        name = pending[0]
+        console.print()
+        answer = Prompt.ask(
+            f"  Authorize [bold]{name}[/bold] now? "
+            f"[dim](browser popup; runs `brainchild auth {name}`)[/dim]",
+            choices=["y", "n"],
+            default="y",
+        )
+        if answer.lower() != "y":
+            break
+        console.print()
+        # run_auth inherits stdout/stderr and blocks until the cache file
+        # lands (or user aborts). It handles Ctrl+C cleanly; anything
+        # non-zero means the user deferred, and we keep the current ⚠.
+        rc = run_auth(name)
+        console.print()
+        if rc == 0:
+            console.print(f"  [green]✓ {name} authorized.[/green]")
+        else:
+            console.print(f"  [yellow]⚠ {name} not authorized (exit {rc}) — "
+                          f"run `brainchild auth {name}` later.[/yellow]")
+        # Re-render so the user sees the updated state before the next
+        # oauth_needed prompt (or fall-through to the acknowledgment pause).
+        report = report_mcp_readiness(servers, enabled_only=True)
+        console.print()
+        console.print("  [bold]Readiness:[/bold]")
+        _print_readiness_rows(report)
+
+    console.input("\n  [dim]Press Enter to continue.[/dim] ")
+
+
+def _print_readiness_rows(report: dict) -> None:
+    """Render one ✓/⚠/✗ line per server with fix hint + URL.
+
+    Status glyph colors (green / yellow / red) come from STATUS_GLYPH's
+    key so callers in the wizard and runtime pre-flight render the same
+    glyphs — just rich-tagged here. URLs print bare so the terminal can
+    hyperlink them if the emulator supports it.
+    """
+    color = {
+        "ok": "green",
+        "oauth_needed": "yellow",
+        "missing_env": "red",
+        "prereq_missing": "red",
+    }
+    for name, rec in report.items():
+        glyph = STATUS_GLYPH[rec["status"]]
+        tag = color[rec["status"]]
+        suffix = ""
+        if rec["status"] != "ok":
+            suffix = f" [dim]— {rec['fix']}[/dim]"
+            if rec.get("fix_url"):
+                suffix += f" [dim]({rec['fix_url']})[/dim]"
+        console.print(f"    [{tag}]{glyph}[/{tag}] {name}{suffix}")
 
 
 def _mcp_choice(name: str) -> Choice:

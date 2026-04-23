@@ -26,6 +26,9 @@ mcp_servers:
   claude-code:
     enabled: true
     description: "spin up a Claude Code instance to write code for you, from inside the meeting"
+    # Prereq check (not a token) — wizard verifies the `claude` CLI is installed
+    # and logged in. If not, this URL is surfaced in the status screen.
+    credentials_url: "https://docs.claude.com/en/docs/claude-code/overview"
     command: "python"
     args: ["agents/engineer/claude_code.py"]
     # Claude Code delegations can run 3–10 min on real tasks; override the
@@ -49,6 +52,7 @@ mcp_servers:
   figma:
     enabled: false
     description: "read frames, components, and exports from your Figma files (read-only)"
+    credentials_url: "https://www.figma.com/developers/api#access-tokens"
     # GLips community server (https://github.com/GLips/Figma-Context-MCP) — Figma PAT,
     # read-only. Chosen as the default after the official server's OAuth dynamic-client
     # registration returned 403 (Figma's MCP catalog gate is hard, not soft).
@@ -74,6 +78,7 @@ mcp_servers:
   github:
     enabled: true
     description: "read and write code, PRs, and issues across your GitHub repos"
+    credentials_url: "https://github.com/settings/tokens"
     command: "./github-mcp-server"
     args: ["stdio"]
     # Tools that auto-execute without user confirmation. Anything not listed here confirms by default.
@@ -124,6 +129,11 @@ mcp_servers:
     # passed as the positional arg).
     auth: oauth
     auth_url: "https://mcp.linear.app/mcp"
+    # For OAuth servers credentials_url is informational — the real fix is
+    # `brainchild auth linear`. Kept present for schema uniformity so the
+    # status screen can fall back to the vendor's settings page if the user
+    # wants to revoke or inspect the authorization.
+    credentials_url: "https://linear.app/settings/account/security"
     command: "npx"
     args: ["-y", "mcp-remote@0.1.38", "https://mcp.linear.app/mcp"]
     read_tools:
@@ -160,6 +170,7 @@ mcp_servers:
   notion:
     enabled: false
     description: "read and write Notion pages and databases"
+    credentials_url: "https://www.notion.so/profile/integrations"
     command: "npx"
     args: ["-y", "@notionhq/notion-mcp-server@2.2.1"]
     env:

@@ -54,6 +54,57 @@ matches — a failure gets a 🔄 and a note of what actually happened.
 - **Why deferred:** Needs a real Linear OAuth roundtrip, a browser, and
   a live Meet join.
 
+### Phase 15.7.4 — wizard readiness status screen + inline OAuth (session 149)
+
+- **Setup:** Run `brainchild setup`. Pick a preset (or "custom"), then at
+  step 2 (Tools) toggle a mix: enable `claude-code` + `linear` + one
+  env-auth MCP whose token is missing from `.env` (e.g. notion with
+  `NOTION_API_KEY` unset).
+- **Verify:**
+  1. After the MCP picker closes, a `Readiness:` block renders with
+     one line per enabled MCP. Expected shape:
+     - `✓ github` (when `GITHUB_TOKEN` set)
+     - `⚠ linear — run \`brainchild auth linear\` once to authorize (...)` if cache absent; else `✓ linear`
+     - `✗ notion — set NOTION_API_KEY in .env (https://www.notion.so/profile/integrations)`
+     - `✓ claude-code` (when binary + login ok) or `✗ claude-code — not logged in — run \`claude auth login\``
+  2. Below the table, a dim one-liner reminding the user that
+     `claude-code` delegations need a git-initialized repo path (only
+     when claude-code is in the report).
+  3. If any `⚠` oauth_needed, an inline `Authorize <name> now? [Y/n]`
+     prompt fires; answering `y` hands the terminal to mcp-remote,
+     browser opens, approval seeds the token cache, wizard re-renders
+     readiness with ✓ and moves on.
+  4. Declining inline auth (`n`) keeps the ⚠ and proceeds to the next
+     step without hanging.
+  5. `Press Enter to continue` pauses before step 3 so the user can
+     read the status screen.
+- **Graceful degradation to verify:**
+  - Temporarily rename `git` (`sudo mv /usr/bin/git /usr/bin/git.bak`),
+    re-enable claude-code — row should read `✗ claude-code — git CLI
+    not on PATH — install git first (https://docs.claude.com/...)`.
+    Restore after.
+  - With `claude` binary present but logged out (`claude auth logout`),
+    row should read `✗ claude-code — not logged in — run \`claude auth
+    login\``.
+- **Post-test:** Finish the wizard, launch the bot, confirm runtime
+  still works end-to-end (the 15.7.4.5 runtime pre-flight will make
+  this tighter in the next phase).
+- **Why deferred:** The wizard is interactive TUI — can't unit-test the
+  rich/Prompt rendering without a real terminal; the inline OAuth arm
+  needs a live browser popup.
+
+### Phase 15.7.4 — claude-code git-init graceful failure (session 149)
+
+- **Setup:** Launch `brainchild engineer` (or any bot with claude-code
+  enabled) into a Meet. In chat, ask the bot to delegate a task against
+  a folder that is NOT a git repo — e.g. `/tmp/not-a-repo` (create it
+  first: `mkdir /tmp/not-a-repo`).
+- **Verify:** The bot's chat reply should relay (paraphrased) that the
+  path isn't a git repo, include the path, and instruct the user to
+  run `git init` in that folder or point at a folder that's already a
+  git repo. No stack trace, no generic "tool failed" message.
+- **Why deferred:** Needs a live Meet + claude-code subprocess.
+
 ## Closed
 
 *(none yet)*

@@ -93,7 +93,11 @@ def _validate_repo(repo_path_raw: str):
     if not os.path.isdir(path):
         return None, f"Error: repo_path does not exist or is not a directory: {path}"
     if not _is_git_repo(path):
-        return None, f"Error: repo_path is not a git repo (no .git found): {path}"
+        return None, (
+            f"Error: repo_path is not a git repo (no .git found): {path}. "
+            f"Run `git init` in that folder (or point at a folder that's "
+            f"already a git repo) and retry."
+        )
     return path, None
 
 

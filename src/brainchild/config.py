@@ -187,6 +187,12 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         "missing_vars": _missing_vars,
         "auth": _auth,
         "auth_url": _auth_url,
+        # Remediation URL surfaced in the wizard status screen + runtime
+        # pre-flight (15.7.4 / 15.7.4.5). Docs/settings page where the user
+        # goes to acquire or manage the credential for this server; for
+        # OAuth servers this is informational (the real fix is `brainchild
+        # auth <name>`).
+        "credentials_url": _srv.get("credentials_url", ""),
         "hints": _srv.get("hints", "").strip(),
         "confirm_tools": set(_srv.get("confirm_tools", [])),
         # Tools that auto-execute without user confirmation. Empty set = every
