@@ -579,6 +579,99 @@ def test_send_discards_own_message_on_connector_failure():
 
 
 # ===========================================================================
+# M7 — Phase 15.7.2 proactive failure banner
+# ===========================================================================
+
+def test_failure_banner_silent_when_no_mcp():
+    """No MCP wired → banner path must not crash or post."""
+    runner, _, _ = make_runner(mcp=None)
+    sent = []
+    runner._send = lambda t, kind="chat": sent.append(t)
+    runner._post_mcp_failure_banner()
+    assert sent == []
+    print("PASS  test_failure_banner_silent_when_no_mcp")
+
+
+def test_failure_banner_silent_when_no_failures():
+    """MCP wired but startup_failures empty → no banner."""
+    mcp = MagicMock()
+    mcp.startup_failures = {}
+    runner, _, _ = make_runner(mcp=mcp)
+    sent = []
+    runner._send = lambda t, kind="chat": sent.append(t)
+    runner._post_mcp_failure_banner()
+    assert sent == []
+    print("PASS  test_failure_banner_silent_when_no_failures")
+
+
+def test_failure_banner_missing_creds_single_var():
+    """missing_creds w/ one var → banner names the var inline."""
+    mcp = MagicMock()
+    mcp.startup_failures = {
+        "slack": {"kind": "missing_creds", "vars": ["SLACK_BOT_TOKEN"], "fix": "set it in .env"}
+    }
+    runner, _, _ = make_runner(mcp=mcp)
+    sent = []
+    runner._send = lambda t, kind="chat": sent.append(t)
+    runner._post_mcp_failure_banner()
+    assert len(sent) == 1, sent
+    line = sent[0]
+    assert line.startswith("Heads-up — "), line
+    assert "slack didn't load" in line
+    assert "SLACK_BOT_TOKEN" in line
+    assert line.endswith("Ask for details.")
+    print("PASS  test_failure_banner_missing_creds_single_var")
+
+
+def test_failure_banner_missing_creds_multi_var_uses_generic_label():
+    """missing_creds w/ 2+ vars → generic 'credentials' label (not a comma-list)."""
+    mcp = MagicMock()
+    mcp.startup_failures = {
+        "sentry": {"kind": "missing_creds", "vars": ["SENTRY_AUTH_TOKEN", "SENTRY_ORG"]}
+    }
+    runner, _, _ = make_runner(mcp=mcp)
+    sent = []
+    runner._send = lambda t, kind="chat": sent.append(t)
+    runner._post_mcp_failure_banner()
+    assert "credentials" in sent[0], sent[0]
+    assert "SENTRY_AUTH_TOKEN" not in sent[0], "multi-var banner should not inline var names"
+    print("PASS  test_failure_banner_missing_creds_multi_var_uses_generic_label")
+
+
+def test_failure_banner_joins_multiple_failures():
+    """Multiple failed servers → semicolon-joined fragments, single post."""
+    mcp = MagicMock()
+    mcp.startup_failures = {
+        "slack":  {"kind": "missing_creds", "vars": ["SLACK_BOT_TOKEN"]},
+        "figma":  {"kind": "binary_missing"},
+        "notion": {"kind": "handshake_crash"},
+    }
+    runner, _, _ = make_runner(mcp=mcp)
+    sent = []
+    runner._send = lambda t, kind="chat": sent.append(t)
+    runner._post_mcp_failure_banner()
+    assert len(sent) == 1
+    line = sent[0]
+    assert "slack didn't load" in line
+    assert "figma didn't load" in line and "binary not found" in line
+    assert "notion didn't load" in line and "crashed on startup" in line
+    assert line.count("; ") == 2, f"expected 2 semicolon separators, got: {line}"
+    print("PASS  test_failure_banner_joins_multiple_failures")
+
+
+def test_failure_banner_unknown_kind_falls_back_to_error():
+    """Classifier produced kind=unknown → compact 'error' label still posts."""
+    mcp = MagicMock()
+    mcp.startup_failures = {"exotic": {"kind": "unknown", "raw": "whatever"}}
+    runner, _, _ = make_runner(mcp=mcp)
+    sent = []
+    runner._send = lambda t, kind="chat": sent.append(t)
+    runner._post_mcp_failure_banner()
+    assert "exotic didn't load (error)" in sent[0], sent[0]
+    print("PASS  test_failure_banner_unknown_kind_falls_back_to_error")
+
+
+# ===========================================================================
 # Runner
 # ===========================================================================
 
@@ -611,6 +704,13 @@ if __name__ == "__main__":
         # M6
         test_send_tracks_own_message_and_appends_record,
         test_send_discards_own_message_on_connector_failure,
+        # M7
+        test_failure_banner_silent_when_no_mcp,
+        test_failure_banner_silent_when_no_failures,
+        test_failure_banner_missing_creds_single_var,
+        test_failure_banner_missing_creds_multi_var_uses_generic_label,
+        test_failure_banner_joins_multiple_failures,
+        test_failure_banner_unknown_kind_falls_back_to_error,
     ]
     failures = []
     for t in tests:

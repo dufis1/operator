@@ -113,10 +113,51 @@ class ChatRunner:
 
         log.info("ChatRunner: joined")
         ui.ok("Joined meeting — listening for chat.")
+        self._post_mcp_failure_banner()
         if config.INTRO_ON_JOIN:
             threading.Thread(target=self._generate_intro, daemon=True).start()
         log.info("ChatRunner: starting chat loop")
         self._loop()
+
+    # Short user-facing labels per startup failure kind. Compact by design —
+    # the full "fix" hint lives in the system prompt (15.7.1e) so the LLM
+    # can surface the detail when asked. Unknown kinds fall through to a
+    # generic "error" label so the banner still fires.
+    _FAILURE_KIND_LABELS = {
+        "missing_creds": "missing {vars}",
+        "binary_missing": "binary not found",
+        "startup_timeout": "didn't respond",
+        "handshake_crash": "crashed on startup",
+        "unknown": "error",
+    }
+
+    def _post_mcp_failure_banner(self):
+        """Post one compact chat line if any MCP failed to load this session.
+
+        Fires once on join, before the LLM-generated intro so the banner
+        lands deterministically even if intro generation errors out.
+        Silent when startup_failures is empty (the happy path). Runtime
+        failures aren't possible at this moment — no tool call has fired
+        yet — so they're not checked here; _record_mcp_outcome handles
+        mid-session trips separately.
+        """
+        if not self._mcp or not getattr(self._mcp, "startup_failures", None):
+            return
+        fragments = []
+        for name, info in self._mcp.startup_failures.items():
+            kind = info.get("kind", "unknown")
+            template = self._FAILURE_KIND_LABELS.get(kind, "error")
+            if kind == "missing_creds":
+                vars_list = info.get("vars") or []
+                vars_str = vars_list[0] if len(vars_list) == 1 else "credentials"
+                label = template.format(vars=vars_str)
+            else:
+                label = template
+            fragments.append(f"{name} didn't load ({label})")
+        if not fragments:
+            return
+        line = "Heads-up — " + "; ".join(fragments) + ". Ask for details."
+        self._send(line)
 
     def _generate_intro(self):
         """Background-thread LLM call for the self-intro.
