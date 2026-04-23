@@ -499,8 +499,8 @@ def test_record_mcp_outcome_trips_server_and_reinjects():
     mcp = MagicMock()
     mcp.server_for_tool.return_value = "linear"
     mcp.record_tool_result.return_value = True  # tripped
-    mcp.failed_servers = {"linear": "3 consecutive failures"}
-    mcp.disabled_servers = {}
+    mcp.startup_failures = {}
+    mcp.runtime_failures = {"linear": {"kind": "runtime_failure", "reason": "3 consecutive failures"}}
     runner, _, llm = make_runner(mcp=mcp)
 
     sent = []

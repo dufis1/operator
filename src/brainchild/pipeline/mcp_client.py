@@ -54,41 +54,114 @@ class MCPToolError(Exception):
 # Consecutive tool-call failures per server before we disable it for the session.
 RUNTIME_FAILURE_THRESHOLD = 3
 
+# Substring signals that an MCP tool-error text is almost certainly an auth
+# failure. Used by record_tool_result's sniff to upgrade a tripped server's
+# kind from "runtime_failure" to "auth_failed" so the wizard/banner can
+# render a re-auth prompt instead of a generic "check logs" message.
+#
+# Grounded in empirical capture against bundled MCPs (see
+# tests/probe_auth_errors.py and docs/mcp-auth-errors.md) plus documented
+# patterns for slack/sentry/salesforce/google. Whitespace-padded numeric
+# codes keep the sniff from matching any random payload that happens to
+# quote "401" in prose.
+#
+# OAuth-over-mcp-remote servers (Linear today, google-* later) do NOT
+# surface auth failures as tool errors — they stall initialization waiting
+# for browser authorization. The cache-path check (15.7.3) is the only
+# real signal for those; this sniff is a no-op on their error text.
+_AUTH_ERROR_PATTERNS = (
+    " 401 ", ": 401", "(401)", "status 401",
+    " 403 ", ": 403", "(403)", "status 403",
+    "bad credentials",           # GitHub
+    "forbidden",                 # Figma, generic HTTP
+    "unauthorized",              # generic
+    "invalid_auth", "not_authed", "token_expired", "token revoked",  # Slack
+    "invalid token", "invalid api key", "invalid_grant",             # Sentry / OAuth / generic
+    "authentication required", "authentication failed",
+    "invalid_session_id",        # Salesforce
+    "unauthenticated",           # Google APIs (gRPC)
+)
 
-def _classify_startup_failure(exc: Exception, srv_config: dict) -> str:
-    """Turn a startup exception into a plain-English user-facing reason.
 
-    Tailored for the common DIY MCP config mistakes: missing binary,
-    unresponsive server, silent crash. Unwraps anyio ExceptionGroups to
-    reach the real cause. Falls back to the raw error text.
+def _looks_like_auth_error(error_text: str | None) -> bool:
+    """True iff error_text contains a known auth-failure substring.
+
+    Case-insensitive. Grounded-but-incomplete — see _AUTH_ERROR_PATTERNS.
+    False negatives are acceptable: the fallback is the LLM relaying the
+    raw error to the user verbatim, so missing a sniff downgrades UX
+    (generic "server disabled" message) rather than breaking anything.
+    """
+    if not error_text:
+        return False
+    lowered = error_text.lower()
+    return any(p in lowered for p in _AUTH_ERROR_PATTERNS)
+
+
+def _classify_startup_failure(exc: Exception, srv_config: dict) -> dict:
+    """Classify a startup exception into a structured failure record.
+
+    Shape: {kind, fix, raw} (plus `vars` for kind="missing_creds").
+    Downstream consumers (llm.inject_mcp_status, wizard status screen,
+    15.7.2 chat banner) dispatch on `kind` and surface `fix` as the
+    user-facing repair hint.
+
+    Precedence: if the server's resolved env had unfilled ${VAR} refs,
+    "missing_creds" wins over whatever the stdio transport happened to
+    raise — the missing secret is almost always the actual root cause
+    even if the binary crashes with something noisier on top.
     """
     cmd = srv_config.get("command", "?")
+    missing_vars = list(srv_config.get("missing_vars") or [])
+
     # Unwrap anyio/asyncio ExceptionGroups — stdio_client wraps subprocess
     # failures in a TaskGroup, so the first-layer exception is useless noise.
     inner = exc
     while isinstance(inner, BaseExceptionGroup) and inner.exceptions:
         inner = inner.exceptions[0]
+    raw = f"{type(inner).__name__}: {inner}"
 
+    if missing_vars:
+        return {
+            "kind": "missing_creds",
+            "vars": missing_vars,
+            "fix": (
+                f"set {', '.join(missing_vars)} in .env and re-run setup — "
+                f"server '{cmd}' is almost certainly crashing because of the empty credential"
+            ),
+            "raw": raw,
+        }
     if isinstance(inner, FileNotFoundError):
-        return (
-            f"the command '{cmd}' was not found — "
-            f"check the 'command' field in the bot's agents/<name>/config.yaml, or ensure the binary is on PATH"
-        )
+        return {
+            "kind": "binary_missing",
+            "fix": (
+                f"the command '{cmd}' was not found — check the 'command' field in "
+                f"this agent's config.yaml, or ensure the binary is on PATH"
+            ),
+            "raw": raw,
+        }
     if isinstance(inner, TimeoutError):
-        return (
-            f"'{cmd}' did not respond within the startup timeout — "
-            f"the binary may have crashed or is waiting for input; try running it manually"
-        )
+        return {
+            "kind": "startup_timeout",
+            "fix": (
+                f"'{cmd}' did not respond within the startup timeout — the binary "
+                f"may have crashed or is waiting for input; try running it manually"
+            ),
+            "raw": raw,
+        }
     # Subprocess exited before MCP handshake completed (e.g. `echo` or a server
     # that crashes on startup). anyio raises this from inside stdio_client.
     msg = str(inner).lower()
     if "process exited" in msg or "broken pipe" in msg or "eof" in msg or "connection closed" in msg:
-        return (
-            f"'{cmd}' exited before the MCP handshake completed — "
-            f"the binary likely crashed or is not an MCP server; "
-            f"try running the command manually to see its output"
-        )
-    return f"{type(inner).__name__}: {inner}"
+        return {
+            "kind": "handshake_crash",
+            "fix": (
+                f"'{cmd}' exited before the MCP handshake completed — the binary "
+                f"likely crashed or is not an MCP server; try running the command "
+                f"manually to see its output"
+            ),
+            "raw": raw,
+        }
+    return {"kind": "unknown", "fix": raw, "raw": raw}
 
 
 class MCPClient:
@@ -107,12 +180,23 @@ class MCPClient:
         self._servers: dict[str, _ServerHandle] = {}
         # namespaced_tool_name -> { server_name, mcp_tool }
         self._tools: dict[str, dict] = {}
-        # server_name -> human-readable failure reason (populated by connect_all)
-        self.failed_servers: dict[str, str] = {}
+        # server_name -> structured failure record (populated by connect_all).
+        # Shape: {kind, fix, raw, [vars]} — see _classify_startup_failure.
+        # Renamed from `failed_servers` in 15.7.1 so consumers that still
+        # expect `dict[str, str]` break loudly instead of stringifying a dict.
+        self.startup_failures: dict[str, dict] = {}
         # server_name -> consecutive tool-call failures since last success
         self._consecutive_errors: dict[str, int] = {}
-        # server_name -> reason (populated when a server trips the runtime threshold)
-        self.disabled_servers: dict[str, str] = {}
+        # server_name set — any sub-threshold failure on this server matched
+        # an auth-error substring. Checked at trip time so the runtime_failures
+        # kind reflects the auth signal even if the final call to trip it
+        # didn't itself carry auth text. Cleared on successful tool call.
+        self._auth_error_seen: set[str] = set()
+        # server_name -> structured runtime failure (populated when a server
+        # trips the runtime threshold). Shape: {kind, reason}. `kind` is
+        # "runtime_failure" by default; 15.7.1d's auth sniff upgrades it to
+        # "auth_failed" when the tool-error text matches.
+        self.runtime_failures: dict[str, dict] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
 
@@ -120,7 +204,8 @@ class MCPClient:
         """Start all configured MCP servers and discover their tools.
 
         Returns list of discovered tool names. Logs and skips servers
-        that fail to start; failure reasons are stored in self.failed_servers.
+        that fail to start; structured failure records land in
+        self.startup_failures for downstream UI surfaces.
         """
         self._start_loop()
         tool_names = []
@@ -130,20 +215,23 @@ class MCPClient:
                 tool_names.extend(tools)
                 log.info(f"MCP server '{name}' connected — {len(tools)} tools")
             except Exception as e:
-                reason = _classify_startup_failure(e, srv_config)
-                self.failed_servers[name] = reason
-                log.error(f"MCP USER CONFIG: server '{name}' failed to start — {reason}")
+                info = _classify_startup_failure(e, srv_config)
+                self.startup_failures[name] = info
+                log.error(
+                    f"MCP USER CONFIG: server '{name}' failed to start "
+                    f"[{info['kind']}] — {info['fix']}"
+                )
         return tool_names
 
     def get_openai_tools(self) -> list[dict]:
         """Return all discovered tools in OpenAI function-calling format.
 
-        Tools from servers in disabled_servers are omitted so the LLM stops
+        Tools from servers in runtime_failures are omitted so the LLM stops
         trying them once a server has been tripped mid-session.
         """
         result = []
         for tool_name, info in self._tools.items():
-            if info["server_name"] in self.disabled_servers:
+            if info["server_name"] in self.runtime_failures:
                 continue
             mcp_tool = info["mcp_tool"]
             result.append({
@@ -156,24 +244,51 @@ class MCPClient:
             })
         return result
 
-    def record_tool_result(self, server_name: str, success: bool) -> bool:
+    def record_tool_result(
+        self,
+        server_name: str,
+        success: bool,
+        error_text: str | None = None,
+    ) -> bool:
         """Track per-server tool-call outcomes; trip the server at N failures.
 
         Called from execute_tool (both branches) and from chat_runner's timeout
         path (which never re-enters execute_tool). Returns True iff *this call*
         just tripped the server into the disabled state — the caller uses that
         signal to announce once in chat and reinject MCP status.
+
+        When a tripping failure's error_text matches a known auth pattern,
+        the runtime_failures entry is tagged kind="auth_failed" (with the
+        matched error snippet preserved). The wizard status screen and chat
+        banner dispatch on kind to render re-auth prompts vs generic "check
+        logs" copy. If error_text is None or no pattern matches, we fall
+        back to kind="runtime_failure" and trust the LLM to relay the raw
+        error to the user verbatim on the triggering turn.
+
+        Note: tracks auth signal even on sub-threshold failures so a server
+        that trips on its Nth call still surfaces as auth_failed (not
+        runtime_failure) if any of those N calls looked like auth.
         """
         if success:
             self._consecutive_errors[server_name] = 0
+            self._auth_error_seen.discard(server_name)
             return False
-        if server_name in self.disabled_servers:
+        if server_name in self.runtime_failures:
             return False  # already disabled, don't re-announce
+        if _looks_like_auth_error(error_text):
+            self._auth_error_seen.add(server_name)
         count = self._consecutive_errors.get(server_name, 0) + 1
         self._consecutive_errors[server_name] = count
         if count >= RUNTIME_FAILURE_THRESHOLD:
-            reason = f"{count} consecutive tool-call failures this session"
-            self.disabled_servers[server_name] = reason
+            if server_name in self._auth_error_seen:
+                reason = (
+                    f"{count} consecutive tool-call failures this session, "
+                    f"at least one matched an auth-error pattern (401/403/unauthorized/…)"
+                )
+                self.runtime_failures[server_name] = {"kind": "auth_failed", "reason": reason}
+            else:
+                reason = f"{count} consecutive tool-call failures this session"
+                self.runtime_failures[server_name] = {"kind": "runtime_failure", "reason": reason}
             log.error(f"MCP server '{server_name}' disabled — {reason}")
             return True
         log.warning(f"MCP server '{server_name}' failure {count}/{RUNTIME_FAILURE_THRESHOLD}")
@@ -191,7 +306,7 @@ class MCPClient:
         info = self._tools[tool_name]
         server_name = info["server_name"]
 
-        if server_name in self.disabled_servers:
+        if server_name in self.runtime_failures:
             raise MCPToolError(
                 f"Server '{server_name}' has been disabled for this session after repeated failures. "
                 f"This tool is unavailable. Do not retry; tell the user."

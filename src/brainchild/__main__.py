@@ -319,8 +319,8 @@ def _run_try(name):
         try:
             mcp.connect_all()
             llm.inject_mcp_hints(config.MCP_SERVERS)
-            loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
-            llm.inject_mcp_status(loaded, mcp.failed_servers)
+            loaded = [n for n in config.MCP_SERVERS if n not in mcp.startup_failures]
+            llm.inject_mcp_status(loaded, mcp.startup_failures)
             gh_login = mcp.resolve_github_user()
             if gh_login:
                 llm.inject_github_user(gh_login)
@@ -508,8 +508,8 @@ def _run_macos(meeting_url=None, force=False):
         mcp = _mcp_result["client"]
         if mcp:
             llm.inject_mcp_hints(config.MCP_SERVERS)
-            loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
-            llm.inject_mcp_status(loaded, mcp.failed_servers)
+            loaded = [n for n in config.MCP_SERVERS if n not in mcp.startup_failures]
+            llm.inject_mcp_status(loaded, mcp.startup_failures)
             gh_login = mcp.resolve_github_user()
             if gh_login:
                 llm.inject_github_user(gh_login)
@@ -623,8 +623,8 @@ def _run_linux(meeting_url, force=False):
             tool_names = mcp.connect_all()
             log.info(f"MCP tools discovered: {tool_names}")
             llm.inject_mcp_hints(config.MCP_SERVERS)
-            loaded = [n for n in config.MCP_SERVERS if n not in mcp.failed_servers]
-            llm.inject_mcp_status(loaded, mcp.failed_servers)
+            loaded = [n for n in config.MCP_SERVERS if n not in mcp.startup_failures]
+            llm.inject_mcp_status(loaded, mcp.startup_failures)
             gh_login = mcp.resolve_github_user()
             if gh_login:
                 llm.inject_github_user(gh_login)

@@ -144,10 +144,15 @@ class LLMClient:
     def inject_mcp_status(
         self,
         loaded: list[str],
-        failed_to_load: dict[str, str],
-        disabled_runtime: dict[str, str] | None = None,
+        failed_to_load: dict[str, dict],
+        disabled_runtime: dict[str, dict] | None = None,
     ):
         """Tell the LLM which MCP servers are actually available this session.
+
+        failed_to_load values are structured records from MCPClient.startup_failures
+        with shape {kind, fix, raw, [vars]}. disabled_runtime values come from
+        MCPClient.runtime_failures with shape {kind, reason}. We render per-server
+        kind so the model can answer "why is Linear broken" without guessing.
 
         Safe to call more than once — replaces any previously-injected block
         rather than stacking.
@@ -157,23 +162,29 @@ class LLMClient:
         if loaded:
             parts.append(f"MCP servers loaded this session: {', '.join(loaded)}.")
         if failed_to_load:
-            names = ", ".join(failed_to_load.keys())
+            lines = [
+                f"  - {name} ({info.get('kind', 'unknown')}): {info.get('fix', info.get('raw', '?'))}"
+                for name, info in failed_to_load.items()
+            ]
             parts.append(
-                f"MCP servers that FAILED to load: {names}. "
-                f"If the user asks about tools from a failed server, tell them it failed "
-                f"to load and to check /tmp/brainchild.log — do not pretend the tool exists."
+                "MCP servers that FAILED to load:\n" + "\n".join(lines) + "\n"
+                "If the user asks about tools from a failed server, tell them the specific "
+                "reason above and to check /tmp/brainchild.log — do not pretend the tool exists."
             )
         if disabled_runtime:
-            names = ", ".join(disabled_runtime.keys())
+            lines = [
+                f"  - {name} ({info.get('kind', 'runtime_failure')}): {info.get('reason', '?')}"
+                for name, info in disabled_runtime.items()
+            ]
             parts.append(
-                f"MCP servers DISABLED this session after repeated tool-call failures: {names}. "
-                f"Do not attempt these tools. If the user asks, tell them the server was "
-                f"disabled due to repeated failures and to check /tmp/brainchild.log."
+                "MCP servers DISABLED this session after repeated tool-call failures:\n"
+                + "\n".join(lines) + "\n"
+                "Do not attempt these tools. If the user asks, relay the specific reason above."
             )
 
         if self._mcp_status_text and self._mcp_status_text in self._system_prompt:
             self._system_prompt = self._system_prompt.replace(self._mcp_status_text, "")
-        self._mcp_status_text = ("\n" + " ".join(parts)) if parts else ""
+        self._mcp_status_text = ("\n" + "\n".join(parts)) if parts else ""
         if self._mcp_status_text:
             self._system_prompt += self._mcp_status_text
         log.info(

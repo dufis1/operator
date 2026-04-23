@@ -542,6 +542,8 @@ class ChatRunner:
 
         if timed_out:
             log.error(f"ChatRunner: tool {tc['name']} timed out after {hard_timeout}s")
+            # Timeouts aren't auth errors — don't pass error_text (the sniff
+            # would only be noise on a timeout path anyway).
             self._record_mcp_outcome(tc["name"], success=False)
             self._handle_tool_failure(
                 tc,
@@ -555,7 +557,7 @@ class ChatRunner:
         if error_holder[0]:
             e = error_holder[0]
             log.error(f"ChatRunner: tool execution failed: {e}")
-            self._record_mcp_outcome(tc["name"], success=False)
+            self._record_mcp_outcome(tc["name"], success=False, error_text=str(e))
             self._handle_tool_failure(
                 tc,
                 f"The tool call failed with this error: {e}\n\n"
@@ -621,18 +623,26 @@ class ChatRunner:
             log.error(f"ChatRunner: send_chat failed: {e}")
             self._own_messages.discard(text)
 
-    def _record_mcp_outcome(self, tool_name: str, success: bool):
+    def _record_mcp_outcome(
+        self,
+        tool_name: str,
+        success: bool,
+        error_text: str | None = None,
+    ):
         """Record a tool-call outcome against its server; announce if it tripped.
 
         On the first failure that disables a server, sends one chat message and
         reinjects MCP status so the LLM's next turn sees the updated picture.
+
+        error_text is the upstream tool-error string (passed on the failure
+        path) and feeds MCPClient's auth-sniff — see record_tool_result.
         """
         if not self._mcp:
             return
         server = self._mcp.server_for_tool(tool_name)
         if not server:
             return
-        tripped = self._mcp.record_tool_result(server, success)
+        tripped = self._mcp.record_tool_result(server, success, error_text=error_text)
         if not tripped:
             return
         self._send(
@@ -640,13 +650,13 @@ class ChatRunner:
         )
         loaded = [
             n for n in config.MCP_SERVERS
-            if n not in self._mcp.failed_servers and n not in self._mcp.disabled_servers
+            if n not in self._mcp.startup_failures and n not in self._mcp.runtime_failures
         ]
         try:
             self._llm.inject_mcp_status(
                 loaded,
-                self._mcp.failed_servers,
-                self._mcp.disabled_servers,
+                self._mcp.startup_failures,
+                self._mcp.runtime_failures,
             )
         except Exception as e:
             log.warning(f"ChatRunner: reinject mcp_status failed: {e}")

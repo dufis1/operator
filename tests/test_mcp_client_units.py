@@ -32,13 +32,14 @@ from brainchild.pipeline.mcp_client import MCPClient, MCPToolError, _classify_st
 # ---------------------------------------------------------------------------
 
 def test_classify_file_not_found():
-    """FileNotFoundError from stdio_client → plain-English 'command not found' hint."""
+    """FileNotFoundError from stdio_client → kind=binary_missing with fix hint."""
     exc = FileNotFoundError(2, "No such file or directory", "my-mcp-binary")
-    reason = _classify_startup_failure(exc, {"command": "my-mcp-binary"})
-    assert "was not found" in reason
-    assert "my-mcp-binary" in reason
-    assert "config.yaml" in reason or "PATH" in reason, \
-        f"Expected actionable hint, got: {reason}"
+    info = _classify_startup_failure(exc, {"command": "my-mcp-binary"})
+    assert info["kind"] == "binary_missing", info
+    assert "was not found" in info["fix"]
+    assert "my-mcp-binary" in info["fix"]
+    assert "config.yaml" in info["fix"] or "PATH" in info["fix"], \
+        f"Expected actionable hint, got: {info}"
     print("PASS  test_classify_file_not_found")
 
 
@@ -47,13 +48,14 @@ def test_classify_file_not_found():
 # ---------------------------------------------------------------------------
 
 def test_classify_process_exited_early():
-    """An exception whose message mentions 'process exited' → handshake hint."""
+    """An exception whose message mentions 'process exited' → kind=handshake_crash."""
     exc = RuntimeError("subprocess process exited with code 1")
-    reason = _classify_startup_failure(exc, {"command": "/bin/echo"})
-    assert "exited before" in reason.lower()
-    assert "/bin/echo" in reason
-    assert "manually" in reason.lower(), \
-        f"Expected actionable debugging hint, got: {reason}"
+    info = _classify_startup_failure(exc, {"command": "/bin/echo"})
+    assert info["kind"] == "handshake_crash", info
+    assert "exited before" in info["fix"].lower()
+    assert "/bin/echo" in info["fix"]
+    assert "manually" in info["fix"].lower(), \
+        f"Expected actionable debugging hint, got: {info}"
     print("PASS  test_classify_process_exited_early")
 
 
@@ -65,11 +67,12 @@ def test_classify_unwraps_exception_group():
     """anyio TaskGroup wraps failures in BaseExceptionGroup — we must unwrap to the inner cause."""
     inner = FileNotFoundError(2, "No such file or directory", "wrapped-cmd")
     group = BaseExceptionGroup("task group failed", [inner])
-    reason = _classify_startup_failure(group, {"command": "wrapped-cmd"})
-    assert "was not found" in reason
-    assert "wrapped-cmd" in reason
-    # Must NOT leak the group type name
-    assert "BaseExceptionGroup" not in reason and "ExceptionGroup" not in reason
+    info = _classify_startup_failure(group, {"command": "wrapped-cmd"})
+    assert info["kind"] == "binary_missing", info
+    assert "was not found" in info["fix"]
+    assert "wrapped-cmd" in info["fix"]
+    # Must NOT leak the group type name in the user-facing hint
+    assert "BaseExceptionGroup" not in info["fix"] and "ExceptionGroup" not in info["fix"]
     print("PASS  test_classify_unwraps_exception_group")
 
 

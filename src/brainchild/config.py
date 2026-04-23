@@ -117,13 +117,19 @@ def _is_unsafe_env_key(key: str) -> bool:
 def _resolve_env_vars(env_dict, server_name):
     """Replace ${VAR} references with os.environ values.
 
-    Logs a warning for any ${VAR} that resolves to an empty or missing value,
-    tagged with the server name so user-configured MCP issues are easy to spot.
+    Returns (resolved_dict, missing_vars) — missing_vars lists the ${VAR}
+    names that resolved to empty/missing and is persisted on the server
+    block so downstream MCP error classification can pre-tag a startup
+    failure as "missing_creds" instead of a generic crash.
+
+    Logs a warning for any ${VAR} that resolves to empty, tagged with
+    the server name so user-configured MCP issues are easy to spot.
     Drops and warns on keys that could redirect binary or library lookup
     (PATH, PYTHONPATH, LD_*, DYLD_*, …) — those stay bound to the parent
     process environment and must not be overridable from config.
     """
     resolved = {}
+    missing_vars = []
     for k, v in env_dict.items():
         if _is_unsafe_env_key(k):
             _mcp_log.warning(
@@ -139,10 +145,11 @@ def _resolve_env_vars(env_dict, server_name):
                     f"MCP USER CONFIG: server '{server_name}' env var {var_name} "
                     f"is empty or missing from .env — tool calls may fail at auth time"
                 )
+                missing_vars.append(var_name)
             resolved[k] = value
         else:
             resolved[k] = v
-    return resolved
+    return resolved, missing_vars
 
 MCP_SERVERS = {}
 for _name, _srv in _config.get("mcp_servers", {}).items():
@@ -151,10 +158,15 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
     # Default is enabled when the field is absent (backward-compat).
     if not _srv.get("enabled", True):
         continue
+    _resolved_env, _missing_vars = _resolve_env_vars(_srv.get("env", {}), _name)
     _block = {
         "command": _srv["command"],
         "args": _srv.get("args", []),
-        "env": _resolve_env_vars(_srv.get("env", {}), _name),
+        "env": _resolved_env,
+        # Unresolved ${VAR} references from .env — consumed by MCPClient's
+        # startup classifier to surface "missing_creds" before the binary's
+        # crash-on-boot message buries the real cause.
+        "missing_vars": _missing_vars,
         "hints": _srv.get("hints", "").strip(),
         "confirm_tools": set(_srv.get("confirm_tools", [])),
         # Tools that auto-execute without user confirmation. Empty set = every

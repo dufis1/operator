@@ -167,14 +167,14 @@ from brainchild.pipeline.mcp_client import RUNTIME_FAILURE_THRESHOLD
 
 # Reset counter state so prior failing tests don't pollute this one.
 client._consecutive_errors.clear()
-client.disabled_servers.clear()
+client.runtime_failures.clear()
 
 # Below threshold: failures don't disable.
 for i in range(RUNTIME_FAILURE_THRESHOLD - 1):
     tripped = client.record_tool_result("test", False)
     check(f"failure {i+1} below threshold does not trip", not tripped)
 check("server not yet disabled",
-      "test" not in client.disabled_servers)
+      "test" not in client.runtime_failures)
 
 # Success resets the counter.
 client.record_tool_result("test", True)
@@ -185,7 +185,7 @@ for i in range(RUNTIME_FAILURE_THRESHOLD - 1):
     client.record_tool_result("test", False)
 tripped = client.record_tool_result("test", False)
 check("Nth consecutive failure trips server", tripped)
-check("server in disabled_servers", "test" in client.disabled_servers)
+check("server in runtime_failures", "test" in client.runtime_failures)
 
 # Re-reporting after trip does not re-announce.
 tripped_again = client.record_tool_result("test", False)
