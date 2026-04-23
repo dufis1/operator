@@ -25,6 +25,36 @@ transcript:
 # are pinned so runtime behavior stays stable through launch; bump
 # deliberately when upstream ships a fix or feature you want.
 mcp_servers:
+  calendar:
+    enabled: true
+    description: "read your Google Calendar — list events, find free time, pull agenda"
+    # @cocal/google-calendar-mcp is the most-adopted Calendar-only MCP (fork of
+    # nspady/google-calendar-mcp). Auth is local OAuth: user downloads a
+    # credentials.json from Google Cloud Console once; the server handles the
+    # rest (including refresh). GOOGLE_OAUTH_CREDENTIALS is the absolute path
+    # to that file, not a token. Google's own `gws` CLI (March 2026) bundles
+    # all Workspace MCPs together — swap if you also want Drive/Gmail/Docs.
+    credentials_url: "https://console.cloud.google.com/apis/credentials"
+    auth: env
+    command: "npx"
+    args: ["-y", "@cocal/google-calendar-mcp@latest"]     # pin after pressure-testing
+    env:
+      GOOGLE_OAUTH_CREDENTIALS: "${GOOGLE_OAUTH_CREDENTIALS}"   # absolute path to credentials.json
+    read_tools:
+      - list-calendars
+      - list-events
+      - search-events
+      - get-event
+      - get-freebusy
+      - get-current-time
+    confirm_tools: []
+    hints: |
+      When the user asks to check someone's availability, use get-freebusy with attendee emails rather than inferring conflicts from list-events.
+      For "my calendar" requests, list-calendars first so you know which calendar ID to query — users often have multiple (personal, work, team).
+      Convert relative dates ("tomorrow at 3") into RFC3339 timestamps with the user's timezone before calling list-events or create-event.
+      When surfacing an event, lead with title + start time (human-readable, user timezone) + attendees. Skip event IDs and raw URLs unless asked.
+      If search-events returns nothing, say so plainly — do not fabricate events from memory.
+
   claude-code:
     enabled: false
     description: "spin up a Claude Code instance to write code for you, from inside the meeting"
@@ -75,7 +105,7 @@ mcp_servers:
       If get_figma_data returns a thin payload (e.g. a single RECTANGLE when the user expected a multi-node frame), say so plainly and ask for a different node-id or the layers panel — do not fabricate structure that isn't in the result.
 
   github:
-    enabled: true
+    enabled: false
     description: "read and write code, PRs, and issues across your GitHub repos"
     credentials_url: "https://github.com/settings/tokens"
     command: "./github-mcp-server"
@@ -177,6 +207,115 @@ mcp_servers:
     read_tools: []
     confirm_tools: []
     hints: ""    # fill in after pressure testing
+
+  playwright:
+    enabled: false
+    description: "drive a real browser inside the meeting — navigate, click, screenshot, inspect"
+    # Microsoft's official @playwright/mcp. No auth or env vars — the server
+    # spawns and manages a Chromium browser locally. Persistent profile lives
+    # in the platform cache dir (ms-playwright/mcp-*-profile). The wizard has
+    # no credential to check, so the readiness screen shows ok on enable.
+    credentials_url: "https://github.com/microsoft/playwright-mcp"
+    auth: env
+    command: "npx"
+    args: ["-y", "@playwright/mcp@0.0.70"]
+    env: {}
+    read_tools:
+      - browser_snapshot
+      - browser_console_messages
+      - browser_network_requests
+      - browser_take_screenshot
+      - browser_tabs
+    confirm_tools: []
+    hints: |
+      browser_navigate opens a real page — treat it as a side effect. Do not navigate just to "check" something; ask the user first when the target is non-obvious.
+      Prefer browser_snapshot over browser_take_screenshot for element-level reasoning — snapshots return structured DOM; screenshots are bytes only useful for humans.
+      When clicking or typing, identify the element from a prior snapshot's ref — do not guess selectors.
+      The server keeps browser state across calls in this chat. A login on one page persists into the next — useful and dangerous.
+
+  salesforce:
+    enabled: false
+    description: "query Salesforce CRM — accounts, opportunities, contacts, reports"
+    # Salesforce's official @salesforce/mcp. Auth is delegated to the `sf` CLI:
+    # user installs sf and runs `sf org login web` once; the MCP reads the
+    # local auth cache. There is no env token — that's why env is empty. The
+    # wizard's generic env-var check cannot validate sf-is-logged-in; flag
+    # during pressure-test whether to add a prereq probe analogous to
+    # claude-code's (15.7.4).
+    credentials_url: "https://developer.salesforce.com/tools/salesforcecli"
+    auth: env
+    command: "npx"
+    args: ["-y", "@salesforce/mcp@latest", "--orgs", "DEFAULT_TARGET_ORG"]    # pin after pressure-testing
+    env: {}
+    read_tools:
+      - run_soql_query
+      - list_all_orgs
+      - get_username
+      - describe_code_analyzer_rule
+      - query_code_analyzer_results
+    confirm_tools: []
+    hints: |
+      Prefer run_soql_query with a narrow WHERE clause over list queries — unscoped SOQL can return tens of thousands of rows.
+      When the user says "my pipeline" or "this quarter's deals", scope by OwnerId (from get_username) and CloseDate, not by guessing account names.
+      Salesforce object names are PascalCase (Account, Opportunity, Contact); field names follow the org's schema (Name, StageName, CloseDate, Amount). Do not invent field names.
+      If a SOQL query errors with "No such column", run describe against the object first — org-specific custom fields vary.
+      When summarizing a record, lead with Name + key stage/amount + owner. Do not dump every field.
+
+  sentry:
+    enabled: false
+    description: "read Sentry issues and events — triage prod errors from the meeting"
+    # Sentry's official hosted remote MCP via mcp-remote. OAuth via DCR (no
+    # app registration) — first run pops a browser tab for consent, the token
+    # lands in ~/.mcp-auth/mcp-remote-<ver>/<md5(auth_url)>_tokens.json and
+    # the wizard pre-checks for it. Same pattern as Linear.
+    auth: oauth
+    auth_url: "https://mcp.sentry.dev/mcp"
+    credentials_url: "https://sentry.io/settings/account/api/authorizations/"
+    command: "npx"
+    args: ["-y", "mcp-remote@0.1.38", "https://mcp.sentry.dev/mcp"]
+    read_tools:
+      - find_organizations
+      - find_projects
+      - search_issues
+      - search_events
+      - get_issue_details
+      - list_issue_events
+    confirm_tools: []
+    hints: |
+      Scope every search by organizationSlug and projectSlug — unscoped queries hit every project and return noise.
+      For a specific error, start with search_issues (aggregated) then drill into get_issue_details + list_issue_events for stack traces.
+      When surfacing an issue, lead with title + event count + first-seen/last-seen + one example stack frame. Dumping full events is noise.
+      Sentry search uses its own query syntax (is:unresolved level:error release:foo@1.2.3). Copy the user's filter literally rather than translating.
+      If an event count is 1 and first-seen = last-seen, it's a one-off — call that out rather than treating it as an active incident.
+
+  slack:
+    enabled: false
+    description: "read Slack channels and DMs, send messages, react, update status"
+    # @modelcontextprotocol/server-slack is the archived-but-still-widely-used
+    # reference server (archived May 2025). For active maintenance, swap to
+    # @zencoderai/slack-mcp-server — drop-in, same env vars, same tool names.
+    # Auth is a Bot User OAuth token (xoxb-...) plus team ID; create a Slack
+    # app at api.slack.com/apps and install to your workspace.
+    credentials_url: "https://api.slack.com/apps"
+    auth: env
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-slack@latest"]    # pin after pressure-testing
+    env:
+      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"    # xoxb-... from Slack app > OAuth & Permissions
+      SLACK_TEAM_ID:   "${SLACK_TEAM_ID}"      # T01234567 from workspace URL
+    read_tools:
+      - slack_list_channels
+      - slack_get_channel_history
+      - slack_get_thread_replies
+      - slack_get_users
+      - slack_get_user_profile
+    confirm_tools: []
+    hints: |
+      Prefer slack_get_thread_replies over channel history when the user references a specific thread URL — it returns the thread scope cleanly.
+      Channel names in tools need IDs (C01234567), not display names (#general). Use slack_list_channels to resolve.
+      When posting a message, confirm the channel explicitly — accidental posts to #general are visible and embarrassing.
+      User mentions use <@U01234567> syntax; convert display names via slack_get_users first. Raw @name strings don't ping.
+      For summaries, lead with who-said-what (display name + one-line quote) rather than raw timestamps.
 
 # Skills — bundled PM skills (PRD drafting, standup summary) + user's own skills.
 # Order: user skills first, bundle second, so bundled skills override user copies

@@ -134,6 +134,76 @@ matches — a failure gets a 🔄 and a note of what actually happened.
 - **Why deferred:** Needs a real terminal for interactive prompts +
   a real OAuth browser round-trip for the y-path of Setup B.
 
+### Phase 15.7.5 — new-MCP scaffolding (session 149)
+
+Five new MCP blocks (calendar, playwright, salesforce, sentry, slack) were
+added as scaffolds to all three bundled agents. Each block declares
+`auth`, `credentials_url`, `env`, `read_tools`, `confirm_tools`, and
+`hints`, but none have been booted against a real server yet. Pressure-
+test matrix — one run per MCP to confirm tools appear in
+`get_openai_tools()` and one read tool executes cleanly end-to-end.
+
+- **calendar (`@cocal/google-calendar-mcp`):**
+  - Setup: download `credentials.json` from Google Cloud Console; set
+    `GOOGLE_OAUTH_CREDENTIALS=/abs/path/to/credentials.json` in `.env`;
+    enable on PM via `brainchild setup`.
+  - Verify: first run pops OAuth consent page in browser; `list-calendars`
+    returns at least the user's primary calendar; `list-events` with a
+    1-week window returns real events.
+  - **Pin the `@latest` version** in `agents/*/config.yaml` once a known-
+    working version is identified.
+
+- **playwright (`@playwright/mcp@0.0.70`):**
+  - Setup: enable on any agent; no env vars needed.
+  - Verify: `browser_snapshot` of `https://example.com` returns structured
+    DOM; persistent profile dir appears at
+    `~/Library/Caches/ms-playwright/mcp-*-profile`; `browser_navigate`
+    confirm-gates in chat.
+
+- **salesforce (`@salesforce/mcp`):**
+  - Setup: `brew install salesforce/cli/sf` (or npm `sf`); `sf org login
+    web`; enable on any agent.
+  - Verify: `list_all_orgs` returns the logged-in org; `run_soql_query`
+    with `SELECT Id, Name FROM Account LIMIT 3` returns rows.
+  - **Flag:** the wizard's env-var check reports `✓` because `env: {}`,
+    but the real auth lives in sf's local cache. If `sf` isn't logged in,
+    tools still spawn but calls fail. If this is an ongoing UX gap, add
+    a prereq probe analogous to claude-code's (15.7.4) in a follow-up.
+  - **Pin the `@latest` version** in `agents/*/config.yaml` once a known-
+    working version is identified.
+
+- **sentry (hosted remote MCP via `mcp-remote@0.1.38`):**
+  - Setup: enable on Engineer (already default-enabled); run `brainchild
+    auth sentry` (same code path as `brainchild auth linear`); approve
+    in browser.
+  - Verify: token cache appears at
+    `~/.mcp-auth/mcp-remote-*/{md5("https://mcp.sentry.dev/mcp")}_tokens.json`;
+    `find_organizations` returns at least one org; `search_issues` with
+    an `is:unresolved` filter returns real issues.
+
+- **slack (`@modelcontextprotocol/server-slack`):**
+  - Setup: create a Slack app at https://api.slack.com/apps, install to
+    workspace, copy Bot User OAuth Token into `.env` as
+    `SLACK_BOT_TOKEN=xoxb-...`; set `SLACK_TEAM_ID=T0...`; enable on
+    any agent.
+  - Verify: `slack_list_channels` returns real channels (not empty);
+    `slack_get_channel_history` on a known channel returns the latest
+    messages.
+  - **Flag:** upstream reference server was archived May 2025. If it
+    breaks, swap to `@zencoderai/slack-mcp-server` (drop-in, same env
+    vars and tool names) in `agents/*/config.yaml`.
+  - **Pin the `@latest` version** in `agents/*/config.yaml` once a known-
+    working version is identified.
+
+- **Per-MCP blanket pass criterion:** on boot the bot's startup log
+  lists the server (`MCPClient connected <name>`); tools appear in the
+  first LLM turn's tool schema; at least one read tool returns a real
+  payload; no `startup_failures` entry for the server in the runtime
+  status. If auth flakes out later, verify 15.7.1's error classifier
+  trips the server into `runtime_failures` with the right `kind`.
+- **Why deferred:** Each requires real credentials, network roundtrips,
+  and in some cases a browser OAuth dance.
+
 ## Closed
 
 *(none yet)*
