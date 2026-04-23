@@ -7,7 +7,6 @@ Usage:
     brainchild <name>           Auto-open a new Meet, join as that bot
     brainchild try <name>       Terminal test-drive (no Meet)
     brainchild setup            Create a new agent (wizard)
-    brainchild list             Show available agents
     brainchild                  Print usage + agent list
 """
 import os
@@ -119,43 +118,7 @@ def _kill_orphaned_children():
             pass
 
 
-def _check_mcp() -> int:
-    """Validate MCP config: start each server, list tools, print summary, exit."""
-    import logging
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-
-    from brainchild import config
-    from brainchild.pipeline.mcp_client import MCPClient
-
-    if not config.MCP_SERVERS:
-        print("No mcp_servers configured in config.yaml.")
-        return 0
-
-    print(f"Starting {len(config.MCP_SERVERS)} MCP server(s)...")
-    client = MCPClient()
-    try:
-        tool_names = client.connect_all()
-    finally:
-        pass
-
-    print()
-    for name in config.MCP_SERVERS:
-        if name in client.failed_servers:
-            print(f"  ✗ {name}")
-            print(f"        {client.failed_servers[name]}")
-        else:
-            count = sum(1 for t in tool_names if t.startswith(f"{name}__"))
-            print(f"  ✓ {name}  ({count} tools)")
-
-    print()
-    loaded = len(config.MCP_SERVERS) - len(client.failed_servers)
-    print(f"Summary: {loaded} of {len(config.MCP_SERVERS)} servers loaded, {len(tool_names)} tools available.")
-
-    client.shutdown()
-    return 0 if not client.failed_servers else 1
-
-
-def _print_startup_banner(skills, plain=False):
+def _print_startup_banner(skills):
     """Print the face + identity + loadout banner as the boot splash.
 
     Must fire BEFORE MCP / browser startup logs so it sits at the top of the
@@ -179,22 +142,17 @@ def _print_startup_banner(skills, plain=False):
     portrait_path = _AGENTS_DIR / bot_name / "portrait.txt"
 
     # First-run hook — contributor-added bot with no portrait gets one minted.
-    # Skip in --plain mode so the ASCII fallback doesn't get persisted as the
-    # canonical look for a bot that just happened to boot on a hostile terminal.
-    if bot_name and not plain and not portrait_path.exists():
+    if bot_name and not portrait_path.exists():
         if face.write_if_missing(bot_name, portrait_path):
             import logging
             logging.getLogger("brainchild").info(
                 f"minted fresh portrait: {portrait_path}"
             )
 
-    if plain:
-        face_text = face.render(bot_name, plain=True)
-    else:
-        face_text = face.load_or_render(bot_name, portrait_path=portrait_path)
+    face_text = face.load_or_render(bot_name, portrait_path=portrait_path)
     face_lines = face_text.split("\n")
 
-    sep = " | " if plain else " · "
+    sep = " · "
     parts = list(config.MCP_SERVERS.keys())
     n_skills = len(skills) if skills else 0
     if n_skills:
@@ -255,12 +213,9 @@ def _print_usage():
     print("  brainchild <name>           Auto-open a new Meet, join as that bot")
     print("  brainchild try <name>       Terminal test-drive (no Meet)")
     print("  brainchild setup            Create a new agent (wizard)")
-    print("  brainchild list             Show available bots")
     print()
     print("Flags:")
-    print("  --plain                   ASCII-only banner (screen readers / hostile terminals)")
     print("  --force                   Retry join even if a session is flagged stuck")
-    print("  --check-mcp               Start MCP servers, print tool counts, exit")
     print()
     bots = _available_bots()
     if bots:
@@ -270,20 +225,9 @@ def _print_usage():
             print(f"  {b:<12} {tag}")
 
 
-def _run_list():
-    bots = _available_bots()
-    if not bots:
-        print("No agents found.")
-        return 0
-    for b in bots:
-        tag = _bot_tagline(b)
-        print(f"  {b:<12} {tag}")
-    return 0
-
-
-def _run_setup(rest):
+def _run_setup():
     from brainchild.pipeline.setup import run as _wizard_run
-    return _wizard_run(rest)
+    return _wizard_run([])
 
 
 def main():
@@ -297,9 +241,11 @@ def main():
     first = argv[0]
 
     if first == "setup":
-        return _run_setup(argv[1:])
-    if first == "list":
-        return _run_list()
+        if len(argv) > 1:
+            print(f"Unexpected argument after 'setup': {argv[1]!r}\n")
+            _print_usage()
+            return 2
+        return _run_setup()
     if first == "try":
         if len(argv) < 2:
             print("Usage: brainchild try <name>\n")
@@ -361,7 +307,7 @@ def _run_try(name):
     from brainchild.pipeline.skills import load_skills
 
     skills = load_skills(config.SKILLS_PATHS)
-    _print_startup_banner(skills, plain=False)
+    _print_startup_banner(skills)
 
     llm = LLMClient(build_provider())
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
@@ -430,15 +376,9 @@ def _run_try(name):
 def _run_bot(name, rest):
     url = None
     force = False
-    check_mcp = False
-    plain = False
     for arg in rest:
         if arg == "--force":
             force = True
-        elif arg == "--check-mcp":
-            check_mcp = True
-        elif arg == "--plain":
-            plain = True
         elif arg.startswith("-"):
             print(f"Unknown flag: {arg}")
             return 2
@@ -451,17 +391,14 @@ def _run_bot(name, rest):
     # MUST be set before any `from brainchild import config` fires in the pipeline modules.
     os.environ["BRAINCHILD_BOT"] = name
 
-    if check_mcp:
-        return _check_mcp()
-
     if sys.platform == "darwin":
-        _run_macos(url, force=force, plain=plain)
+        _run_macos(url, force=force)
     else:
-        _run_linux(url, force=force, plain=plain)
+        _run_linux(url, force=force)
     return 0
 
 
-def _run_macos(meeting_url=None, force=False, plain=False):
+def _run_macos(meeting_url=None, force=False):
     """Run on macOS — direct URL or meet.new auto-launch."""
     import logging
     import signal
@@ -496,7 +433,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
     # connects. Banner prints immediately after, as the boot splash.
     from brainchild.pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
-    _print_startup_banner(skills, plain=plain)
+    _print_startup_banner(skills)
     ui.say("Launching Chrome…")
 
     connector = MacOSAdapter(force=force)
@@ -627,7 +564,7 @@ def _run_macos(meeting_url=None, force=False, plain=False):
         ui.ok("Left meeting — goodbye.")
 
 
-def _run_linux(meeting_url, force=False, plain=False):
+def _run_linux(meeting_url, force=False):
     """Run on Linux — requires a meeting URL and a live DISPLAY."""
     import logging
     import signal
@@ -670,7 +607,7 @@ def _run_linux(meeting_url, force=False, plain=False):
 
     from brainchild.pipeline.skills import load_skills
     skills = load_skills(config.SKILLS_PATHS)
-    _print_startup_banner(skills, plain=plain)
+    _print_startup_banner(skills)
     ui.say("Launching Chromium…")
 
     log.info(f"Starting Brainchild (Linux) — joining {meeting_url}")

@@ -8,7 +8,7 @@ up), and leaves when everyone else does.
 brainchild pm                                        # open a fresh Meet
 brainchild pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
 brainchild try pm                                    # terminal test-drive, no Meet
-brainchild list                                      # show available agents
+brainchild                                           # show available agents
 ```
 
 `pm` is a sample bot under `agents/`. Drop in `brainchild setup` to create your own.

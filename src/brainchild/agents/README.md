@@ -29,7 +29,7 @@ brainchild try engineer                                  # chat in-terminal, no 
 # 3. Run — name the bot you want, optionally pass a Meet URL
 brainchild engineer https://meet.google.com/xxx-yyyy-zzz
 brainchild engineer                                      # auto-opens meet.new
-brainchild list                                          # show all bots
+brainchild                                               # show all bots
 ```
 
 Every run names the bot explicitly. Config lives in `agents/<name>/config.yaml`
@@ -136,10 +136,10 @@ stay comment-free on purpose.
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `name` | string | required | Display name shown in chat and in `brainchild list` (e.g. `PM`). |
+| `name` | string | required | Display name shown in chat and in the `brainchild` agent list (e.g. `PM`). |
 | `trigger_phrase` | string | `@brainchild` | Substring that marks a message as addressed to the bot in a multi-party meeting. Ignored in 1-on-1s (any message is treated as addressed). |
 | `first_contact_hint` | string | `""` | Extra line appended to the system prompt the first turn the bot talks to a given person. Supports `{first_name}` substitution. |
-| `tagline` | string | `""` | One-liner shown in `brainchild list`, the setup wizard picker, and the build card. |
+| `tagline` | string | `""` | One-liner shown in the `brainchild` agent list, the setup wizard picker, and the build card. |
 
 ### `llm:`
 

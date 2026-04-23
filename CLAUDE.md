@@ -13,7 +13,6 @@ Brainchild is a chat-based AI meeting participant. It joins Google Meet, opens t
 ```bash
 brainchild pm https://meet.google.com/xxx-yyyy-zzz   # join a specific Meet
 brainchild pm                                        # auto-open meet.new
-brainchild list                                      # show available agents
 brainchild                                           # usage + agent list
 ```
 

@@ -7,23 +7,22 @@ Covers `__main__.py`:
     - _bot_tagline: yaml agent.tagline preferred; README fallback; neither → ""
   main() dispatch
     - no args / -h → usage, returns 0
-    - `list` → _run_list
-    - `setup` → _run_setup(rest)
+    - `setup` → _run_setup()
+    - `setup` with extra args → returns 2
     - `try <name>` → _run_try(name)
     - `try` with no name → returns 2
     - unknown flag → returns 2
     - unknown bot/subcommand → returns 2
     - known bot → _run_bot(name, rest)
   _run_bot arg parsing
-    - url + flags (--force, --check-mcp, --plain) parsed; sets BRAINCHILD_BOT
-    - --check-mcp path delegates to _check_mcp and returns its code
+    - url + --force parsed; sets BRAINCHILD_BOT
   _run_try validation
     - unknown bot → returns 2 before any heavy imports
 
 Approach: each test rebuilds a tmp `agents/` tree and monkey-patches the
-module-level `_AGENTS_DIR`, plus patches dispatch targets (_run_list,
-_run_setup, _run_try, _run_bot, _check_mcp, _run_macos, _run_linux) so we
-never actually boot the pipeline.
+module-level `_AGENTS_DIR`, plus patches dispatch targets (_run_setup,
+_run_try, _run_bot, _run_macos, _run_linux) so we never actually boot the
+pipeline.
 
 Run:
     source venv/bin/activate
@@ -194,26 +193,30 @@ def test_main_help_flag_prints_usage_and_returns_zero():
     print("PASS  test_main_help_flag_prints_usage_and_returns_zero")
 
 
-def test_main_list_dispatches_to_run_list():
+def test_main_setup_dispatches_with_no_args():
+    """setup subcommand invokes _run_setup with no arguments."""
     spy = MagicMock(return_value=0)
     with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
-        with patched_argv(["list"]), patched_dispatch(_run_list=spy):
+        with patched_argv(["setup"]), patched_dispatch(_run_setup=spy):
             rc = entry.main()
     assert rc == 0
     assert spy.call_count == 1
     assert spy.call_args.args == ()
-    print("PASS  test_main_list_dispatches_to_run_list")
+    print("PASS  test_main_setup_dispatches_with_no_args")
 
 
-def test_main_setup_dispatches_with_rest():
-    """setup subcommand forwards argv[1:] to _run_setup."""
+def test_main_setup_rejects_extra_args():
+    """Extra positional/flag args after `setup` return 2 with usage."""
     spy = MagicMock(return_value=0)
     with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
         with patched_argv(["setup", "--from", "pm"]), patched_dispatch(_run_setup=spy):
-            rc = entry.main()
-    assert rc == 0
-    assert spy.call_args.args == (["--from", "pm"],)
-    print("PASS  test_main_setup_dispatches_with_rest")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = entry.main()
+    assert rc == 2
+    assert spy.call_count == 0
+    assert "Unexpected argument" in buf.getvalue()
+    print("PASS  test_main_setup_rejects_extra_args")
 
 
 def test_main_try_dispatches_with_name():
@@ -276,19 +279,17 @@ def test_main_known_bot_dispatches_to_run_bot():
 # ---------------------------------------------------------------------------
 
 def test_run_bot_parses_url_and_flags_and_sets_env():
-    """_run_bot parses flags + url; sets BRAINCHILD_BOT before dispatching."""
+    """_run_bot parses url + --force; sets BRAINCHILD_BOT before dispatching."""
     captured = {}
-    def fake_macos(meeting_url=None, force=False, plain=False):
+    def fake_macos(meeting_url=None, force=False):
         captured["platform"] = "macos"
         captured["url"] = meeting_url
         captured["force"] = force
-        captured["plain"] = plain
         captured["env"] = os.environ.get("BRAINCHILD_BOT")
-    def fake_linux(meeting_url, force=False, plain=False):
+    def fake_linux(meeting_url, force=False):
         captured["platform"] = "linux"
         captured["url"] = meeting_url
         captured["force"] = force
-        captured["plain"] = plain
         captured["env"] = os.environ.get("BRAINCHILD_BOT")
 
     saved_env = os.environ.get("BRAINCHILD_BOT")
@@ -298,12 +299,11 @@ def test_run_bot_parses_url_and_flags_and_sets_env():
             with patched_dispatch(_run_macos=fake_macos, _run_linux=fake_linux):
                 rc = entry._run_bot(
                     "pm",
-                    ["https://meet.google.com/abc-defg-hij", "--force", "--plain"],
+                    ["https://meet.google.com/abc-defg-hij", "--force"],
                 )
         assert rc == 0
         assert captured["url"] == "https://meet.google.com/abc-defg-hij"
         assert captured["force"] is True
-        assert captured["plain"] is True
         assert captured["env"] == "pm"
     finally:
         if saved_env is None:
@@ -311,29 +311,6 @@ def test_run_bot_parses_url_and_flags_and_sets_env():
         else:
             os.environ["BRAINCHILD_BOT"] = saved_env
     print("PASS  test_run_bot_parses_url_and_flags_and_sets_env")
-
-
-def test_run_bot_check_mcp_delegates_and_returns_its_code():
-    """--check-mcp must call _check_mcp and return its code — not reach platform runner."""
-    spy = MagicMock(return_value=7)
-    platform_spy = MagicMock()
-    saved_env = os.environ.get("BRAINCHILD_BOT")
-    try:
-        with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
-            with patched_dispatch(
-                _check_mcp=spy, _run_macos=platform_spy, _run_linux=platform_spy,
-            ):
-                rc = entry._run_bot("pm", ["--check-mcp"])
-        assert rc == 7
-        assert spy.call_count == 1
-        assert platform_spy.call_count == 0
-        assert os.environ.get("BRAINCHILD_BOT") == "pm"
-    finally:
-        if saved_env is None:
-            os.environ.pop("BRAINCHILD_BOT", None)
-        else:
-            os.environ["BRAINCHILD_BOT"] = saved_env
-    print("PASS  test_run_bot_check_mcp_delegates_and_returns_its_code")
 
 
 def test_run_bot_unknown_flag_returns_2():
@@ -398,15 +375,14 @@ if __name__ == "__main__":
         test_bot_tagline_empty_when_neither,
         test_main_no_args_prints_usage_and_returns_zero,
         test_main_help_flag_prints_usage_and_returns_zero,
-        test_main_list_dispatches_to_run_list,
-        test_main_setup_dispatches_with_rest,
+        test_main_setup_dispatches_with_no_args,
+        test_main_setup_rejects_extra_args,
         test_main_try_dispatches_with_name,
         test_main_try_without_name_returns_2,
         test_main_unknown_flag_returns_2,
         test_main_unknown_bot_returns_2,
         test_main_known_bot_dispatches_to_run_bot,
         test_run_bot_parses_url_and_flags_and_sets_env,
-        test_run_bot_check_mcp_delegates_and_returns_its_code,
         test_run_bot_unknown_flag_returns_2,
         test_run_try_unknown_bot_returns_2,
         test_package_import_exposes_main,
