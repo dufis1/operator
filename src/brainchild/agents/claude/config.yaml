@@ -121,7 +121,7 @@ mcp_servers:
     enabled: false
     description: "read and write code, PRs, and issues across your GitHub repos"
     credentials_url: "https://github.com/settings/tokens"
-    command: "./github-mcp-server"
+    command: "github-mcp-server"
     args: ["stdio"]
     # Tools that auto-execute without user confirmation. Anything not listed here confirms by default.
     read_tools:
