@@ -375,11 +375,12 @@ class MCPClient:
                 log_rejection(tool_name, arguments, reason, "pre-execution")
                 raise MCPToolError(reason)
 
-        log.info(f"MCP executing tool={tool_name} server={server_name}")
+        effective_timeout = self._effective_timeout_for(tool_name)
+        log.info(f"MCP executing tool={tool_name} server={server_name} timeout={effective_timeout}s")
         log.debug(f"MCP tool arguments: {_summarize_tool_args(arguments)}")
 
         try:
-            result = handle.call_tool(original_name, arguments)
+            result = handle.call_tool(original_name, arguments, timeout=effective_timeout)
         except MCPToolError:
             raise
         except Exception as e:
@@ -387,6 +388,21 @@ class MCPClient:
             raise MCPToolError(f"Tool '{tool_name}' failed: {e}") from e
 
         return result
+
+    def _effective_timeout_for(self, tool_name: str) -> int:
+        """Resolve the effective per-call timeout: explicit override → ship default → global fallback.
+
+        Kept separate from the public `tool_timeout_for` (which only reports
+        the explicit override and returns None when absent — callers rely on
+        that to distinguish 'user set this' from 'using defaults').
+        """
+        override = self.tool_timeout_for(tool_name)
+        if override is not None:
+            return override
+        server_name = self.server_for_tool(tool_name)
+        if server_name and server_name in config.DEFAULT_TOOL_TIMEOUTS:
+            return config.DEFAULT_TOOL_TIMEOUTS[server_name]
+        return config.TOOL_TIMEOUT_SECONDS
 
     def server_for_tool(self, tool_name: str) -> str | None:
         """Resolve a namespaced tool name to its server name, or None if unknown."""
@@ -500,13 +516,30 @@ class _ServerHandle:
         if self._error:
             raise self._error
 
-    def call_tool(self, tool_name, arguments, timeout=30):
-        """Execute a tool call (thread-safe, blocks until result)."""
+    def call_tool(self, tool_name, arguments, timeout):
+        """Execute a tool call (thread-safe, blocks until result or timeout).
+
+        `timeout` is the single source of truth for this call — resolved upstream
+        from the per-server override, ship-level default, or global fallback.
+        On timeout, cancels the underlying asyncio task (best-effort; the MCP
+        subprocess may still finish in the background) and raises MCPToolError
+        with a message the LLM can relay to the user.
+        """
+        import concurrent.futures as _cf
         future = asyncio.run_coroutine_threadsafe(
             self._execute_tool(tool_name, arguments), self._loop
         )
         try:
             return future.result(timeout=timeout)
+        except _cf.TimeoutError:
+            future.cancel()
+            raise MCPToolError(
+                f"Tool '{tool_name}' timed out after {timeout}s on MCP server "
+                f"'{self.name}'. Tell the user the tool ran past its configured "
+                f"timeout — suggest a narrower request or, if this kind of task "
+                f"is expected to take longer, raising `tool_timeout_seconds` "
+                f"under mcp_servers.{self.name} in ~/.brainchild/agents/<name>/config.yaml."
+            )
         except MCPToolError:
             raise
         except Exception as e:

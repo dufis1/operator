@@ -556,7 +556,16 @@ class ChatRunner:
         self._dispatch_result(result)
 
     def _execute_and_respond(self, tc):
-        """Execute a tool call in a background thread with heartbeat + timeout, then feed result to LLM."""
+        """Execute a tool call in a background thread with exponential-backoff
+        heartbeats, then feed result to LLM.
+
+        The MCP layer owns the actual timeout (per-server override → ship
+        default → global fallback). This loop's only job is to keep chat
+        informed while the tool runs. Heartbeats start at
+        TOOL_HEARTBEAT_SECONDS and double up to TOOL_HEARTBEAT_MAX_SECONDS,
+        so short tasks get a quick reassurance and long tasks (e.g. a 10-min
+        Claude Code delegation) don't spam the chat.
+        """
         log.info(f"ChatRunner: auto-executing {tc['name']}")
         t_exec_start = time.monotonic()
         result_holder = [None]
@@ -573,35 +582,11 @@ class ChatRunner:
 
         threading.Thread(target=_run_tool, daemon=True).start()
 
-        heartbeat_interval = config.TOOL_HEARTBEAT_SECONDS
-        hard_timeout = self._mcp.tool_timeout_for(tc["name"]) or config.TOOL_TIMEOUT_SECONDS
-        deadline = time.time() + hard_timeout
-        timed_out = False
-
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                timed_out = True
-                break
-            if done_event.wait(timeout=min(heartbeat_interval, remaining)):
-                break  # tool finished (success or error)
-            # Still running — send heartbeat if deadline not reached
-            if time.time() < deadline:
-                self._send("Still working on that...")
-
-        if timed_out:
-            log.error(f"ChatRunner: tool {tc['name']} timed out after {hard_timeout}s")
-            # Timeouts aren't auth errors — don't pass error_text (the sniff
-            # would only be noise on a timeout path anyway).
-            self._record_mcp_outcome(tc["name"], success=False)
-            self._handle_tool_failure(
-                tc,
-                f"The tool call timed out after {hard_timeout} seconds with no response. "
-                f"Tell the user plainly that it timed out, note that this often means the "
-                f"service is slow or the task is too large, and suggest a narrower request.",
-                fallback=f"That took too long — no response after {hard_timeout}s. Try a narrower request, or retry.",
-            )
-            return
+        interval = config.TOOL_HEARTBEAT_SECONDS
+        max_interval = config.TOOL_HEARTBEAT_MAX_SECONDS
+        while not done_event.wait(timeout=interval):
+            self._send("Still working on that...")
+            interval = min(interval * 2, max_interval)
 
         if error_holder[0]:
             e = error_holder[0]

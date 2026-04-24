@@ -1,12 +1,19 @@
 """
-Unit tests for step 9.12 — tool call timeout + heartbeat.
+Unit tests for step 9.12 — tool-call heartbeat + per-MCP timeout.
 
-Tests three behaviors without a live meeting:
-  1. Fast tool: completes before first heartbeat — no "Still working" messages
-  2. Slow tool: takes longer than heartbeat — sends heartbeat(s), then delivers result
-  3. Timeout: exceeds hard timeout — sends failure message, error fed to LLM
+Session 157: timeouts were moved from chat_runner into the MCP layer so each
+server can carry its own deadline (see config.DEFAULT_TOOL_TIMEOUTS + the
+per-server `tool_timeout_seconds` override). chat_runner's only job during a
+tool call is driving exponential-backoff heartbeats; when the MCP raises
+(including timeout as an MCPToolError), the normal error-handler path feeds
+an informative signpost to the LLM.
 
-Config values are overridden to small numbers so tests run quickly.
+Covers:
+  1. Fast tool: completes before first heartbeat — no "Still working"
+  2. Slow tool: takes longer than heartbeat — at least one heartbeat, result delivered
+  3. Heartbeat backoff: interval doubles up to the cap
+  4. MCP-reported timeout: MCPToolError propagates to the LLM with "timed out"
+  5. MCP-reported timeout + LLM follow-up fails: fallback message to chat
 
 Run:
     source venv/bin/activate
@@ -20,20 +27,17 @@ os.environ.setdefault("BRAINCHILD_BOT", "pm")
 import time
 from unittest.mock import MagicMock
 from brainchild import config
+from brainchild.pipeline.mcp_client import MCPToolError
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_runner(tool_delay_seconds, heartbeat=1, timeout=4):
-    """
-    Build a ChatRunner with a slow mock MCP tool.
-    Overrides config heartbeat/timeout so tests don't take forever.
-    Returns (runner, sent_list, llm_mock, mcp_mock).
-    """
+def make_runner(heartbeat=1, heartbeat_max=4):
+    """Build a ChatRunner with a mock MCP. Caller sets execute_tool behavior."""
     config.TOOL_HEARTBEAT_SECONDS = heartbeat
-    config.TOOL_TIMEOUT_SECONDS = timeout
+    config.TOOL_HEARTBEAT_MAX_SECONDS = heartbeat_max
 
     from brainchild.pipeline.chat_runner import ChatRunner
 
@@ -45,17 +49,25 @@ def make_runner(tool_delay_seconds, heartbeat=1, timeout=4):
     mcp.record_tool_result.return_value = False  # server not tripped
     llm.send_tool_result.return_value = {"type": "text", "content": "Done."}
 
-    def slow_tool(name, args):
-        time.sleep(tool_delay_seconds)
-        return "tool result"
-
-    mcp.execute_tool.side_effect = slow_tool
-
     runner = ChatRunner(connector, llm, mcp)
     sent = []
     runner._send = lambda text: sent.append(text)
 
     return runner, sent, llm, mcp
+
+
+def _slow_tool_returning(delay, value="tool result"):
+    def _fn(name, args):
+        time.sleep(delay)
+        return value
+    return _fn
+
+
+def _slow_tool_raising(delay, exc):
+    def _fn(name, args):
+        time.sleep(delay)
+        raise exc
+    return _fn
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +76,8 @@ def make_runner(tool_delay_seconds, heartbeat=1, timeout=4):
 
 def test_fast_tool_no_heartbeat():
     """Tool finishes well before the first heartbeat — no 'Still working' sent."""
-    runner, sent, llm, mcp = make_runner(tool_delay_seconds=0.1, heartbeat=1, timeout=4)
+    runner, sent, llm, mcp = make_runner(heartbeat=1)
+    mcp.execute_tool.side_effect = _slow_tool_returning(0.1)
     runner._pending_tool_call = {"id": "c1", "name": "fast__tool", "arguments": {}}
 
     runner._handle_confirmation("yes")
@@ -81,32 +94,66 @@ def test_fast_tool_no_heartbeat():
 # ---------------------------------------------------------------------------
 
 def test_slow_tool_sends_heartbeat():
-    """Tool takes 2.5s with a 1s heartbeat — at least one heartbeat, no timeout."""
-    runner, sent, llm, mcp = make_runner(tool_delay_seconds=2.5, heartbeat=1, timeout=6)
+    """Tool takes 2.5s with a 1s heartbeat — at least one heartbeat."""
+    runner, sent, llm, mcp = make_runner(heartbeat=1)
+    mcp.execute_tool.side_effect = _slow_tool_returning(2.5)
     runner._pending_tool_call = {"id": "c2", "name": "slow__tool", "arguments": {}}
 
     runner._handle_confirmation("yes")
 
     heartbeats = [m for m in sent if "Still working" in m]
-    timeout_msgs = [m for m in sent if "too long" in m.lower()]
+    timeout_msgs = [m for m in sent if "timed out" in m.lower()]
 
     assert len(heartbeats) >= 1, f"Expected at least one heartbeat, got: {sent}"
     assert len(timeout_msgs) == 0, f"Unexpected timeout message: {sent}"
     llm.send_tool_result.assert_called_once()
-    # Result should have been delivered (not an error result)
     call_args = llm.send_tool_result.call_args[0]
     assert call_args[2] == "tool result", f"Expected tool result, got: {call_args[2]}"
     print(f"PASS  test_slow_tool_sends_heartbeat  heartbeats={len(heartbeats)} sent={sent}")
 
 
 # ---------------------------------------------------------------------------
-# Test 3: hung tool — hard timeout fires
+# Test 3: exponential backoff — interval doubles up to the cap
 # ---------------------------------------------------------------------------
 
-def test_timeout_sends_failure_message():
-    """Tool runs longer than timeout — timeout signpost fed to LLM for user-facing summary."""
-    runner, sent, llm, mcp = make_runner(tool_delay_seconds=10, heartbeat=1, timeout=3)
-    runner._pending_tool_call = {"id": "c3", "name": "hung__tool", "arguments": {}}
+def test_heartbeat_interval_backs_off():
+    """First heartbeat at ~1s, second at ~1+2=3s — spacing should roughly double."""
+    runner, sent, llm, mcp = make_runner(heartbeat=1, heartbeat_max=8)
+
+    stamps = []
+    original_send = runner._send
+    def _send_with_ts(text):
+        stamps.append((time.monotonic(), text))
+        original_send(text)
+    runner._send = _send_with_ts
+
+    mcp.execute_tool.side_effect = _slow_tool_returning(3.6)
+    runner._pending_tool_call = {"id": "c3", "name": "slow__tool", "arguments": {}}
+
+    t0 = time.monotonic()
+    runner._handle_confirmation("yes")
+    heartbeats = [t for t, m in stamps if "Still working" in m]
+
+    assert len(heartbeats) >= 2, f"Expected at least 2 heartbeats in 3.6s, got {len(heartbeats)}: {stamps}"
+    first_gap = heartbeats[0] - t0
+    second_gap = heartbeats[1] - heartbeats[0]
+    # Backoff: first ~1s, second ~2s. Allow generous jitter for scheduler noise.
+    assert 0.8 <= first_gap <= 1.6, f"First heartbeat gap {first_gap:.2f}s outside [0.8, 1.6]"
+    assert 1.6 <= second_gap <= 2.8, f"Second heartbeat gap {second_gap:.2f}s outside [1.6, 2.8]"
+    print(f"PASS  test_heartbeat_interval_backs_off  first={first_gap:.2f}s second={second_gap:.2f}s")
+
+
+# ---------------------------------------------------------------------------
+# Test 4: MCP-reported timeout flows through as a tool error
+# ---------------------------------------------------------------------------
+
+def test_mcp_timeout_is_signposted_to_llm():
+    """When the MCP layer raises MCPToolError('timed out'), the LLM follow-up gets a 'timed out' signpost."""
+    runner, sent, llm, mcp = make_runner(heartbeat=1)
+    mcp.execute_tool.side_effect = _slow_tool_raising(
+        0.2, MCPToolError("Tool 'hung__tool' timed out after 30s on MCP server 'hung'.")
+    )
+    runner._pending_tool_call = {"id": "c4", "name": "hung__tool", "arguments": {}}
 
     runner._handle_confirmation("yes")
 
@@ -114,21 +161,24 @@ def test_timeout_sends_failure_message():
     result_content = llm.send_tool_result.call_args[0][2]
     assert "timed out" in result_content.lower(), \
         f"Expected 'timed out' in error signpost, got: {result_content}"
-    print(f"PASS  test_timeout_sends_failure_message  signpost={result_content[:80]!r}")
+    print(f"PASS  test_mcp_timeout_is_signposted_to_llm  signpost={result_content[:80]!r}")
 
 
-def test_timeout_fallback_when_llm_fails():
-    """On timeout, if the LLM follow-up itself fails, the user gets the terse fallback."""
-    runner, sent, llm, mcp = make_runner(tool_delay_seconds=10, heartbeat=1, timeout=3)
+def test_mcp_timeout_fallback_when_llm_fails():
+    """On MCP-reported timeout, if the LLM follow-up itself fails, fallback hits chat."""
+    runner, sent, llm, mcp = make_runner(heartbeat=1)
+    mcp.execute_tool.side_effect = _slow_tool_raising(
+        0.2, MCPToolError("Tool 'hung__tool' timed out after 30s on MCP server 'hung'.")
+    )
     llm.send_tool_result.side_effect = RuntimeError("LLM down")
-    runner._pending_tool_call = {"id": "c4", "name": "hung__tool", "arguments": {}}
+    runner._pending_tool_call = {"id": "c5", "name": "hung__tool", "arguments": {}}
 
     runner._handle_confirmation("yes")
 
-    timeout_msgs = [m for m in sent if "too long" in m.lower()]
-    assert len(timeout_msgs) == 1, f"Expected fallback timeout message, got: {sent}"
+    failure_msgs = [m for m in sent if "failed" in m.lower() or "timed out" in m.lower()]
+    assert len(failure_msgs) >= 1, f"Expected fallback failure message, got: {sent}"
     assert "Done." not in sent, f"Unexpected success message: {sent}"
-    print(f"PASS  test_timeout_fallback_when_llm_fails  sent={sent}")
+    print(f"PASS  test_mcp_timeout_fallback_when_llm_fails  sent={sent}")
 
 
 # ---------------------------------------------------------------------------
@@ -139,8 +189,9 @@ if __name__ == "__main__":
     tests = [
         test_fast_tool_no_heartbeat,
         test_slow_tool_sends_heartbeat,
-        test_timeout_sends_failure_message,
-        test_timeout_fallback_when_llm_fails,
+        test_heartbeat_interval_backs_off,
+        test_mcp_timeout_is_signposted_to_llm,
+        test_mcp_timeout_fallback_when_llm_fails,
     ]
     failures = []
     for t in tests:

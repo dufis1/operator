@@ -101,13 +101,44 @@ def test_tool_timeout_resolution():
         assert client.server_for_tool("fast__ping") == "fast"
         assert client.server_for_tool("unknown__missing") is None
 
-        # tool_timeout_for
+        # tool_timeout_for — reports explicit override only (None when absent)
         assert client.tool_timeout_for("slow__run_task") == 300
         assert client.tool_timeout_for("fast__ping") is None
         assert client.tool_timeout_for("unknown__missing") is None
     finally:
         config.MCP_SERVERS = original
     print("PASS  test_tool_timeout_resolution")
+
+
+def test_effective_timeout_precedence():
+    """Effective timeout walks: per-server override → DEFAULT_TOOL_TIMEOUTS → global fallback."""
+    client = MCPClient()
+    client._tools = {
+        "override__x":  {"server_name": "override",  "mcp_tool": MagicMock()},
+        "defaulted__y": {"server_name": "claude-code", "mcp_tool": MagicMock()},
+        "fallback__z":  {"server_name": "novel",    "mcp_tool": MagicMock()},
+    }
+
+    orig_servers = dict(config.MCP_SERVERS)
+    orig_defaults = dict(config.DEFAULT_TOOL_TIMEOUTS)
+    orig_global = config.TOOL_TIMEOUT_SECONDS
+    try:
+        config.MCP_SERVERS = {
+            "override":    {"command": "x", "args": [], "env": {}, "tool_timeout_seconds": 999},
+            "claude-code": {"command": "x", "args": [], "env": {}},  # no override → ship default
+            "novel":       {"command": "x", "args": [], "env": {}},  # not in default map → global
+        }
+        config.DEFAULT_TOOL_TIMEOUTS = {"claude-code": 600}
+        config.TOOL_TIMEOUT_SECONDS = 60
+
+        assert client._effective_timeout_for("override__x") == 999   # per-server override wins
+        assert client._effective_timeout_for("defaulted__y") == 600  # ship default applies
+        assert client._effective_timeout_for("fallback__z") == 60    # global fallback
+    finally:
+        config.MCP_SERVERS = orig_servers
+        config.DEFAULT_TOOL_TIMEOUTS = orig_defaults
+        config.TOOL_TIMEOUT_SECONDS = orig_global
+    print("PASS  test_effective_timeout_precedence")
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +217,7 @@ if __name__ == "__main__":
         test_classify_process_exited_early,
         test_classify_unwraps_exception_group,
         test_tool_timeout_resolution,
+        test_effective_timeout_precedence,
         test_execute_strips_linear_limit,
         test_execute_blocks_binary_file_reads,
     ]

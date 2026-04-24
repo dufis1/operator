@@ -115,17 +115,44 @@ CAPTIONS_ENABLED        = _transcript.get("captions_enabled", False)
 # ── INTERNAL TUNING ───────────────────────────────────────────────────────
 # These used to live in each bot's config.yaml; they're tuned-once internals
 # that shipped identical across bots. Edit here to change runtime behavior
-# globally. A single per-MCP-server override exists: `tool_timeout_seconds`
-# under an mcp_servers[<name>] block wins over TOOL_TIMEOUT_SECONDS below.
-ALONE_EXIT_GRACE_SECONDS = 60      # once we've seen a peer and they leave, exit after this many seconds
-LOBBY_WAIT_SECONDS       = 600     # max wait in Meet waiting room for host to admit us
-CAPTION_SILENCE_SECONDS  = 0.7     # dead-air gap before a buffered caption chunk commits to history
-MAX_TOKENS               = 1000    # runaway guard on LLM output; "be brief" system-prompt does the real shaping
-TOOL_RESULT_MAX_CHARS    = 50000   # truncate a single tool result above this length before feeding to the LLM
-TOOL_TIMEOUT_SECONDS     = 60      # per-tool-call hard timeout; overridable per-MCP in config.yaml
-TOOL_HEARTBEAT_SECONDS   = 8       # how often to post "still working..." during a long tool call
-BROWSER_PROFILE_DIR      = "./browser_profile"   # persistent Chrome profile (cookies, Google login)
-AUTH_STATE_FILE          = "./auth_state.json"   # Playwright storageState JSON for quick re-auth
+# globally.
+#
+# Tool-call timeout precedence (highest wins):
+#   1. `tool_timeout_seconds` on the mcp_servers[<name>] block in a bot's
+#      config.yaml — explicit per-bot override the user edits.
+#   2. DEFAULT_TOOL_TIMEOUTS[<server_name>] below — ship-level default
+#      commensurate with that MCP's typical worst-case task.
+#   3. TOOL_TIMEOUT_SECONDS below — global fallback for any server whose
+#      name isn't in the map.
+ALONE_EXIT_GRACE_SECONDS   = 60    # once we've seen a peer and they leave, exit after this many seconds
+LOBBY_WAIT_SECONDS         = 600   # max wait in Meet waiting room for host to admit us
+CAPTION_SILENCE_SECONDS    = 0.7   # dead-air gap before a buffered caption chunk commits to history
+MAX_TOKENS                 = 1000  # runaway guard on LLM output; "be brief" system-prompt does the real shaping
+TOOL_RESULT_MAX_CHARS      = 50000 # truncate a single tool result above this length before feeding to the LLM
+TOOL_TIMEOUT_SECONDS       = 60    # global per-tool-call ceiling; per-server default/override beats this
+TOOL_HEARTBEAT_SECONDS     = 8     # initial interval for "still working..." during a long tool call
+TOOL_HEARTBEAT_MAX_SECONDS = 60    # exponential backoff cap for heartbeat interval
+BROWSER_PROFILE_DIR        = "./browser_profile"   # persistent Chrome profile (cookies, Google login)
+AUTH_STATE_FILE            = "./auth_state.json"   # Playwright storageState JSON for quick re-auth
+
+# Ship-level default per-server timeouts. Intended to reflect each MCP's
+# typical worst-case task — generous enough to cover real work, tight enough
+# that a truly hung call fails in bounded time. A user can override per-bot
+# by setting `tool_timeout_seconds` on the mcp_servers[<name>] block.
+DEFAULT_TOOL_TIMEOUTS = {
+    "claude-code": 600,   # multi-minute coding delegations via `claude -p`
+    "playwright":  300,   # browser automation runs
+    "figma":        90,   # design-asset fetches
+    "github":       60,   # large repo/code searches
+    "salesforce":   60,   # heavier org queries
+    "notion":       45,   # page/database fetches
+    "linear":       30,
+    "sentry":       30,
+    "slack":        30,
+    "calendar":     30,
+    "gmail":        30,
+    "drive":        30,
+}
 
 
 def relativize_home(p):

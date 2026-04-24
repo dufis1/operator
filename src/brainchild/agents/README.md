@@ -190,7 +190,7 @@ re-authoring env/tools/hints.
 | `hints` | string | `""` | Free-form guidance about this server's tools, appended to the system prompt whenever tools from this server are available. |
 | `read_tools` | list of strings | `[]` | Tool names that auto-execute without user confirmation. Anything not in this list prompts the user in chat before running. |
 | `confirm_tools` | list of strings | `[]` | Overrides `read_tools` — tools named here always prompt for confirmation, even if also listed under `read_tools`. |
-| `tool_timeout_seconds` | int (seconds) | global `TOOL_TIMEOUT_SECONDS` | Optional per-server override for the hard tool-call timeout. Use when one server runs much longer than the rest (e.g. `delegate` spinning up a Claude Code worktree). |
+| `tool_timeout_seconds` | int (seconds) | `config.DEFAULT_TOOL_TIMEOUTS[<server>]` or global `TOOL_TIMEOUT_SECONDS` | Optional per-server override. Precedence: this value → ship-level `DEFAULT_TOOL_TIMEOUTS` map in `config.py` (e.g. `claude-code: 600`, `playwright: 300`) → global fallback. The MCP layer enforces the timeout; the chat loop just drives exponential-backoff heartbeats. |
 
 ### Internal tuning
 
