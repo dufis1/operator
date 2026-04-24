@@ -132,8 +132,8 @@ TOOL_RESULT_MAX_CHARS      = 50000 # truncate a single tool result above this le
 TOOL_TIMEOUT_SECONDS       = 60    # global per-tool-call ceiling; per-server default/override beats this
 TOOL_HEARTBEAT_SECONDS     = 8     # initial interval for "still working..." during a long tool call
 TOOL_HEARTBEAT_MAX_SECONDS = 60    # exponential backoff cap for heartbeat interval
-BROWSER_PROFILE_DIR        = "./browser_profile"   # persistent Chrome profile (cookies, Google login)
-AUTH_STATE_FILE            = "./auth_state.json"   # Playwright storageState JSON for quick re-auth
+BROWSER_PROFILE_DIR        = str(Path.home() / ".brainchild" / "browser_profile")   # persistent Chrome profile (cookies, Google login)
+AUTH_STATE_FILE            = str(Path.home() / ".brainchild" / "auth_state.json")    # Playwright storageState JSON for quick re-auth
 
 # Ship-level default per-server timeouts. Intended to reflect each MCP's
 # typical worst-case task — generous enough to cover real work, tight enough

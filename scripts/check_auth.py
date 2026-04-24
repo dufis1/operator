@@ -14,7 +14,7 @@ os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
 from brainchild import config
 
-BROWSER_PROFILE = os.path.join(os.path.dirname(__file__), "..", config.BROWSER_PROFILE_DIR)
+BROWSER_PROFILE = config.BROWSER_PROFILE_DIR
 OUTPUT = os.path.join(os.path.dirname(__file__), "..", "debug", "auth_check.png")
 
 from playwright.sync_api import sync_playwright

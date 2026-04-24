@@ -117,6 +117,43 @@ def _ensure_user_agents():
             shutil.copytree(bundled, dest)
 
 
+def _migrate_legacy_browser_artifacts():
+    """One-shot relocation of `browser_profile/` and `auth_state.json` from
+    the dev-mode repo root (pre-Phase-14.5) into `~/.brainchild/`.
+
+    Pre-fix the macos adapter walked four dirs up from its own file to place
+    these at the repo root, which (a) broke for installed/site-packages use
+    and (b) collided across dev checkouts. Both constants now resolve under
+    `~/.brainchild/` directly; this shim picks up an existing legacy profile
+    on the user's machine so their Google login survives the move. No-op on
+    fresh installs or after the first successful run.
+
+    Idempotent: if the target already exists we leave the legacy copy in
+    place rather than overwriting (the user can delete it manually once
+    they've confirmed the migrated session works).
+    """
+    import shutil
+    home_dir = Path.home() / ".brainchild"
+    home_dir.mkdir(parents=True, exist_ok=True)
+
+    # Dev-mode repo root — src/brainchild/__main__.py → up 3 levels.
+    repo_root = Path(__file__).resolve().parent.parent.parent
+
+    for name in ("browser_profile", "auth_state.json"):
+        src = repo_root / name
+        dst = home_dir / name
+        if dst.exists() or not src.exists():
+            continue
+        try:
+            shutil.move(str(src), str(dst))
+            print(f"[brainchild] migrated {name} → {dst}", file=sys.stderr)
+        except OSError as e:
+            print(
+                f"[brainchild] WARN: could not migrate {src} → {dst}: {e}",
+                file=sys.stderr,
+            )
+
+
 def _ensure_user_skills():
     """Sync-on-every-run: copy any bundled skill that is missing from the
     user's ~/.brainchild/skills/ dir. Existing user skills are never touched
@@ -386,6 +423,7 @@ from brainchild.pipeline.auth import (
 
 
 def main():
+    _migrate_legacy_browser_artifacts()
     _ensure_user_agents()
     _ensure_user_skills()
     argv = sys.argv[1:]

@@ -20,8 +20,8 @@ os.environ.setdefault("BRAINCHILD_BOT", "pm")
 from brainchild import config
 from playwright.sync_api import sync_playwright
 
-BROWSER_PROFILE = os.path.join(os.path.dirname(__file__), "..", config.BROWSER_PROFILE_DIR)
-OUTPUT = "auth_state.json"
+BROWSER_PROFILE = config.BROWSER_PROFILE_DIR
+OUTPUT = config.AUTH_STATE_FILE
 
 print("Opening browser — log in as the Brainchild Google account.")
 print("Press Enter here once you are fully logged in.")

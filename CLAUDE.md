@@ -110,7 +110,7 @@ Every run names an agent explicitly (`brainchild run <name> [url]`). Config load
 
 Tuned-once internals (LLM max_tokens, tool-call timeout/heartbeat, tool-result truncation, Meet lobby wait, caption silence gap, browser profile path, `ALONE_EXIT_GRACE_SECONDS`) live in the `INTERNAL TUNING` block at the top of `config.py` — identical across bots, edit there to change globally.
 
-API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) live in a single `.env` at the repo root, shared across all bots. Never commit `.env`, `browser_profile/`, or `auth_state.json`.
+API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) live in a single `.env` at the repo root, shared across all bots. Never commit `.env`. The Google-session artifacts (`~/.brainchild/browser_profile/`, `~/.brainchild/auth_state.json`) live under the user home and are out of the repo by construction — a one-shot migration in `__main__.py:_migrate_legacy_browser_artifacts` relocates any pre-Phase-14.5 copies that were stored at the repo root.
 
 ### Tool Confirmation
 
@@ -125,4 +125,4 @@ When the bot has seen at least one other participant and is then alone for `ALON
 - `docs/agent-context.md` tracks current dev phase, hard-won debugging knowledge, and working context — read it before making structural changes.
 - `docs/roadmap.md` has the phase checklist and strategic direction.
 - The voice pipeline was decoupled in session 93 (April 2026) and preserved on the `voice-preserved` branch. `main` is chat-only.
-- `browser_profile/` and `auth_state.json` hold logged-in Google session state — never commit them.
+- `~/.brainchild/browser_profile/` and `~/.brainchild/auth_state.json` hold logged-in Google session state. They are user-scoped, never inside the repo.

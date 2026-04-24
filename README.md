@@ -38,8 +38,8 @@ secrets or logged-in Google session state and must stay local:
 - `.env` — API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GITHUB_TOKEN, …)
 - `credentials.json` — Google OAuth client secrets
 - `token.json` — Google OAuth access/refresh tokens
-- `auth_state.json` — Playwright storage state (Google session cookies)
-- `browser_profile/` — persistent Chrome profile (Google session cookies)
+- `~/.brainchild/auth_state.json` — Playwright storage state (Google session cookies)
+- `~/.brainchild/browser_profile/` — persistent Chrome profile (Google session cookies)
 
 All of the above are ignored by `.gitignore`. If you see one show up in
 `git status` untracked, something has gone wrong — don't `git add .` blindly.

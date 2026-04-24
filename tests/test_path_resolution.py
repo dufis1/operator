@@ -1,0 +1,268 @@
+"""
+Unit tests for Phase 14.5 path relocation — `browser_profile/` and
+`auth_state.json` now live under `~/.brainchild/` instead of the repo root.
+
+Covers:
+  1. `config.BROWSER_PROFILE_DIR` and `config.AUTH_STATE_FILE` resolve to
+     absolute paths under `Path.home() / ".brainchild"`.
+  2. `MacOSAdapter` picks up the config's absolute path (no walk-up magic).
+  3. `_migrate_legacy_browser_artifacts()` moves a repo-root legacy copy
+     into `~/.brainchild/` on first run.
+  4. The shim is a no-op when the destination already exists (doesn't
+     clobber the user's active session).
+  5. The shim is a no-op when the source is missing (fresh install).
+
+Approach follows test_config_loader.py — redirect HOME to a tmp dir and
+load `config.py` fresh via importlib so the module-level `Path.home()`
+calls resolve inside the sandbox.
+
+Run:
+    source venv/bin/activate
+    python tests/test_path_resolution.py
+"""
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
+
+import importlib.util
+import shutil
+import tempfile
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REAL_CONFIG_PY = REPO_ROOT / "src" / "brainchild" / "config.py"
+REAL_MAIN_PY = REPO_ROOT / "src" / "brainchild" / "__main__.py"
+
+
+def _sandbox(home: Path, bot: str = "testbot"):
+    """Seed a minimal agents/<bot>/config.yaml under the sandbox HOME."""
+    agents_root = home / ".brainchild" / "agents"
+    (agents_root / bot).mkdir(parents=True)
+    (agents_root / bot / "config.yaml").write_text(
+        "agent: {name: Test}\nllm: {provider: openai, model: gpt-4o-mini}\n"
+    )
+
+
+def _load_config_with_home(home: Path, bot: str = "testbot"):
+    saved = {k: os.environ.get(k) for k in ("HOME", "BRAINCHILD_BOT")}
+    try:
+        os.environ["HOME"] = str(home)
+        os.environ["BRAINCHILD_BOT"] = bot
+        spec = importlib.util.spec_from_file_location(f"config_path_test_{id(home)}", REAL_CONFIG_PY)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+# ---------------------------------------------------------------------------
+# Test 1: config paths are absolute and under ~/.brainchild/
+# ---------------------------------------------------------------------------
+
+def test_config_paths_absolute_under_home_brainchild():
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        _sandbox(tmp)
+        mod = _load_config_with_home(tmp)
+        assert os.path.isabs(mod.BROWSER_PROFILE_DIR), \
+            f"BROWSER_PROFILE_DIR not absolute: {mod.BROWSER_PROFILE_DIR!r}"
+        assert os.path.isabs(mod.AUTH_STATE_FILE), \
+            f"AUTH_STATE_FILE not absolute: {mod.AUTH_STATE_FILE!r}"
+        expected_profile = str(tmp / ".brainchild" / "browser_profile")
+        expected_auth = str(tmp / ".brainchild" / "auth_state.json")
+        assert mod.BROWSER_PROFILE_DIR == expected_profile, \
+            f"expected {expected_profile}, got {mod.BROWSER_PROFILE_DIR}"
+        assert mod.AUTH_STATE_FILE == expected_auth, \
+            f"expected {expected_auth}, got {mod.AUTH_STATE_FILE}"
+        print("PASS  test_config_paths_absolute_under_home_brainchild")
+    finally:
+        shutil.rmtree(tmp)
+
+
+# ---------------------------------------------------------------------------
+# Test 2: MacOSAdapter picks up the absolute config path (no walk-up)
+# ---------------------------------------------------------------------------
+
+def test_macos_adapter_uses_config_path_directly():
+    """After the _BASE walk-up was removed, macos_adapter.BROWSER_PROFILE
+    must equal config.BROWSER_PROFILE_DIR byte-for-byte."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        _sandbox(tmp)
+        saved = {k: os.environ.get(k) for k in ("HOME", "BRAINCHILD_BOT")}
+        try:
+            os.environ["HOME"] = str(tmp)
+            os.environ["BRAINCHILD_BOT"] = "testbot"
+            # Force a fresh import of both modules so HOME is honored.
+            for m in list(sys.modules):
+                if m.startswith("brainchild"):
+                    del sys.modules[m]
+            from brainchild import config as cfg
+            from brainchild.connectors import macos_adapter
+            assert macos_adapter.BROWSER_PROFILE == cfg.BROWSER_PROFILE_DIR, \
+                f"mismatch: adapter={macos_adapter.BROWSER_PROFILE} vs config={cfg.BROWSER_PROFILE_DIR}"
+            assert os.path.isabs(macos_adapter.BROWSER_PROFILE)
+            print("PASS  test_macos_adapter_uses_config_path_directly")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        shutil.rmtree(tmp)
+
+
+# ---------------------------------------------------------------------------
+# Migration-shim tests
+# ---------------------------------------------------------------------------
+
+def _load_main_module():
+    """Import __main__.py as a plain module so we can call the shim directly.
+
+    __main__.py does side-effect-free work at import time (only function defs
+    and the Popen patch), so this is safe.
+    """
+    spec = importlib.util.spec_from_file_location("brainchild_main_under_test", REAL_MAIN_PY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _fake_repo_root(tmp: Path) -> Path:
+    """Lay out a fake src/brainchild/ tree inside `tmp` so __main__.py loaded
+    from there resolves `Path(__file__).resolve().parent.parent.parent` to
+    `tmp`. Returns the path where we should copy __main__.py."""
+    target_dir = tmp / "src" / "brainchild"
+    target_dir.mkdir(parents=True)
+    shutil.copy(REAL_MAIN_PY, target_dir / "__main__.py")
+    return target_dir / "__main__.py"
+
+
+def _load_main_from(fake_main: Path):
+    spec = importlib.util.spec_from_file_location(
+        f"brainchild_main_shim_{id(fake_main)}", fake_main
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_migration_moves_legacy_artifacts():
+    """Legacy profile dir + auth_state at the (fake) repo root get moved to
+    ~/.brainchild/ on first call."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        fake_main = _fake_repo_root(tmp)
+        # Seed legacy artifacts at the fake repo root.
+        legacy_profile = tmp / "browser_profile"
+        legacy_profile.mkdir()
+        (legacy_profile / "marker").write_text("hello")
+        legacy_auth = tmp / "auth_state.json"
+        legacy_auth.write_text('{"cookies": []}')
+
+        # Redirect HOME so the shim writes into the sandbox.
+        fake_home = tmp / "home"
+        fake_home.mkdir()
+        saved_home = os.environ.get("HOME")
+        try:
+            os.environ["HOME"] = str(fake_home)
+            mod = _load_main_from(fake_main)
+            mod._migrate_legacy_browser_artifacts()
+
+            migrated_profile = fake_home / ".brainchild" / "browser_profile"
+            migrated_auth = fake_home / ".brainchild" / "auth_state.json"
+            assert migrated_profile.is_dir(), f"profile not moved: {migrated_profile}"
+            assert (migrated_profile / "marker").read_text() == "hello"
+            assert migrated_auth.is_file()
+            assert migrated_auth.read_text() == '{"cookies": []}'
+            assert not legacy_profile.exists(), "legacy profile should be gone"
+            assert not legacy_auth.exists(), "legacy auth_state should be gone"
+            print("PASS  test_migration_moves_legacy_artifacts")
+        finally:
+            if saved_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved_home
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_migration_preserves_existing_target():
+    """If ~/.brainchild/browser_profile/ already exists, don't clobber it —
+    leave the legacy copy in place so the user can reconcile manually."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        fake_main = _fake_repo_root(tmp)
+        # Legacy copy with distinct content.
+        legacy_profile = tmp / "browser_profile"
+        legacy_profile.mkdir()
+        (legacy_profile / "marker").write_text("legacy")
+
+        fake_home = tmp / "home"
+        (fake_home / ".brainchild" / "browser_profile").mkdir(parents=True)
+        (fake_home / ".brainchild" / "browser_profile" / "marker").write_text("existing")
+
+        saved_home = os.environ.get("HOME")
+        try:
+            os.environ["HOME"] = str(fake_home)
+            mod = _load_main_from(fake_main)
+            mod._migrate_legacy_browser_artifacts()
+
+            # Legacy copy still present (not moved, not deleted).
+            assert legacy_profile.is_dir()
+            assert (legacy_profile / "marker").read_text() == "legacy"
+            # Existing user copy untouched.
+            user_marker = fake_home / ".brainchild" / "browser_profile" / "marker"
+            assert user_marker.read_text() == "existing"
+            print("PASS  test_migration_preserves_existing_target")
+        finally:
+            if saved_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved_home
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_migration_noop_on_fresh_install():
+    """No legacy files → shim is silent, creates no artifacts beyond the
+    home_dir directory itself."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        fake_main = _fake_repo_root(tmp)
+        fake_home = tmp / "home"
+        fake_home.mkdir()
+
+        saved_home = os.environ.get("HOME")
+        try:
+            os.environ["HOME"] = str(fake_home)
+            mod = _load_main_from(fake_main)
+            mod._migrate_legacy_browser_artifacts()
+
+            brainchild_dir = fake_home / ".brainchild"
+            assert brainchild_dir.is_dir(), "home_dir not created"
+            assert not (brainchild_dir / "browser_profile").exists()
+            assert not (brainchild_dir / "auth_state.json").exists()
+            print("PASS  test_migration_noop_on_fresh_install")
+        finally:
+            if saved_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved_home
+    finally:
+        shutil.rmtree(tmp)
+
+
+if __name__ == "__main__":
+    test_config_paths_absolute_under_home_brainchild()
+    test_macos_adapter_uses_config_path_directly()
+    test_migration_moves_legacy_artifacts()
+    test_migration_preserves_existing_target()
+    test_migration_noop_on_fresh_install()
+    print("\nAll path-resolution tests passed.")

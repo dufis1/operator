@@ -35,9 +35,7 @@ from .session import JoinStatus, detect_page_state, validate_auth_state, inject_
 
 log = logging.getLogger(__name__)
 
-_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
-BROWSER_PROFILE = os.path.join(_BASE, config.BROWSER_PROFILE_DIR)
+BROWSER_PROFILE = config.BROWSER_PROFILE_DIR
 
 
 class MacOSAdapter(MeetingConnector):
