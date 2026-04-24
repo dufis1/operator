@@ -797,19 +797,25 @@ def _prompt_add_external_path(state: WizardState) -> bool:
 def _step4_system_prompt(state: WizardState) -> None:
     """Author the agent's system prompt — one input covers voice and rules.
 
-    Stored on `personality`; `ground_rules` is cleared. config.py joins the
-    two blocks with a blank line when either is non-empty, so leaving rules
-    empty is fine — the user's one input flows straight through.
+    On non-empty input: stored on `personality`; `ground_rules` is cleared.
+    On empty input: preserve whatever the preset (or existing agent) already
+    has in personality/ground_rules — never silently wipe defaults. config.py
+    joins the two blocks with a blank line when either is non-empty.
     """
     console.print("[bold]4. System Prompt[/bold]")
     console.print("  [dim]Give your agent personality and some ground rules.[/dim]\n")
-    new_text = _prompt_with_hint("Leave empty to skip").strip()
-    state.bot_cfg["personality"] = new_text
-    state.bot_cfg["ground_rules"] = ""
+    new_text = _prompt_with_hint("Leave empty to keep the preset's defaults").strip()
     if new_text:
+        state.bot_cfg["personality"] = new_text
+        state.bot_cfg["ground_rules"] = ""
         console.print(f"  ✓ system prompt saved ({len(new_text)} chars)")
     else:
-        console.print(f"  [dim]system prompt left blank[/dim]")
+        existing_chars = len((state.bot_cfg.get("personality") or "").strip()) \
+            + len((state.bot_cfg.get("ground_rules") or "").strip())
+        if existing_chars:
+            console.print(f"  [dim]kept preset defaults ({existing_chars} chars)[/dim]")
+        else:
+            console.print(f"  [dim]system prompt left blank[/dim]")
 
     # Claude preset: offer to append the user's ~/.claude/CLAUDE.md to
     # ground_rules. Opt-in (default N) because these files can be long

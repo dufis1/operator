@@ -205,9 +205,14 @@ class ChatRunner:
                 ui.warn("Meeting connection lost — chat loop stopped.")
                 break
 
-            # Post the self-intro the first iteration after generation completes,
-            # then drain anything that arrived during the gap.
-            if not self._intro_posted and self._intro_ready.is_set():
+            # Post the self-intro the first iteration after generation completes
+            # AND at least one human has been seen in the meeting — so the intro
+            # lands in front of someone, not into an empty room before they
+            # reach Meet's pre-join screen (the meet.new path: bot joins
+            # instantly, user takes 5–15s to get through pre-join + open chat,
+            # and Meet only shows messages received after you've opened chat).
+            # Drain anything buffered during the gap once it does post.
+            if not self._intro_posted and self._intro_ready.is_set() and saw_others:
                 if self._intro_text:
                     self._send(self._intro_text)
                 self._intro_posted = True

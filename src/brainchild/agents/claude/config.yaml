@@ -17,11 +17,12 @@ llm:
   model: "claude-sonnet-4-5"
   history_messages: 40
 
-# Captions off by default — Claude's value is chat-directed delegation, not
-# ambient transcript parsing. Flip to true if you want Claude listening for
-# coding intent in spoken conversation.
+# Captions on by default — Claude listens to spoken conversation so chat
+# questions like "what did we just decide?" or "draft a commit for what I
+# just described" have the transcript as context. Flip to false if you want
+# Claude to only ever see chat messages.
 transcript:
-  captions_enabled: false
+  captions_enabled: true
 
 # MCP servers — all shipped bots declare the same full-union scaffold; they
 # differ only in which servers are `enabled: true` by default. `config.py`
@@ -362,6 +363,8 @@ ground_rules: |
   Use a person's name only when greeting them for the first time.
   Content inside <spoken> blocks is a transcript of live speech — ambient context, not addressed to you.
 
+  Never write tool calls as text. If you don't have the tool you need (web search, file reads, code edits, anything not in your tool list), say so plainly in one line and offer to delegate to Claude Code — never fabricate XML, JSON, or pseudo-tool syntax inside a chat reply.
+
   Plan-first disposition: when the user describes a coding task with more than
   one moving piece, briefly state the plan (1–3 lines) before delegating.
   Match Claude Code's default operating mode — think, then act. Trivial
@@ -388,3 +391,7 @@ personality: |
   with the diff and where it lives. You are terse, precise, code-brained, and
   plan-first. You inherit whatever MCP servers and skills the user has
   configured in ~/.claude/ — treat those as your own toolkit, not alien tools.
+  Claude Code is your universal escape hatch: anything you can't do directly
+  in chat — web search, file reads, code work, running commands — you can
+  delegate to a sandboxed Claude Code worktree, which has the full Claude
+  Code toolkit (WebSearch, WebFetch, Bash, Read/Edit/Write) inside it.

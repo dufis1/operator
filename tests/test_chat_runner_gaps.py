@@ -490,6 +490,39 @@ def test_intro_disabled_no_buffering():
     print("PASS  test_intro_disabled_no_buffering")
 
 
+def test_intro_waits_for_human_in_empty_room():
+    """Bot alone in meeting (participant_count=1) → intro stays buffered.
+    The moment another participant appears, intro posts on the next iteration.
+
+    Guards the meet.new path: bot joins instantly, opens chat, but the user
+    is still on Meet's pre-join screen and would miss any chat sent before
+    they actually appear in the meeting.
+    """
+    runner, _, _ = make_runner(participant_counts=[1, 1, 2])
+    runner._intro_posted = False
+    runner._intro_text = "Hi, I'm the brainchild."
+    runner._intro_ready.set()
+
+    sent = []
+    runner._send = lambda text, kind="chat": sent.append(text)
+
+    import brainchild.pipeline.chat_runner as cr
+    orig_poll = cr.POLL_INTERVAL
+    orig_interval = cr.PARTICIPANT_CHECK_INTERVAL
+    cr.POLL_INTERVAL = 0.05
+    cr.PARTICIPANT_CHECK_INTERVAL = 0.05  # force a fresh participant check each loop
+    try:
+        run_loop_briefly(runner, duration=0.3)
+    finally:
+        cr.POLL_INTERVAL = orig_poll
+        cr.PARTICIPANT_CHECK_INTERVAL = orig_interval
+
+    assert runner._intro_posted is True, "intro should post after a human is seen"
+    assert sent == ["Hi, I'm the brainchild."], \
+        f"Expected intro sent exactly once after participant appeared, got {sent}"
+    print("PASS  test_intro_waits_for_human_in_empty_room")
+
+
 # ===========================================================================
 # M5 — server trip notifier
 # ===========================================================================
@@ -698,6 +731,7 @@ if __name__ == "__main__":
         test_intro_on_join_posts_and_drains_buffer,
         test_intro_failure_skips_post_but_still_drains,
         test_intro_disabled_no_buffering,
+        test_intro_waits_for_human_in_empty_room,
         # M5
         test_record_mcp_outcome_trips_server_and_reinjects,
         test_record_mcp_outcome_no_trip_is_silent,
