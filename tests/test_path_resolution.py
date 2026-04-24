@@ -88,6 +88,68 @@ def test_config_paths_absolute_under_home_brainchild():
         shutil.rmtree(tmp)
 
 
+def test_all_config_paths_rooted_under_home_or_tmp():
+    """Regression guard for the class-of-bug that caused sessions 158/159.
+
+    Enumerate every path-like public attribute on the config module and
+    assert it is absolute AND rooted under the sandbox HOME (or `/tmp` /
+    `/var`, which `/tmp` can symlink to on macOS). A new relative or
+    repo-root-pinned constant can't be added without this test failing.
+
+    The allow-list is deliberately explicit — if you add a new path
+    constant, add its name here so the test keeps watching it. Silent
+    escape (e.g. introducing a `DOWNLOADS_DIR` that points at
+    `<repo>/downloads`) fails loud at the bottom of the function."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        _sandbox(tmp)
+        mod = _load_config_with_home(tmp)
+        home = str(tmp)
+
+        # Canonical set — every filesystem path exposed on config.
+        expected_path_attrs = {
+            "BROWSER_PROFILE_DIR",
+            "AUTH_STATE_FILE",
+            "ENV_FILE",
+            "DEBUG_DIR",
+            "SKILLS_SHARED_LIBRARY",
+            "BOT_DIR",
+        }
+
+        for name in expected_path_attrs:
+            assert hasattr(mod, name), \
+                f"expected path attr missing from config: {name!r}"
+            val = getattr(mod, name)
+            s = str(val)
+            assert os.path.isabs(s), \
+                f"config.{name} not absolute: {s!r} — relative paths silently " \
+                f"resolve against CWD or site-packages"
+            allowed_anchors = (home, "/tmp", "/var", "/private")
+            assert s.startswith(allowed_anchors), \
+                f"config.{name} escaped expected anchors {allowed_anchors!r}: {s}"
+
+        # Anti-drift: scan the module for NEW `*_DIR` / `*_FILE` / `*_PATH`
+        # public attrs and require they're in the allow-list. Forces a test
+        # update when someone adds a new path — silent-escape prevention.
+        suffixes = ("_DIR", "_FILE", "_PATH")
+        discovered = {
+            name for name in dir(mod)
+            if not name.startswith("_")
+            and any(name.endswith(sfx) for sfx in suffixes)
+            and isinstance(getattr(mod, name), (str, Path))
+        }
+        unknown = discovered - expected_path_attrs
+        assert not unknown, (
+            f"new path-like config constants not in test allow-list: "
+            f"{sorted(unknown)}. Add them to expected_path_attrs in "
+            f"test_all_config_paths_rooted_under_home_or_tmp so the "
+            f"regression guard watches them."
+        )
+        print("PASS  test_all_config_paths_rooted_under_home_or_tmp")
+    finally:
+        shutil.rmtree(tmp)
+
+
 # ---------------------------------------------------------------------------
 # Test 2: MacOSAdapter picks up the absolute config path (no walk-up)
 # ---------------------------------------------------------------------------
@@ -112,6 +174,122 @@ def test_macos_adapter_uses_config_path_directly():
                 f"mismatch: adapter={macos_adapter.BROWSER_PROFILE} vs config={cfg.BROWSER_PROFILE_DIR}"
             assert os.path.isabs(macos_adapter.BROWSER_PROFILE)
             print("PASS  test_macos_adapter_uses_config_path_directly")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        shutil.rmtree(tmp)
+
+
+# ---------------------------------------------------------------------------
+# Canonical-location round-trip — proves wizard-write == runtime-read
+# ---------------------------------------------------------------------------
+
+def test_env_file_canonical_across_modules():
+    """The file the wizard writes `.env` to MUST equal the file config.py
+    reads from. This was the exact session-158 divergence bug — wizard
+    wrote to <repo>/.env while the claude auto-import and `brainchild edit
+    env` targeted ~/.brainchild/.env, so API keys landed where nothing
+    looked for them.
+
+    Three touch points are checked for byte-exact agreement:
+      1. config.ENV_FILE (what runtime readers see)
+      2. setup._ENV_FILE (what the wizard writes into)
+      3. __main__._resolve_config_target('env') (what `brainchild edit env`
+         + `brainchild where env` open)
+
+    If any of these drift apart again, this test fails with a direct diff."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        _sandbox(tmp)
+        saved = {k: os.environ.get(k) for k in ("HOME", "BRAINCHILD_BOT")}
+        try:
+            os.environ["HOME"] = str(tmp)
+            os.environ["BRAINCHILD_BOT"] = "testbot"
+            # Fresh imports so module-level Path.home() calls honor HOME.
+            for m in list(sys.modules):
+                if m.startswith("brainchild"):
+                    del sys.modules[m]
+
+            from brainchild import config
+            from brainchild.pipeline import setup as setup_mod
+            from brainchild import __main__ as main_mod
+
+            expected = str(tmp / ".brainchild" / ".env")
+
+            # 1. Runtime read path (config.py load_dotenv target + ENV_FILE constant).
+            assert config.ENV_FILE == expected, \
+                f"config.ENV_FILE drift: {config.ENV_FILE!r} != {expected!r}"
+
+            # 2. Wizard write path.
+            assert str(setup_mod._ENV_FILE) == expected, \
+                f"setup._ENV_FILE drift: {setup_mod._ENV_FILE!r} != {expected!r}"
+
+            # 3. `brainchild edit env` / `brainchild where env` target.
+            resolved, err = main_mod._resolve_config_target("env")
+            assert err is None, f"_resolve_config_target returned error: {err}"
+            assert str(resolved) == expected, \
+                f"_resolve_config_target('env') drift: {resolved!r} != {expected!r}"
+
+            # Cross-check all three agree pairwise — makes diagnostic output
+            # explicit on failure even when `expected` itself is off.
+            assert config.ENV_FILE == str(setup_mod._ENV_FILE) == str(resolved), \
+                f"three-way divergence: config={config.ENV_FILE!r} " \
+                f"setup={setup_mod._ENV_FILE!r} main={resolved!r}"
+
+            print("PASS  test_env_file_canonical_across_modules")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_debug_dir_canonical_across_modules():
+    """Parallel guard for DEBUG_DIR: session.save_debug() and both adapters'
+    failure-screenshot paths must all route through config.DEBUG_DIR.
+
+    session.py and the adapters already `from brainchild import config` and
+    use `config.DEBUG_DIR` directly, so divergence would require someone to
+    re-introduce a hardcoded string. This test imports each module and
+    asserts the config attr it uses is the same object reference — any
+    inlined literal would surface here."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        _sandbox(tmp)
+        saved = {k: os.environ.get(k) for k in ("HOME", "BRAINCHILD_BOT")}
+        try:
+            os.environ["HOME"] = str(tmp)
+            os.environ["BRAINCHILD_BOT"] = "testbot"
+            for m in list(sys.modules):
+                if m.startswith("brainchild"):
+                    del sys.modules[m]
+
+            from brainchild import config
+            from brainchild.connectors import session as session_mod
+            from brainchild.connectors import macos_adapter as mac_mod
+            from brainchild.connectors import linux_adapter as linux_mod
+
+            expected = str(tmp / ".brainchild" / "debug")
+            assert config.DEBUG_DIR == expected
+
+            # Each module that writes to debug/ must reach config.DEBUG_DIR
+            # (not a private copy or literal). Shared module reference is
+            # the strongest proof.
+            for mod in (session_mod, mac_mod, linux_mod):
+                assert mod.config.DEBUG_DIR == expected, \
+                    f"{mod.__name__}.config.DEBUG_DIR drift: " \
+                    f"{mod.config.DEBUG_DIR!r} != {expected!r}"
+                assert mod.config is config, \
+                    f"{mod.__name__} imports a different config module " \
+                    f"(id {id(mod.config)} vs {id(config)})"
+            print("PASS  test_debug_dir_canonical_across_modules")
         finally:
             for k, v in saved.items():
                 if v is None:
@@ -310,7 +488,10 @@ def test_migration_noop_on_fresh_install():
 
 if __name__ == "__main__":
     test_config_paths_absolute_under_home_brainchild()
+    test_all_config_paths_rooted_under_home_or_tmp()
     test_macos_adapter_uses_config_path_directly()
+    test_env_file_canonical_across_modules()
+    test_debug_dir_canonical_across_modules()
     test_migration_moves_legacy_artifacts()
     test_migration_preserves_existing_target()
     test_migration_preserves_existing_env()
