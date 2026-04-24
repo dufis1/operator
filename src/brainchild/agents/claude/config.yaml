@@ -72,7 +72,7 @@ mcp_servers:
     # and logged in. If not, this URL is surfaced in the status screen.
     credentials_url: "https://docs.claude.com/en/docs/claude-code/overview"
     command: "python"
-    args: ["agents/engineer/claude_code.py"]
+    args: ["-m", "brainchild.agents.engineer.claude_code"]
     # Claude Code delegations can run 3–10 min on real tasks; override the
     # global 60s TOOL_TIMEOUT_SECONDS for this MCP only. Heartbeat still keeps chat informed.
     tool_timeout_seconds: 600
