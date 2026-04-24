@@ -32,10 +32,11 @@ durable record the bot replays from between turns. Same sensitivity profile.
 
 ### Never commit these
 
-API keys live in a single `.env` at the repo root. The following files hold
-secrets or logged-in Google session state and must stay local:
+API keys live in a single `.env` at `~/.brainchild/.env`, shared across all
+bots. The following files hold secrets or logged-in Google session state and
+must stay local:
 
-- `.env` — API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GITHUB_TOKEN, …)
+- `~/.brainchild/.env` — API keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GITHUB_TOKEN, …)
 - `credentials.json` — Google OAuth client secrets
 - `token.json` — Google OAuth access/refresh tokens
 - `~/.brainchild/auth_state.json` — Playwright storage state (Google session cookies)

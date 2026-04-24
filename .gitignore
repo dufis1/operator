@@ -4,9 +4,9 @@
 #   credentials.json    — Google OAuth client secrets
 #   token.json          — Google OAuth access/refresh tokens
 #
-# Google-session artifacts (browser_profile/, auth_state.json) live under
-# ~/.brainchild/ now — the repo-root entries below are defensive only, for
-# pre-migration checkouts or misconfigured environments.
+# Four user-scoped artifacts (`.env`, `browser_profile/`, `auth_state.json`,
+# `debug/`) live under ~/.brainchild/ now — the repo-root entries below are
+# defensive only, for pre-migration checkouts or misconfigured environments.
 .env
 credentials.json
 token.json

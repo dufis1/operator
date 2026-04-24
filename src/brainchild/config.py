@@ -4,7 +4,10 @@ import yaml
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load API keys from the shared user-home .env. Always an absolute path —
+# never CWD-relative (pre-session-158 this was default find_dotenv() which
+# walked up from CWD; surprises when run from the wrong directory).
+load_dotenv(Path.home() / ".brainchild" / ".env")
 _AGENTS_DIR = Path.home() / ".brainchild" / "agents"
 
 BOT_NAME = os.environ.get("BRAINCHILD_BOT", "").strip()
@@ -134,6 +137,8 @@ TOOL_HEARTBEAT_SECONDS     = 8     # initial interval for "still working..." dur
 TOOL_HEARTBEAT_MAX_SECONDS = 60    # exponential backoff cap for heartbeat interval
 BROWSER_PROFILE_DIR        = str(Path.home() / ".brainchild" / "browser_profile")   # persistent Chrome profile (cookies, Google login)
 AUTH_STATE_FILE            = str(Path.home() / ".brainchild" / "auth_state.json")    # Playwright storageState JSON for quick re-auth
+ENV_FILE                   = str(Path.home() / ".brainchild" / ".env")               # shared .env for API keys; wizard writes here, config + MCPs read here
+DEBUG_DIR                  = str(Path.home() / ".brainchild" / "debug")              # screenshots + HTML dumps from save_debug() and adapter failure paths
 
 # Ship-level default per-server timeouts. Intended to reflect each MCP's
 # typical worst-case task — generous enough to cover real work, tight enough

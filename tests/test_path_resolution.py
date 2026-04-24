@@ -1,16 +1,20 @@
 """
-Unit tests for Phase 14.5 path relocation — `browser_profile/` and
-`auth_state.json` now live under `~/.brainchild/` instead of the repo root.
+Unit tests for the path-relocation work across sessions 158–159.
+
+Four user-scoped artifacts (`browser_profile/`, `auth_state.json`, `.env`,
+`debug/`) used to be pinned at the repo root via `_BASE`/`_ROOT` walk-ups;
+they now live under `~/.brainchild/`.
 
 Covers:
-  1. `config.BROWSER_PROFILE_DIR` and `config.AUTH_STATE_FILE` resolve to
-     absolute paths under `Path.home() / ".brainchild"`.
-  2. `MacOSAdapter` picks up the config's absolute path (no walk-up magic).
-  3. `_migrate_legacy_browser_artifacts()` moves a repo-root legacy copy
-     into `~/.brainchild/` on first run.
+  1. `config.BROWSER_PROFILE_DIR`, `AUTH_STATE_FILE`, `ENV_FILE`, `DEBUG_DIR`
+     all resolve to absolute paths under `Path.home() / ".brainchild"`.
+  2. `MacOSAdapter` picks up the config's absolute browser-profile path.
+  3. `_migrate_legacy_user_artifacts()` moves repo-root legacy copies
+     (profile + auth_state + .env) into `~/.brainchild/` on first run.
   4. The shim is a no-op when the destination already exists (doesn't
-     clobber the user's active session).
+     clobber the user's active session or API keys).
   5. The shim is a no-op when the source is missing (fresh install).
+  6. `.env` migration preserves file contents byte-for-byte.
 
 Approach follows test_config_loader.py — redirect HOME to a tmp dir and
 load `config.py` fresh via importlib so the module-level `Path.home()`
@@ -69,16 +73,16 @@ def test_config_paths_absolute_under_home_brainchild():
     try:
         _sandbox(tmp)
         mod = _load_config_with_home(tmp)
-        assert os.path.isabs(mod.BROWSER_PROFILE_DIR), \
-            f"BROWSER_PROFILE_DIR not absolute: {mod.BROWSER_PROFILE_DIR!r}"
-        assert os.path.isabs(mod.AUTH_STATE_FILE), \
-            f"AUTH_STATE_FILE not absolute: {mod.AUTH_STATE_FILE!r}"
-        expected_profile = str(tmp / ".brainchild" / "browser_profile")
-        expected_auth = str(tmp / ".brainchild" / "auth_state.json")
-        assert mod.BROWSER_PROFILE_DIR == expected_profile, \
-            f"expected {expected_profile}, got {mod.BROWSER_PROFILE_DIR}"
-        assert mod.AUTH_STATE_FILE == expected_auth, \
-            f"expected {expected_auth}, got {mod.AUTH_STATE_FILE}"
+        expected = {
+            "BROWSER_PROFILE_DIR": str(tmp / ".brainchild" / "browser_profile"),
+            "AUTH_STATE_FILE":     str(tmp / ".brainchild" / "auth_state.json"),
+            "ENV_FILE":            str(tmp / ".brainchild" / ".env"),
+            "DEBUG_DIR":           str(tmp / ".brainchild" / "debug"),
+        }
+        for name, want in expected.items():
+            got = getattr(mod, name)
+            assert os.path.isabs(got), f"{name} not absolute: {got!r}"
+            assert got == want, f"{name}: expected {want}, got {got}"
         print("PASS  test_config_paths_absolute_under_home_brainchild")
     finally:
         shutil.rmtree(tmp)
@@ -154,8 +158,9 @@ def _load_main_from(fake_main: Path):
 
 
 def test_migration_moves_legacy_artifacts():
-    """Legacy profile dir + auth_state at the (fake) repo root get moved to
-    ~/.brainchild/ on first call."""
+    """Legacy profile dir + auth_state + .env at the (fake) repo root all get
+    moved to ~/.brainchild/ on first call. Exact byte content preserved for
+    files (the .env coverage is critical — real users have live API keys)."""
     tmp = Path(tempfile.mkdtemp())
     try:
         fake_main = _fake_repo_root(tmp)
@@ -165,6 +170,9 @@ def test_migration_moves_legacy_artifacts():
         (legacy_profile / "marker").write_text("hello")
         legacy_auth = tmp / "auth_state.json"
         legacy_auth.write_text('{"cookies": []}')
+        legacy_env = tmp / ".env"
+        env_contents = "OPENAI_API_KEY=sk-test\nANTHROPIC_API_KEY=sk-ant-test\n"
+        legacy_env.write_text(env_contents)
 
         # Redirect HOME so the shim writes into the sandbox.
         fake_home = tmp / "home"
@@ -173,16 +181,21 @@ def test_migration_moves_legacy_artifacts():
         try:
             os.environ["HOME"] = str(fake_home)
             mod = _load_main_from(fake_main)
-            mod._migrate_legacy_browser_artifacts()
+            mod._migrate_legacy_user_artifacts()
 
             migrated_profile = fake_home / ".brainchild" / "browser_profile"
             migrated_auth = fake_home / ".brainchild" / "auth_state.json"
+            migrated_env = fake_home / ".brainchild" / ".env"
             assert migrated_profile.is_dir(), f"profile not moved: {migrated_profile}"
             assert (migrated_profile / "marker").read_text() == "hello"
             assert migrated_auth.is_file()
             assert migrated_auth.read_text() == '{"cookies": []}'
+            assert migrated_env.is_file(), f".env not moved: {migrated_env}"
+            assert migrated_env.read_text() == env_contents, \
+                f".env contents changed during migration"
             assert not legacy_profile.exists(), "legacy profile should be gone"
             assert not legacy_auth.exists(), "legacy auth_state should be gone"
+            assert not legacy_env.exists(), "legacy .env should be gone"
             print("PASS  test_migration_moves_legacy_artifacts")
         finally:
             if saved_home is None:
@@ -212,7 +225,7 @@ def test_migration_preserves_existing_target():
         try:
             os.environ["HOME"] = str(fake_home)
             mod = _load_main_from(fake_main)
-            mod._migrate_legacy_browser_artifacts()
+            mod._migrate_legacy_user_artifacts()
 
             # Legacy copy still present (not moved, not deleted).
             assert legacy_profile.is_dir()
@@ -221,6 +234,41 @@ def test_migration_preserves_existing_target():
             user_marker = fake_home / ".brainchild" / "browser_profile" / "marker"
             assert user_marker.read_text() == "existing"
             print("PASS  test_migration_preserves_existing_target")
+        finally:
+            if saved_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = saved_home
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_migration_preserves_existing_env():
+    """If ~/.brainchild/.env already has user content, a repo-root .env must
+    NOT overwrite it — the home copy is authoritative, legacy stays put for
+    manual reconciliation (protects live API keys)."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        fake_main = _fake_repo_root(tmp)
+        legacy_env = tmp / ".env"
+        legacy_env.write_text("OPENAI_API_KEY=stale-legacy-key\n")
+
+        fake_home = tmp / "home"
+        (fake_home / ".brainchild").mkdir(parents=True)
+        user_env = fake_home / ".brainchild" / ".env"
+        user_env.write_text("OPENAI_API_KEY=live-home-key\n")
+
+        saved_home = os.environ.get("HOME")
+        try:
+            os.environ["HOME"] = str(fake_home)
+            mod = _load_main_from(fake_main)
+            mod._migrate_legacy_user_artifacts()
+
+            assert user_env.read_text() == "OPENAI_API_KEY=live-home-key\n", \
+                "home .env was overwritten — would destroy user API keys"
+            assert legacy_env.exists(), "legacy .env should remain for manual review"
+            assert legacy_env.read_text() == "OPENAI_API_KEY=stale-legacy-key\n"
+            print("PASS  test_migration_preserves_existing_env")
         finally:
             if saved_home is None:
                 os.environ.pop("HOME", None)
@@ -243,12 +291,13 @@ def test_migration_noop_on_fresh_install():
         try:
             os.environ["HOME"] = str(fake_home)
             mod = _load_main_from(fake_main)
-            mod._migrate_legacy_browser_artifacts()
+            mod._migrate_legacy_user_artifacts()
 
             brainchild_dir = fake_home / ".brainchild"
             assert brainchild_dir.is_dir(), "home_dir not created"
             assert not (brainchild_dir / "browser_profile").exists()
             assert not (brainchild_dir / "auth_state.json").exists()
+            assert not (brainchild_dir / ".env").exists()
             print("PASS  test_migration_noop_on_fresh_install")
         finally:
             if saved_home is None:
@@ -264,5 +313,6 @@ if __name__ == "__main__":
     test_macos_adapter_uses_config_path_directly()
     test_migration_moves_legacy_artifacts()
     test_migration_preserves_existing_target()
+    test_migration_preserves_existing_env()
     test_migration_noop_on_fresh_install()
     print("\nAll path-resolution tests passed.")

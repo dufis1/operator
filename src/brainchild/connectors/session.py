@@ -9,9 +9,9 @@ import logging
 import os
 import threading
 
-log = logging.getLogger(__name__)
+from brainchild import config
 
-_BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+log = logging.getLogger(__name__)
 
 
 class JoinStatus:
@@ -248,16 +248,16 @@ def inject_cookies(context, auth_state):
 
 def save_debug(page, label="debug"):
     """Save a screenshot and HTML dump for diagnosis."""
-    debug_dir = os.path.join(_BASE, "debug")
+    debug_dir = config.DEBUG_DIR
     os.makedirs(debug_dir, exist_ok=True)
     try:
         page.screenshot(path=os.path.join(debug_dir, f"{label}.png"), full_page=True)
-        log.info(f"session: screenshot saved to debug/{label}.png")
+        log.info(f"session: screenshot saved to {debug_dir}/{label}.png")
     except Exception as e:
         log.warning(f"session: screenshot failed: {e}")
     try:
         with open(os.path.join(debug_dir, f"{label}.html"), "w") as f:
             f.write(page.content())
-        log.info(f"session: HTML saved to debug/{label}.html")
+        log.info(f"session: HTML saved to {debug_dir}/{label}.html")
     except Exception as e:
         log.warning(f"session: HTML dump failed: {e}")

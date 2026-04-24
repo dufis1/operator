@@ -65,10 +65,14 @@ from brainchild.pipeline.readiness import STATUS_GLYPH, report_mcp_readiness
 from brainchild.pipeline.skills import _parse_skill_md
 
 
-_ROOT = Path(__file__).resolve().parents[3]
 _AGENTS_DIR = Path.home() / ".brainchild" / "agents"
 _BUNDLED_AGENTS_DIR = Path(__file__).resolve().parents[1] / "agents"
-_ENV_FILE = _ROOT / ".env"
+# Shared user-home .env — same location every runtime reader (config.ENV_FILE,
+# __main__.claude-code auto-import, `brainchild edit env`) uses. Inlined
+# rather than imported from brainchild.config because config.py triggers a
+# BRAINCHILD_BOT gate at import time and the wizard runs before a bot is
+# chosen. If this path changes, update config.ENV_FILE in lockstep.
+_ENV_FILE = Path.home() / ".brainchild" / ".env"
 _PM_CONFIG = _BUNDLED_AGENTS_DIR / "pm" / "config.yaml"
 
 # Subcommand verbs the CLI reserves — a from-scratch bot can't use them as

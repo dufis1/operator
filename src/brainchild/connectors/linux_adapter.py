@@ -105,8 +105,10 @@ class LinuxAdapter(MeetingConnector):
         except Exception as e:
             log.debug(f"LinuxAdapter: could not open chat panel: {e}")
             try:
-                page.screenshot(path="debug/chat_btn_not_found.png")
-                log.debug("LinuxAdapter: saved debug screenshot to debug/chat_btn_not_found.png")
+                os.makedirs(config.DEBUG_DIR, exist_ok=True)
+                _shot = os.path.join(config.DEBUG_DIR, "chat_btn_not_found.png")
+                page.screenshot(path=_shot)
+                log.debug(f"LinuxAdapter: saved debug screenshot to {_shot}")
             except Exception:
                 pass
 

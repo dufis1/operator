@@ -110,7 +110,7 @@ Every run names an agent explicitly (`brainchild run <name> [url]`). Config load
 
 Tuned-once internals (LLM max_tokens, tool-call timeout/heartbeat, tool-result truncation, Meet lobby wait, caption silence gap, browser profile path, `ALONE_EXIT_GRACE_SECONDS`) live in the `INTERNAL TUNING` block at the top of `config.py` — identical across bots, edit there to change globally.
 
-API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) live in a single `.env` at the repo root, shared across all bots. Never commit `.env`. The Google-session artifacts (`~/.brainchild/browser_profile/`, `~/.brainchild/auth_state.json`) live under the user home and are out of the repo by construction — a one-shot migration in `__main__.py:_migrate_legacy_browser_artifacts` relocates any pre-Phase-14.5 copies that were stored at the repo root.
+API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, etc.) live in a single `.env` at `~/.brainchild/.env`, shared across all bots. The wizard writes into that file; `config.py` loads from it via `load_dotenv(Path.home() / ".brainchild" / ".env")`. Debug dumps from `session.save_debug` and the adapters' failure paths land in `~/.brainchild/debug/`. Google-session artifacts (`~/.brainchild/browser_profile/`, `~/.brainchild/auth_state.json`) live next to them. A one-shot migration in `__main__.py:_migrate_legacy_user_artifacts` relocates any pre-Phase-14.5 copies (`.env`, `browser_profile/`, `auth_state.json`) that were stored at the repo root.
 
 ### Tool Confirmation
 

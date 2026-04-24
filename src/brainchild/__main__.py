@@ -117,20 +117,21 @@ def _ensure_user_agents():
             shutil.copytree(bundled, dest)
 
 
-def _migrate_legacy_browser_artifacts():
-    """One-shot relocation of `browser_profile/` and `auth_state.json` from
-    the dev-mode repo root (pre-Phase-14.5) into `~/.brainchild/`.
+def _migrate_legacy_user_artifacts():
+    """One-shot relocation of `browser_profile/`, `auth_state.json`, and `.env`
+    from the dev-mode repo root (pre-Phase-14.5) into `~/.brainchild/`.
 
-    Pre-fix the macos adapter walked four dirs up from its own file to place
-    these at the repo root, which (a) broke for installed/site-packages use
-    and (b) collided across dev checkouts. Both constants now resolve under
-    `~/.brainchild/` directly; this shim picks up an existing legacy profile
-    on the user's machine so their Google login survives the move. No-op on
-    fresh installs or after the first successful run.
+    Pre-fix, three user-scoped artifacts were pinned at the repo root: the
+    Playwright persistent profile, the Google-session cookie export, and the
+    shared `.env`. Each used a different mechanism to get there (`_BASE`
+    walk-up for the first two, `_ROOT` walk-up in setup.py for `.env`); all
+    three broke for installed/site-packages use and collided across dev
+    checkouts. This shim picks up legacy copies on the user's machine so
+    Google login and API keys survive the move.
 
     Idempotent: if the target already exists we leave the legacy copy in
-    place rather than overwriting (the user can delete it manually once
-    they've confirmed the migrated session works).
+    place rather than overwriting — the user can reconcile manually.
+    Silent no-op on fresh installs or after the first successful run.
     """
     import shutil
     home_dir = Path.home() / ".brainchild"
@@ -139,7 +140,7 @@ def _migrate_legacy_browser_artifacts():
     # Dev-mode repo root — src/brainchild/__main__.py → up 3 levels.
     repo_root = Path(__file__).resolve().parent.parent.parent
 
-    for name in ("browser_profile", "auth_state.json"):
+    for name in ("browser_profile", "auth_state.json", ".env"):
         src = repo_root / name
         dst = home_dir / name
         if dst.exists() or not src.exists():
@@ -423,7 +424,7 @@ from brainchild.pipeline.auth import (
 
 
 def main():
-    _migrate_legacy_browser_artifacts()
+    _migrate_legacy_user_artifacts()
     _ensure_user_agents()
     _ensure_user_skills()
     argv = sys.argv[1:]
