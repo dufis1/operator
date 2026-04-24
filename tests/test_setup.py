@@ -514,9 +514,10 @@ def test_build_card_empty_bullets_show_placeholder():
     rows = build_card._compose_body(
         name="X", tagline="t", portrait=build_card.PLACEHOLDER_PORTRAIT,
         power_ups=[], skills=[],
+        inner=build_card.DEFAULT_WIDTH - 2,
     )
     joined = "\n".join(rows)
-    assert "power-ups:  —" in joined, f"expected em-dash for empty power_ups, got: {joined!r}"
+    assert "MCPs:       —" in joined, f"expected em-dash for empty MCPs, got: {joined!r}"
     assert "skills:     —" in joined, f"expected em-dash for empty skills, got: {joined!r}"
     print("  build_card empty bullets show em-dash: PASS")
 

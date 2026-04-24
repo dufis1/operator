@@ -82,8 +82,10 @@ _ENV_REF_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
 
 # First-party MCP servers — labeled "(official)" in the step 2 picker so
 # users know which are trustworthy out of the gate. figma is GLips community;
-# claude-code is Brainchild's own.
-_OFFICIAL_MCPS = {"github", "linear", "notion"}
+# claude-code is Brainchild's own. calendar uses the @cocal community fork
+# and slack ships the archived modelcontextprotocol reference server, so both
+# stay out of the official set.
+_OFFICIAL_MCPS = {"github", "linear", "notion", "playwright", "salesforce", "sentry"}
 
 console = Console()
 
@@ -148,6 +150,7 @@ class WizardState:
             power_ups=mcps if mcps is not None else self.equipped_mcps(),
             skills=skills if skills is not None else self.equipped_skills(),
             title=title,
+            width=build_card.width_for(console),
         )
 
 
@@ -196,6 +199,16 @@ def _prompt_name() -> str:
         if ok:
             return raw.lower()
         console.print(f"  ✗ {reason}")
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Shorten ``text`` to at most ``limit`` chars, ending with an ellipsis
+    if it was cut. Used by the skills picker so long descriptions don't
+    stretch the row."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
 
 
 def _bot_tagline(name: str) -> str:
@@ -307,7 +320,6 @@ def _edit_preset(name: str) -> WizardState:
     portrait_path = _AGENTS_DIR / name / "portrait.txt"
     portrait = face.load_or_render(name, portrait_path)
     agent = cfg.get("agent") or {}
-    console.print(f"  [dim]editing agents/{name}/ in place[/dim]")
     state = WizardState(
         mode="edit",
         name=name,
@@ -323,16 +335,17 @@ def _edit_preset(name: str) -> WizardState:
 
 
 def _auto_import_claude_setup(state: WizardState) -> None:
-    """Discover the user's Claude Code MCPs + CLAUDE.md and fold them into
-    state so the rest of the wizard just works. Only runs for the `claude`
-    preset. Idempotent — re-running the wizard won't duplicate MCP blocks
-    (collisions keep the existing entry so user curation sticks).
+    """Discover the user's Claude Code MCPs + skills + CLAUDE.md and fold
+    them into state so the rest of the wizard just works. Only runs for the
+    `claude` preset. Idempotent — re-running the wizard won't duplicate MCP
+    blocks (collisions keep the bundled entry's curated hints/tools but
+    flip it enabled=true since the user has that server set up in Claude
+    Code; that signal dominates the bundle's default-off).
 
-    Skills: NOT imported via this path — the claude preset's bundled
-    config.yaml ships with `external_paths: [~/.claude/skills]`, so
-    step 3's picker scans that path live and lets the user toggle which
-    skills to enable. No copy, no one-shot import: edits to
-    ~/.claude/skills propagate on next meeting join.
+    Skills are discovered live from ``external_paths`` (``~/.claude/skills/``)
+    — no copy happens — and pre-seeded into ``state.enabled_skill_names`` so
+    step 2's picker renders them already checked. The user can still uncheck
+    any they don't want for this agent.
 
     CLAUDE.md content is stashed on state for step 4 to optionally append
     to ground_rules.
@@ -341,11 +354,29 @@ def _auto_import_claude_setup(state: WizardState) -> None:
 
     mcps, wrapped = discover_all_mcps()
     added_mcps: list[str] = []
+    enabled_existing: list[str] = []
     for m in mcps:
         if m.name in servers:
+            # Bundled scaffold wins on hints/read_tools/confirm_tools, but
+            # the fact that the user has this server configured in Claude
+            # Code is the stronger signal — flip the bundled block on.
+            if not servers[m.name].get("enabled"):
+                servers[m.name]["enabled"] = True
+                enabled_existing.append(m.name)
             continue
         servers[m.name] = m.block
         added_mcps.append(m.name)
+
+    # Pre-check only skills sourced from the user's external paths
+    # (~/.claude/skills/). Shared-library skills stay unchecked by default —
+    # the claude agent's identity is "your Claude Code setup", so bundled
+    # Brainchild skills shouldn't slip in silently.
+    discovered = _discover_skill_candidates(state)
+    from_external = [
+        name for name, _desc, src in discovered if src != "shared library"
+    ]
+    if from_external:
+        state.enabled_skill_names = from_external
 
     claude_md = read_user_claude_md()
     # Stash on state via a plain attribute — WizardState is a dataclass
@@ -360,12 +391,23 @@ def _auto_import_claude_setup(state: WizardState) -> None:
             f"{f' ({wrapped} hosted, wrapped via mcp-remote)' if wrapped else ''}: "
             f"{', '.join(added_mcps)}"
         )
+    if enabled_existing:
+        console.print(
+            f"    [green]✓[/green] {len(enabled_existing)} MCP(s) enabled from your Claude Code setup: "
+            f"{', '.join(enabled_existing)}"
+        )
+    if not added_mcps and not enabled_existing:
+        console.print("    [dim]No MCPs to import (already configured or none found).[/dim]")
+    if from_external:
+        console.print(
+            f"    [green]✓[/green] {len(from_external)} skill(s) pre-selected from "
+            f"~/.claude/skills/ — uncheck any you don't want in the next step."
+        )
     else:
-        console.print("    [dim]No new MCPs to import (already present or none configured).[/dim]")
-    console.print(
-        "    [dim]Skills at ~/.claude/skills/ are available via external_paths — "
-        "toggle them in the next step.[/dim]"
-    )
+        console.print(
+            "    [dim]No skills found under ~/.claude/skills/ — toggle any "
+            "bundled skills in the next step.[/dim]"
+        )
     if claude_md:
         console.print(
             f"    [dim]Found ~/.claude/CLAUDE.md ({len(claude_md)} chars) — "
@@ -687,9 +729,17 @@ def _render_skill_picker(
     )
 
     names = [c[0] for c in candidates]
+    # Sublabel fits on one line within the left column. Budget = terminal
+    # width minus the (possibly-shrunken) build-card pane, Table.grid
+    # horizontal padding (4 each side → 8), the checkbox indent
+    # ("      " = 6), and a 2-cell safety margin so tight terminals don't
+    # wrap on the last glyph. Floor at 24 so a very narrow terminal still
+    # shows a readable excerpt.
+    card_w = build_card.width_for(console)
+    budget = max(24, console.size.width - card_w - 8 - 6 - 2)
     choices = [
-        Choice(label=name, sublabel=f"{desc}  [{src}]")
-        for name, desc, src in candidates
+        Choice(label=name, sublabel=_truncate(desc, budget))
+        for name, desc, _src in candidates
     ]
     initial = [n in current_enabled for n in names]
 
@@ -716,9 +766,9 @@ def _prompt_add_external_path(state: WizardState) -> bool:
     CWD-dependent at runtime, so we reject them here with a clear error.
     """
     console.print()
-    console.print("  [dim]Add an external skills folder (tilde-prefixed or absolute, "
-                  "e.g. `~/team-skills` or `/opt/skills`).[/dim]")
-    raw = _prompt_with_hint("Leave empty to finish").strip()
+    console.print("  Add an external skills folder (tilde-prefixed or absolute, "
+                  "e.g. `~/team-skills` or `/opt/skills`).")
+    raw = _prompt_with_hint("Leave empty to finish", dim=False).strip()
     if not raw:
         return False
     if not (raw.startswith("~") or raw.startswith("/")):
@@ -779,11 +829,17 @@ def _step4_system_prompt(state: WizardState) -> None:
             console.print("  [green]✓[/green] ~/.claude/CLAUDE.md appended to ground rules.")
 
 
-def _prompt_with_hint(hint: str) -> str:
-    """Single-line input. Hint is dim-printed one line above — a workable
+def _prompt_with_hint(hint: str, *, dim: bool = True) -> str:
+    """Single-line input. Hint is printed one line above — a workable
     stand-in for the in-field placeholder we'd use with prompt_toolkit.
+
+    ``dim`` controls whether the hint renders in Rich's dim style (default)
+    or at full brightness. Opt out when the hint is a user-facing instruction
+    that belongs on the same visual tier as the prompt question above it.
     """
-    console.print(f"  [dim]{hint}[/dim]")
+    style = "[dim]" if dim else ""
+    close = "[/dim]" if dim else ""
+    console.print(f"  {style}{hint}{close}")
     return Prompt.ask("  ›", default="", show_default=False)
 
 
@@ -938,11 +994,11 @@ def _reveal(state: WizardState) -> None:
     console.print()
     console.print("[bold]✨ All set! 🎁[/bold]")
     console.print()
+    console.print(state.card(title=f"Meet {state.name}"))
+    console.print()
     console.print(f"Your agent config lives in [bold]{config_path}[/bold].")
     console.print()
     console.print(f"Take [bold]{state.name}[/bold] for a spin: [bold]brainchild run {state.name}[/bold]")
-    console.print()
-    console.print(state.card(title=f"Meet {state.name}"))
 
 
 # ── Entry point ───────────────────────────────────────────────────────────

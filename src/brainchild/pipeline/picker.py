@@ -62,6 +62,22 @@ class PickerCancelled(Exception):
 # ── Render core ───────────────────────────────────────────────────────────
 
 
+def _viewport(cursor: int, total: int, max_visible: int) -> tuple[int, int]:
+    """Return (start, end) half-open slice of choice indices to render so
+    that ``cursor`` stays inside the window. When ``total`` fits, returns
+    ``(0, total)`` — no clipping.
+
+    Used by the skills picker in particular: a user with many skills in
+    ~/.claude/skills/ can push the row count past the terminal height, and
+    without a viewport the bottom rows just get cropped by rich.Live.
+    """
+    if total <= max_visible or max_visible <= 0:
+        return 0, total
+    start = max(0, cursor - max_visible // 2)
+    start = min(start, total - max_visible)
+    return start, start + max_visible
+
+
 def _render_rows(
     title: str,
     choices: list[Choice],
@@ -69,13 +85,26 @@ def _render_rows(
     *,
     checked: list[bool] | None,
     hint: str,
+    max_visible: int | None = None,
 ) -> Text:
-    """Build the choice list as a single Rich Text block."""
+    """Build the choice list as a single Rich Text block.
+
+    When ``max_visible`` is set and the choice count exceeds it, render only
+    a window around the cursor with ↑/↓ "more" markers above/below.
+    """
     body = Text()
     if title:
         body.append(f"{title}\n\n", style="bold")
     sub_indent = "      " if checked is not None else "  "
-    for i, ch in enumerate(choices):
+    total = len(choices)
+    if max_visible is not None:
+        start, end = _viewport(cursor, total, max_visible)
+    else:
+        start, end = 0, total
+    if start > 0:
+        body.append(f"  ↑ {start} more above\n", style="dim")
+    for i in range(start, end):
+        ch = choices[i]
         is_cursor = i == cursor
         is_locked = bool(ch.locked) and checked is not None
         cursor_glyph = "▶ " if is_cursor else "  "
@@ -101,6 +130,8 @@ def _render_rows(
             sub.append(ch.sublabel, style="dim")
             body.append(sub)
             body.append("\n")
+    if end < total:
+        body.append(f"  ↓ {total - end} more below\n", style="dim")
     if hint:
         body.append(f"\n{hint}", style="dim")
     return body
@@ -114,15 +145,27 @@ def _layout(
     checked: list[bool] | None,
     hint: str,
     right_pane: RightPaneFn | None,
+    max_visible: int | None = None,
+    right_pane_width: int = 40,
 ) -> RenderableType:
-    rows = _render_rows(title, choices, cursor, checked=checked, hint=hint)
+    rows = _render_rows(
+        title, choices, cursor,
+        checked=checked, hint=hint, max_visible=max_visible,
+    )
     right: RenderableType | None = None
     if right_pane is not None:
         right = right_pane(cursor, checked)
     elif choices[cursor].preview is not None:
         preview = choices[cursor].preview
         inner: RenderableType = Text(preview) if isinstance(preview, str) else preview
-        right = Panel(inner, border_style="dim", padding=(0, 2))
+        # Absolute width (expand=True + width=N) locks the panel to exactly
+        # N cells no matter how short the "custom" preview is or how long a
+        # preset's tagline runs. Caller passes a terminal-aware value so
+        # narrow terminals shrink the pane instead of clipping its border.
+        right = Panel(
+            inner, border_style="dim", padding=(0, 2),
+            width=right_pane_width, expand=True,
+        )
     if right is None:
         return rows
     table = Table.grid(padding=(0, 4))
@@ -175,10 +218,16 @@ def select_one(
     console = console or Console()
     keys: Iterator[str] = iter(key_source) if key_source is not None else _default_keys()
 
+    # Shrink the preview panel on narrow terminals so it doesn't clip. Math
+    # mirrors build_card.width_for(): reserve 26 cells for the left column
+    # plus 8 for Table.grid padding, floor at 28 so the portrait still fits.
+    right_pane_width = max(28, min(40, console.size.width - 26 - 8))
+
     def render() -> RenderableType:
         return _layout(
             title, choices, cursor,
             checked=None, hint=hint, right_pane=right_pane,
+            right_pane_width=right_pane_width,
         )
 
     with Live(render(), console=console, refresh_per_second=30, transient=False) as live:
@@ -229,10 +278,18 @@ def select_many(
     console = console or Console()
     keys: Iterator[str] = iter(key_source) if key_source is not None else _default_keys()
 
+    # Size the viewport to the terminal: reserve rows for title/hint/markers/
+    # wizard header, then assume the worst case of 2 rows per choice (label +
+    # sublabel). Floor at 3 so a very short window still shows something.
+    rows_per_choice = 2 if any(c.sublabel for c in choices) else 1
+    overhead = 10
+    max_visible = max(3, (console.size.height - overhead) // rows_per_choice)
+
     def render() -> RenderableType:
         return _layout(
             title, choices, cursor,
             checked=checked, hint=hint, right_pane=right_pane,
+            max_visible=max_visible,
         )
 
     with Live(render(), console=console, refresh_per_second=30, transient=False) as live:

@@ -9,7 +9,7 @@ agent:
   name: "Claude"
   trigger_phrase: "@claude"
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
-  tagline: "Claude Code, in your meeting — plan-first, sandboxed, ready to delegate"
+  tagline: "Claude Code, in your meeting — sandboxed with all your skills and MCP's loaded in"
   intro_on_join: true
 
 llm:
