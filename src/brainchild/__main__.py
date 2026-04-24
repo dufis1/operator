@@ -7,6 +7,8 @@ Usage:
     brainchild run <name>       Auto-open a new Meet, join as that bot
     brainchild try <name>       Terminal test-drive (no Meet)
     brainchild setup            Create a new agent (wizard)
+    brainchild edit <target>    Open an agent config (or .env) in $EDITOR
+    brainchild where <target>   Print the absolute path of a config file
     brainchild                  Print usage + agent list
 """
 import os
@@ -307,6 +309,8 @@ def _print_usage():
     print("  brainchild try <name>       Terminal test-drive (no Meet)")
     print("  brainchild setup            Create a new agent (wizard)")
     print("  brainchild auth <mcp>       Authorize an OAuth MCP (Linear, etc.)")
+    print("  brainchild edit <target>    Open an agent config (or .env) in $EDITOR")
+    print("  brainchild where <target>   Print the absolute path of a config file")
     print()
     print("Flags:")
     print("  --force                   Retry join even if a session is flagged stuck")
@@ -318,6 +322,53 @@ def _print_usage():
         for b in bots:
             tag = _bot_tagline(b)
             print(f"  {b:<12} {tag}")
+
+
+def _resolve_config_target(target):
+    """Map a user-supplied target to an on-disk path under ~/.brainchild/.
+
+    Accepts a bot name (`claude`, `pm`, …) or the special token `.env` / `env`.
+    Returns (path, error_message); exactly one is non-None.
+    """
+    home = Path.home() / ".brainchild"
+    if target in (".env", "env"):
+        return home / ".env", None
+    if target in _available_bots():
+        return _AGENTS_DIR / target / "config.yaml", None
+    return None, f"Unknown target: {target!r}. Expected a bot name or `.env`."
+
+
+def _run_edit(argv):
+    if not argv:
+        print("Usage: brainchild edit <bot-name | .env>\n")
+        _print_usage()
+        return 2
+    path, err = _resolve_config_target(argv[0])
+    if err:
+        print(err)
+        _print_usage()
+        return 2
+    if not path.exists():
+        print(f"Config file does not exist: {path}")
+        return 1
+    import shlex
+    editor = os.environ.get("VISUAL") or os.environ.get("EDITOR") or "vi"
+    cmd = shlex.split(editor) + [str(path)]
+    return subprocess.call(cmd)
+
+
+def _run_where(argv):
+    if not argv:
+        print("Usage: brainchild where <bot-name | .env>\n")
+        _print_usage()
+        return 2
+    path, err = _resolve_config_target(argv[0])
+    if err:
+        print(err)
+        _print_usage()
+        return 2
+    print(path)
+    return 0
 
 
 def _run_setup():
@@ -363,6 +414,10 @@ def main():
             _print_usage()
             return 2
         return _run_auth(argv[1])
+    if first == "edit":
+        return _run_edit(argv[1:])
+    if first == "where":
+        return _run_where(argv[1:])
     if first == "run":
         if len(argv) < 2:
             print("Usage: brainchild run <name> [url]\n")
