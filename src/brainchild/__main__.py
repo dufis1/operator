@@ -410,6 +410,8 @@ def _run_where(argv):
 
 
 def _run_setup():
+    from brainchild.pipeline.chrome_preflight import require_chrome_or_exit
+    require_chrome_or_exit()
     from brainchild.pipeline.setup import run as _wizard_run
     return _wizard_run([])
 
@@ -669,6 +671,9 @@ def _run_bot(name, rest):
 
 def _run_macos(meeting_url=None, force=False):
     """Run on macOS — direct URL or meet.new auto-launch."""
+    from brainchild.pipeline.chrome_preflight import require_chrome_or_exit
+    require_chrome_or_exit()
+
     import logging
     import signal
     import threading as _threading

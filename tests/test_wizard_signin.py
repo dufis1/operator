@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 os.environ.setdefault("BRAINCHILD_BOT", "pm")
 
-from brainchild.pipeline import google_signin  # noqa: E402
+from brainchild.pipeline import chrome_preflight, google_signin  # noqa: E402
 
 
 def _write_auth_state(path: Path, *, with_sid: bool = True) -> None:
@@ -154,6 +154,46 @@ def test_email_regex_matches_aria_label():
 def test_email_regex_no_false_match_on_plain_text():
     sample = 'no email here just words'
     assert google_signin._EMAIL_RE.search(sample) is None
+
+
+# ── chrome_preflight ─────────────────────────────────────────────────────
+
+
+def test_chrome_installed_non_darwin_always_true():
+    """Linux + Windows skip the check (linux_adapter uses bundled chromium)."""
+    real_platform = sys.platform
+    try:
+        sys.platform = "linux"
+        assert chrome_preflight.chrome_installed() is True
+    finally:
+        sys.platform = real_platform
+
+
+def test_chrome_installed_darwin_true_when_path_exists():
+    real_platform = sys.platform
+    real_path = chrome_preflight.CHROME_PATH
+    with tempfile.TemporaryDirectory() as tmp:
+        fake = Path(tmp) / "Chrome"
+        fake.write_text("x")
+        try:
+            sys.platform = "darwin"
+            chrome_preflight.CHROME_PATH = fake
+            assert chrome_preflight.chrome_installed() is True
+        finally:
+            sys.platform = real_platform
+            chrome_preflight.CHROME_PATH = real_path
+
+
+def test_chrome_installed_darwin_false_when_path_missing():
+    real_platform = sys.platform
+    real_path = chrome_preflight.CHROME_PATH
+    try:
+        sys.platform = "darwin"
+        chrome_preflight.CHROME_PATH = Path("/nonexistent/Chrome")
+        assert chrome_preflight.chrome_installed() is False
+    finally:
+        sys.platform = real_platform
+        chrome_preflight.CHROME_PATH = real_path
 
 
 # ── Runner ────────────────────────────────────────────────────────────────

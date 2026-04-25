@@ -179,6 +179,9 @@ def _launch_signin_flow(
     """
     from playwright.sync_api import sync_playwright
 
+    from brainchild.pipeline.chrome_preflight import require_chrome_or_exit
+    require_chrome_or_exit()
+
     # Match macos_adapter.py:509 — the persistent profile is opened by the
     # real Google Chrome at runtime, and Chrome profiles aren't compatible
     # across binaries (bundled Chrome-for-Testing vs system Chrome). Use the

@@ -70,6 +70,9 @@ class MacOSAdapter(MeetingConnector):
         Pass meeting_url=None to open a fresh meet.new and resolve the URL
         at runtime — the caller can then retrieve it via wait_for_resolved_url().
         """
+        from brainchild.pipeline.chrome_preflight import require_chrome_or_exit
+        require_chrome_or_exit()
+
         self._leave_event.clear()
         self._browser_closed.clear()
         self.join_status = JoinStatus()
