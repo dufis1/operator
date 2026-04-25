@@ -347,13 +347,22 @@ class ChatRunner:
                 if not text:
                     continue
 
-                # Skip our own messages — prefer sender name, fall back to text match
+                # Skip our own messages. Primary path is the ID-based dedup
+                # above (msg_id added to _seen_ids by `_send`); these two
+                # checks are fallbacks for adapters that can't return an ID,
+                # or when the post-send DOM read-back timed out. Text match
+                # compares stripped strings since Meet's DOM strips trailing
+                # whitespace on render — exact-equality comparison broke
+                # session-164's stuck-LLM watchdog (`...hang tight.\n\n` sent
+                # vs `...hang tight.` read back) and triggered a self-reply
+                # cascade.
                 if sender and sender.lower() == config.AGENT_NAME.lower():
                     log.debug(f"ChatRunner: skipping own message (sender={sender!r})")
                     continue
-                if not sender and text in self._own_messages:
+                text_stripped = text.strip()
+                if not sender and text_stripped in self._own_messages:
                     log.debug(f"ChatRunner: skipping own message (text match)")
-                    own_matched.add(text)
+                    own_matched.add(text_stripped)
                     continue
 
                 log.info(f"ChatRunner: new message sender={sender!r} id={msg_id!r} text={text!r} one_on_one={one_on_one}")
@@ -780,15 +789,27 @@ class ChatRunner:
         Harness plumbing — tool-confirmation prompts — passes `kind="confirmation"`
         so it's audited but invisible to the model (prevents the model from
         mimicking the harness's own wording back at the user).
+
+        Own-message dedup: primary path is by message ID — when the connector
+        returns the new `data-message-id` it captured post-send, we add it to
+        `_seen_ids` so the read path's later observation gets short-circuited
+        at the ID check. The text-match path (`_own_messages`) is the fallback
+        for adapters that can't return an ID (linux) or when the ID read-back
+        times out; we store text stripped so DOM normalization (trailing
+        newlines etc.) doesn't break the comparison.
         """
-        self._own_messages.add(text)
+        text_normalized = text.strip()
+        self._own_messages.add(text_normalized)
         if self._record is not None:
             self._record.append(sender=config.AGENT_NAME, text=text, kind=kind)
         try:
-            self._connector.send_chat(text)
+            msg_id = self._connector.send_chat(text)
         except Exception as e:
             log.error(f"ChatRunner: send_chat failed: {e}")
-            self._own_messages.discard(text)
+            self._own_messages.discard(text_normalized)
+            return
+        if msg_id:
+            self._seen_ids.add(msg_id)
 
     def _record_mcp_outcome(
         self,

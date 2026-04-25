@@ -6,6 +6,12 @@ class MeetingConnector:
         raise NotImplementedError
 
     def send_chat(self, message):
+        """Post a message to chat. Returns the new message's stable ID
+        (e.g. data-message-id, channel-message-tuple) or None if the
+        adapter couldn't capture it. ChatRunner uses the ID to add the
+        sent message to its seen set so the same DOM event picked up by
+        the read path is not reprocessed as a new user message.
+        """
         raise NotImplementedError
 
     def read_chat(self):

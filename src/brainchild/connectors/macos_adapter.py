@@ -100,10 +100,18 @@ class MacOSAdapter(MeetingConnector):
 
     def send_chat(self, message):
         """Post a message to the Google Meet chat panel.
-        Queues the request for the browser thread (Playwright is single-threaded)."""
+
+        Queues the request for the browser thread (Playwright is single-threaded).
+        Returns the new message's `data-message-id` if the DOM read-back lands
+        within ~1s; returns None on timeout or error so the caller can fall
+        back to text-match dedup.
+        """
         result_q = queue.Queue()
         self._chat_queue.put(("send", message, result_q))
-        result_q.get(timeout=10)  # wait for browser thread to finish
+        try:
+            return result_q.get(timeout=10)
+        except queue.Empty:
+            return None
 
     def read_chat(self):
         """Return new chat messages since last call.
@@ -192,16 +200,39 @@ class MacOSAdapter(MeetingConnector):
                 pass
 
     def _do_send_chat(self, page, message):
-        """Actual send_chat logic — must run on browser thread."""
+        """Actual send_chat logic — must run on browser thread.
+
+        Returns the new message's `data-message-id` so ChatRunner can mark
+        it seen by ID rather than text-match. Snapshots the existing IDs
+        before send, then polls (every 50ms, up to 1s) for one new ID to
+        appear. Returns None if the read-back times out — the caller falls
+        back to text-match dedup in that case.
+        """
         self._ensure_chat_open(page)
         try:
+            pre_ids = set(page.evaluate(
+                "() => Array.from(document.querySelectorAll('div[data-message-id]'))"
+                ".map(el => el.getAttribute('data-message-id'))"
+            ))
             input_box = page.locator('textarea[aria-label="Send a message"]')
             input_box.wait_for(timeout=5000)
             input_box.fill(message)
             input_box.press("Enter")
             log.info(f"MacOSAdapter: chat sent: {message!r}")
+            for _ in range(20):
+                current = set(page.evaluate(
+                    "() => Array.from(document.querySelectorAll('div[data-message-id]'))"
+                    ".map(el => el.getAttribute('data-message-id'))"
+                ))
+                new_ids = current - pre_ids
+                if new_ids:
+                    return next(iter(new_ids))
+                time.sleep(0.05)
+            log.debug("MacOSAdapter: send_chat ID-readback timed out — caller will fall back to text-match dedup")
+            return None
         except Exception as e:
             log.warning(f"MacOSAdapter: send_chat failed: {e}")
+            return None
 
     def _install_chat_observer(self, page):
         """Inject a MutationObserver that queues new chat messages in JS.
@@ -333,8 +364,8 @@ class MacOSAdapter(MeetingConnector):
             except queue.Empty:
                 break
             if cmd == "send":
-                self._do_send_chat(page, args)
-                result_q.put(None)
+                new_id = self._do_send_chat(page, args)
+                result_q.put(new_id)
             elif cmd == "read":
                 messages = self._do_read_chat(page)
                 result_q.put(messages)
