@@ -582,14 +582,18 @@ class MacOSAdapter(MeetingConnector):
                     self._url_resolved.set()
                     t_nav = time.monotonic()
                     log.info(f"TIMING navigation={t_nav - t_browser:.1f}s")
-                    # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s
+                    # Event-driven: wait for a pre-join or in-meeting element instead of sleeping 8s.
+                    # `Leave call` covers the meet.new case where the creator is auto-joined and
+                    # the pre-join screen is skipped entirely — without it we wait the full 15s
+                    # timeout for elements that will never appear.
                     try:
                         page.wait_for_selector(
                             'button:has-text("Join now"), '
                             'button:has-text("Ask to join"), '
                             'button[aria-label*="Turn off camera"], '
                             'button[aria-label*="Turn on camera"], '
-                            'button[aria-label*="Sign in"]',
+                            'button[aria-label*="Sign in"], '
+                            'button[aria-label*="Leave call"]',
                             timeout=15000,
                         )
                     except Exception:
@@ -671,28 +675,32 @@ class MacOSAdapter(MeetingConnector):
                     except Exception as e:
                         log.debug(f"MacOSAdapter: pre-join modal dismiss skipped: {e}")
 
-                    # Turn off camera and confirm before joining
+                    # Turn off camera and confirm before joining. The pre-join "Turn off camera"
+                    # button only exists on the pre-join screen — when meet.new auto-joins us,
+                    # we're already past it and the wait would burn 5s for nothing.
                     t_prejoin = time.monotonic()
-                    save_debug(page, "pre_camera_toggle")
-                    cam_off = page.get_by_role("button", name="Turn off camera")
-                    try:
-                        cam_off.wait_for(timeout=5000)
-                        cam_off.click()
-                        log.info("MacOSAdapter: clicked 'Turn off camera'")
-                        # Confirm camera is actually off via data-is-muted attribute
+                    if already_in_meeting:
+                        log.info("TIMING camera_toggle=0.0s (already_in)")
+                    else:
+                        save_debug(page, "pre_camera_toggle")
+                        cam_off = page.get_by_role("button", name="Turn off camera")
                         try:
-                            page.wait_for_selector(
-                                '[role="button"][data-is-muted="true"][aria-label*="camera"]',
-                                timeout=3000,
-                            )
-                            log.info("MacOSAdapter: camera confirmed off (data-is-muted=true)")
+                            cam_off.wait_for(timeout=5000)
+                            cam_off.click()
+                            log.info("MacOSAdapter: clicked 'Turn off camera'")
+                            try:
+                                page.wait_for_selector(
+                                    '[role="button"][data-is-muted="true"][aria-label*="camera"]',
+                                    timeout=3000,
+                                )
+                                log.info("MacOSAdapter: camera confirmed off (data-is-muted=true)")
+                            except Exception:
+                                log.warning("MacOSAdapter: camera toggle clicked but could not confirm off state")
+                                save_debug(page, "camera_not_confirmed")
                         except Exception:
-                            log.warning("MacOSAdapter: camera toggle clicked but could not confirm off state")
-                            save_debug(page, "camera_not_confirmed")
-                    except Exception:
-                        log.warning("MacOSAdapter: 'Turn off camera' button not found — camera may be on")
-                        save_debug(page, "camera_btn_missing")
-                    log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
+                            log.warning("MacOSAdapter: 'Turn off camera' button not found — camera may be on")
+                            save_debug(page, "camera_btn_missing")
+                        log.info(f"TIMING camera_toggle={time.monotonic() - t_prejoin:.1f}s")
 
                     # Race all join buttons — avoids 5s timeout per missing button
                     t_join = time.monotonic()

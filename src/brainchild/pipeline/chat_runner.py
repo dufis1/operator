@@ -506,11 +506,10 @@ class ChatRunner:
             log.error(f"ChatRunner: LLM call failed: {e}")
             return
 
-        # No tools path — plain string (backward compat)
-        if isinstance(result, str):
-            self._send(result)
-            return
-
+        # llm.ask returns a raw string only on the legacy non-streaming
+        # no-tools path; streaming and tool-using paths return dict shapes
+        # that _dispatch_result understands (and that respects the streamed
+        # flag, so we don't double-send when on_paragraph already flushed).
         self._dispatch_result(result)
 
     def _needs_confirmation(self, tool_call):

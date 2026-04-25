@@ -305,6 +305,12 @@ class LLMClient:
         if not tools:
             reply = response.text
             log.info(f"LLM reply=\"{(reply or '')[:80]}\"")
+            # When streaming, the on_paragraph callback already posted every
+            # paragraph — return the dict shape so _dispatch_result can skip
+            # the redundant final send. Otherwise the user sees the full
+            # reply twice (once paragraph-by-paragraph, once as one blob).
+            if on_paragraph is not None:
+                return {"type": "text", "content": reply, "streamed": True}
             return reply
 
         if response.tool_calls:

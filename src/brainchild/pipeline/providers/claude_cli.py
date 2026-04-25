@@ -366,10 +366,22 @@ class ClaudeCLIProvider(LLMProvider):
     def _build_synthesized_opener(self, current_user_text):
         """Roll the recorded turn history into one big user envelope.
 
-        Probe 7 strategy 2: a single message "you are picking up a
-        conversation in progress, here's the transcript, here's the new
-        user message you should answer." Bounded recovery latency
-        regardless of how many turns preceded the crash.
+        Probe 7 strategy 2: a single message "this is YOUR conversation
+        so far, here's the transcript, here's the new user message you
+        should answer." Bounded recovery latency regardless of how many
+        turns preceded the crash.
+
+        Framing matters. Earlier wording said "picking up a conversation
+        that was already in progress" — the model read that as a third
+        party's transcript and then hedged or denied its own prior tool
+        claims when asked to recap (e.g. "I claimed I wrote X but no
+        file was actually written"). The current framing tells the model
+        that the prior Assistant lines are its own past turns, so it
+        treats prior tool-action claims as its own completed actions.
+        Tool calls and results aren't replayed (they aren't recorded in
+        _turn_history); when the model needs ground truth about a prior
+        action it should verify by reading the relevant file/state
+        rather than contradicting its own prior claim.
         """
         transcript_lines = []
         for u, a in self._turn_history:
@@ -377,9 +389,14 @@ class ClaudeCLIProvider(LLMProvider):
             transcript_lines.append(f"Assistant: {a}")
         transcript = "\n".join(transcript_lines)
         return (
-            "You are picking up a conversation that was already in progress. "
-            "Here is the transcript so far, followed by a new user message "
-            "you should answer using the same context.\n\n"
+            "Continuation of your in-progress chat-meeting conversation. "
+            "The Assistant lines below are YOUR prior turns in this same "
+            "conversation — not a third-party transcript. Treat any tool "
+            "actions (file writes, edits, commands) you previously claimed "
+            "as actions you performed and that are already complete. If "
+            "you need to verify a prior action's effect, read the relevant "
+            "file or state — do not deny or contradict your own prior "
+            "claims without doing so first.\n\n"
             f"{transcript}\n\n"
             f"New user message: {current_user_text}"
         )
@@ -683,7 +700,12 @@ class ClaudeCLIProvider(LLMProvider):
         deadline = time.monotonic() + TURN_TIMEOUT_SECONDS
         buffer = ""
         full_text_parts = []
-        canonical_text = None  # filled by terminal assistant event for parity check
+        # Each terminal `assistant` event finalizes one sub-message of the
+        # turn. A turn that calls a tool produces multiple sub-messages
+        # (text → tool_use → text after tool result). Indices reset between
+        # sub-messages, so we track the assistant-event boundary instead —
+        # see the assistant-event handler below.
+        canonical_messages = []
         result_evt = None
         while time.monotonic() < deadline:
             try:
@@ -727,10 +749,8 @@ class ClaudeCLIProvider(LLMProvider):
                     buffer = flush_paragraphs(buffer, on_paragraph)
                 continue
             if etype == "assistant":
-                # Snapshot the canonical full text so we can detect any
-                # divergence between our accumulated deltas and what claude
-                # finalized. Sub-agent assistants also arrive here with
-                # parent_tool_use_id set; we ignore those.
+                # Sub-agent assistants arrive here with parent_tool_use_id set;
+                # they're inner Task-tool output, not the bot's reply.
                 if payload.get("parent_tool_use_id"):
                     continue
                 content = (payload.get("message") or {}).get("content") or []
@@ -739,7 +759,18 @@ class ClaudeCLIProvider(LLMProvider):
                     if block.get("type") == "text":
                         parts.append(block.get("text", ""))
                 if parts:
-                    canonical_text = "".join(parts)
+                    canonical_messages.append("".join(parts))
+                # An `assistant` event finalizes one sub-message of the turn.
+                # When the model calls a tool, the next text comes in a NEW
+                # assistant message (indices reset to 0). Without flushing
+                # here, "Hey Jojo — writing that now." and "Done — ..." get
+                # concatenated as one paragraph and posted smooshed.
+                if buffer.strip():
+                    if t_first_flush is None:
+                        t_first_flush = time.monotonic()
+                    flush_paragraphs(buffer, on_paragraph, force_final=True)
+                    full_text_parts.append("\n\n")
+                    buffer = ""
                 continue
             if etype == "result":
                 result_evt = payload
@@ -770,11 +801,12 @@ class ClaudeCLIProvider(LLMProvider):
                 f"claude reported error_during_execution: {result_evt.get('error', '')}"
             )
 
-        accumulated = "".join(full_text_parts)
-        # Prefer the canonical text from the terminal assistant event when
-        # the two match in length — guards against any silently-dropped
-        # delta. They almost always match exactly; if they diverge we trust
-        # canonical and warn so we notice.
+        accumulated = "".join(full_text_parts).strip()
+        # Canonical text reconstructs the full reply by joining each
+        # assistant sub-message with a paragraph break — same separator
+        # we used to flush at the boundary, so the parity check holds
+        # whether the model called zero, one, or many tools mid-turn.
+        canonical_text = "\n\n".join(canonical_messages) if canonical_messages else None
         final_text = accumulated
         if canonical_text is not None and canonical_text != accumulated:
             log.warning(

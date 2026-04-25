@@ -291,7 +291,7 @@ def _print_startup_banner(skills):
     n_skills = len(skills) if skills else 0
     if n_skills:
         parts.append(f"{n_skills} skills")
-    parts.append(config.LLM_MODEL)
+    parts.append(config.LLM_MODEL or f"{config.LLM_PROVIDER} (subscription)")
     loadout = sep.join(parts)
 
     right = [config.AGENT_NAME, config.AGENT_TAGLINE, loadout, ""]
@@ -543,7 +543,10 @@ def _run_try(name):
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
 
     mcp = None
-    if config.MCP_SERVERS:
+    # Track A (claude_cli): the user's claude subprocess owns its own MCP servers
+    # via ~/.claude.json — brainchild's own MCPClient must not try to connect to
+    # them (the config blocks are toggle-only stubs without `command`/`args`).
+    if config.MCP_SERVERS and config.LLM_PROVIDER != "claude_cli":
         from brainchild.pipeline.mcp_client import MCPClient
         mcp = MCPClient()
         try:
@@ -660,9 +663,12 @@ def _run_bot(name, rest):
             PREFLIGHT_OK,
             preflight_mcp_readiness,
         )
-        rc = preflight_mcp_readiness(config.MCP_SERVERS)
-        if rc != PREFLIGHT_OK:
-            return rc
+        # Track A skips: claude owns its MCPs, our toggle-only stubs would fail
+        # the readiness check on the missing `command` key.
+        if config.LLM_PROVIDER != "claude_cli":
+            rc = preflight_mcp_readiness(config.MCP_SERVERS)
+            if rc != PREFLIGHT_OK:
+                return rc
 
     if sys.platform == "darwin":
         _run_macos(url, force=force)
@@ -755,7 +761,8 @@ def _run_macos(meeting_url=None, force=False):
         except Exception as e:
             log.error(f"MCP client startup failed: {e}")
 
-    if config.MCP_SERVERS:
+    # Track A: claude owns its own MCPs — our blocks are toggle-only stubs.
+    if config.MCP_SERVERS and config.LLM_PROVIDER != "claude_cli":
         mcp_thread = _threading.Thread(target=_connect_mcp, daemon=True)
         mcp_thread.start()
     else:
@@ -900,7 +907,8 @@ def _run_linux(meeting_url, force=False):
     llm.inject_skills(skills, config.SKILLS_PROGRESSIVE_DISCLOSURE)
 
     mcp = None
-    if config.MCP_SERVERS:
+    # Track A: claude owns its own MCPs — our blocks are toggle-only stubs.
+    if config.MCP_SERVERS and config.LLM_PROVIDER != "claude_cli":
         from brainchild.pipeline.mcp_client import MCPClient
         mcp = MCPClient()
         try:
