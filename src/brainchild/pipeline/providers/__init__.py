@@ -6,6 +6,7 @@ from brainchild.pipeline.providers.base import (
 )
 from brainchild.pipeline.providers.openai import OpenAIProvider
 from brainchild.pipeline.providers.anthropic import AnthropicProvider
+from brainchild.pipeline.providers.claude_cli import ClaudeCLIProvider
 
 
 def build_provider():
@@ -30,7 +31,19 @@ def build_provider():
                 "llm.provider is 'anthropic' but ANTHROPIC_API_KEY is not set in .env"
             )
         return AnthropicProvider(Anthropic(api_key=config.ANTHROPIC_API_KEY))
-    raise ValueError(f"unknown llm.provider: {name!r} (expected 'openai' or 'anthropic')")
+    if name == "claude_cli":
+        # Track A: claude IS the LLM, run via the `claude` CLI subprocess
+        # under the user's Claude Max subscription. SYSTEM_PROMPT
+        # (personality + ground_rules) is appended to claude's default
+        # system prompt via --append-system-prompt at spawn time.
+        # permission_handler is wired in step 5c — for now claude follows
+        # its native ~/.claude/settings.json permission rules.
+        return ClaudeCLIProvider(
+            append_system_prompt=config.SYSTEM_PROMPT or None,
+        )
+    raise ValueError(
+        f"unknown llm.provider: {name!r} (expected 'openai', 'anthropic', or 'claude_cli')"
+    )
 
 
 __all__ = [
@@ -40,5 +53,6 @@ __all__ = [
     "ProviderResponse",
     "OpenAIProvider",
     "AnthropicProvider",
+    "ClaudeCLIProvider",
     "build_provider",
 ]

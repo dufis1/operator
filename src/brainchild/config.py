@@ -44,7 +44,11 @@ INTRO_ON_JOIN        = _config["agent"].get("intro_on_join", True)
 
 # LLM
 LLM_PROVIDER           = _config["llm"]["provider"]
-LLM_MODEL              = _config["llm"]["model"]
+# `model` is required for the openai/anthropic providers; claude_cli ignores
+# it (claude picks its own model) so we accept absence there. `history_messages`
+# governs the JSONL tail size for prompt rebuilds — also meaningless under
+# claude_cli (inner-claude owns its own context loop).
+LLM_MODEL              = _config["llm"].get("model") if LLM_PROVIDER == "claude_cli" else _config["llm"]["model"]
 HISTORY_MESSAGES       = _config["llm"].get("history_messages", 40)
 
 # System prompt is authored as two top-level blocks — `personality` (who the
@@ -114,6 +118,18 @@ else:
 # Transcript (captions)
 _transcript = _config.get("transcript", {})
 CAPTIONS_ENABLED        = _transcript.get("captions_enabled", False)
+
+# Permissions (track A — claude_cli)
+#
+# Two lists of native Claude Code tool names. `auto_approve` runs silently
+# without bothering the user in chat; `always_ask` always pauses for chat
+# confirmation. Tools not in either list also default to confirmation. Used
+# by the chat-runner permission handler (step 5c) when it's wired into the
+# ClaudeCLIProvider's PreToolUse hook. Empty / absent on track-B bots —
+# they go through the existing READ_TOOLS / confirm_tools path instead.
+_permissions = _config.get("permissions") or {}
+PERMISSIONS_AUTO_APPROVE = list(_permissions.get("auto_approve") or [])
+PERMISSIONS_ALWAYS_ASK   = list(_permissions.get("always_ask") or [])
 
 # ── INTERNAL TUNING ───────────────────────────────────────────────────────
 # These used to live in each bot's config.yaml; they're tuned-once internals
@@ -245,6 +261,16 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
     # Default is enabled when the field is absent (backward-compat).
     if not _srv.get("enabled", True):
         DISABLED_MCP_SERVERS[_name] = {}
+        continue
+    if LLM_PROVIDER == "claude_cli":
+        # Track A: claude already knows the command/args/env for its MCP
+        # servers (from ~/.claude.json). Our config block is a toggle-only
+        # surface so the user can disable individual servers via the wizard
+        # to save context. We track the enabled set so step 5d can pass
+        # `disabledMcpjsonServers` to claude via --settings, but skip the
+        # full operational parse (no env-var resolution, no read/confirm
+        # tool sets — claude handles all that itself).
+        MCP_SERVERS[_name] = {"_track_a_toggle_only": True}
         continue
     _resolved_env, _missing_vars = _resolve_env_vars(_srv.get("env", {}), _name)
     # Auth style: "env" (API key via .env — default) or "oauth" (mcp-remote

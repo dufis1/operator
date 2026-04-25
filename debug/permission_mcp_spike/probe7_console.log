@@ -1,0 +1,18 @@
+--- Phase 1: original 2-turn conversation (will be killed) ---
+  turn 1: '4' (success)
+  turn 2: '12' (success)
+  killing subprocess...
+
+--- Strategy 1: replay prior turns as separate envelopes ---
+  replay 1: ack='.' (success)
+  replay 2: ack='.' (success)
+
+--- Strategy 2: single synthesized opener ---
+
+============================================================
+PROBE 7 (B restart + rebuild) RESULTS
+============================================================
+  strategy 1: ok=True final='11' final_elapsed=1.36s total=8.35s err=None
+  strategy 2: ok=True final='11' final_elapsed=4.70s total=4.70s err=None
+
+PASS: True

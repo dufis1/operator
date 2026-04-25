@@ -1,0 +1,25 @@
+
+[turn 1] sending prompt (71 chars):
+  'User: What is 2+2? Reply with just the number, nothing else.\nAssistant:'
+[turn 1] 5.61s — rc=0, apiKey='none', reply='4'
+
+[turn 2] sending prompt (156 chars):
+  'User: What is 2+2? Reply with just the number, nothing else.\nAssistant: 4\nUser: Now multiply that by 3. Reply with just the number, nothing else.\nAssistant:'
+[turn 2] 5.55s — rc=0, apiKey='none', reply='12'
+
+[turn 3] sending prompt (234 chars):
+  'User: What is 2+2? Reply with just the number, nothing else.\nAssistant: 4\nUser: Now multiply that by 3. Reply with just the number, nothing else.\nAssistant: 12\nUser: Now subtract 1. Reply with just the number, nothing else.\nAssistant:'
+[turn 3] 5.05s — rc=0, apiKey='none', reply='11'
+
+============================================================
+PROBE 5 (spike A: subprocess-per-turn) RESULTS
+============================================================
+  turn 1: 5.61s -> '4'
+  turn 2: 5.55s -> '12'
+  turn 3: 5.05s -> '11'
+  total wall: 16.22s across 3 turns
+  avg per turn: 5.41s
+  final answer correct (==11): True
+  all turns under subscription auth: True
+
+PASS: True

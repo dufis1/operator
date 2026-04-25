@@ -132,9 +132,37 @@ class ChatRunner:
         self._intro_posted = not config.INTRO_ON_JOIN
         self._pre_intro_buffer: list[dict] = []
 
+    def _wire_track_a_permissions(self):
+        """If the LLM provider is ClaudeCLIProvider, plug in the chat handler.
+
+        Track A relies on Claude Code's PreToolUse hook to gate every
+        potentially-destructive tool call through meeting chat. The
+        handler runs on the provider's pump thread and reads chat
+        directly to await user replies — see permission_chat_handler.py.
+        Track-B providers (anthropic / openai) are unaffected.
+        """
+        from brainchild.pipeline.providers.claude_cli import ClaudeCLIProvider
+        from brainchild.pipeline.permission_chat_handler import PermissionChatHandler
+        provider = getattr(self._llm, "_provider", None)
+        if not isinstance(provider, ClaudeCLIProvider):
+            return
+        handler = PermissionChatHandler(
+            connector=self._connector,
+            runner=self,
+            auto_approve=config.PERMISSIONS_AUTO_APPROVE,
+            always_ask=config.PERMISSIONS_ALWAYS_ASK,
+        )
+        provider.set_permission_handler(handler)
+        log.info(
+            "ChatRunner: track-A permission handler wired "
+            f"(auto_approve={sorted(handler._auto_approve)}, "
+            f"always_ask={sorted(handler._always_ask)})"
+        )
+
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
         log.info(f"ChatRunner: joining {meeting_url}")
+        self._wire_track_a_permissions()
         # Open a meeting record for this URL if one wasn't provided.
         if self._record is None:
             slug = slug_from_url(meeting_url)

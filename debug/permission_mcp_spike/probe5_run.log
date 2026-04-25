@@ -1,0 +1,23 @@
+{
+  "turns": [
+    {
+      "elapsed": 5.6124489170033485,
+      "rc": 0,
+      "api_key_source": "none",
+      "text": "4"
+    },
+    {
+      "elapsed": 5.5542864160379395,
+      "rc": 0,
+      "api_key_source": "none",
+      "text": "12"
+    },
+    {
+      "elapsed": 5.051657584030181,
+      "rc": 0,
+      "api_key_source": "none",
+      "text": "11"
+    }
+  ],
+  "total_elapsed": 16.219145624898374
+}

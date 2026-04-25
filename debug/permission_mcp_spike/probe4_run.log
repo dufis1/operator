@@ -1,0 +1,15 @@
+[parent] spawning: claude -p Say the single word 'hello' and nothing else. --output-format stream-json --verbose
+
+============================================================
+PROBE 4 (baseline hello) RESULTS
+============================================================
+claude exit code:    0
+total elapsed:       5.52s
+apiKeySource:        'none'
+assistant text:      'hello'
+result.subtype:      'success'
+result.is_error:     False
+
+artifacts saved: /Users/jojo/Desktop/operator/debug/permission_mcp_spike/probe4_stream.jsonl, /Users/jojo/Desktop/operator/debug/permission_mcp_spike/probe4_stderr.txt
+
+PASS: True

@@ -1,0 +1,26 @@
+[parent] spawning long-lived: claude -p --input-format stream-json --output-format stream-json --verbose --no-session-persistence
+[parent] subprocess up in 0.00s
+
+[turn 1] sending: 'What is 2+2? Reply with just the number, nothing else.'
+[turn 1] 11.03s — apiKey='none', reply='4', result.subtype='success'
+
+[turn 2] sending: 'Now multiply that by 3. Reply with just the number, nothing else.'
+[turn 2] 1.43s — apiKey='none', reply='12', result.subtype='success'
+
+[turn 3] sending: 'Now subtract 1. Reply with just the number, nothing else.'
+[turn 3] 1.17s — apiKey='none', reply='11', result.subtype='success'
+
+============================================================
+PROBE 6 (spike B: subprocess-per-meeting) RESULTS
+============================================================
+  spawn:    0.00s
+  turn 1:   11.03s -> '4' (4 events)
+  turn 2:   1.43s -> '12' (3 events)
+  turn 3:   1.17s -> '11' (3 events)
+  teardown: 0.34s
+  exit:     0
+  total turn time: 13.63s, avg/turn: 4.54s
+  final answer correct (==11): True
+  all turns under subscription auth: True
+
+PASS: True

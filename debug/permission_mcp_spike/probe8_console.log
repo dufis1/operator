@@ -1,0 +1,27 @@
+============================================================
+PROBE 8 (partial-messages shape) RESULTS
+============================================================
+total events: 17
+  stream_event: 12
+  system/init: 1
+  system/status: 1
+  rate_limit_event: 1
+  assistant: 1
+  result/success: 1
+
+--- first 3 events ---
+{"type": "system", "subtype": "init", "cwd": "/Users/jojo/Desktop/operator/debug/permission_mcp_spike", "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2", "tools": ["Task", "AskUserQuestion", "Bash", "CronCreate", "CronDelete", "CronList", "Edit", "EnterPlanMode", "EnterWorktree", "ExitPlanMode",
+{"type": "system", "subtype": "status", "status": "requesting", "uuid": "5f77829e-a6f2-4f93-9728-507568f939d3", "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2"}
+{"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "resetsAt": 1777165800, "rateLimitType": "five_hour", "overageStatus": "allowed", "overageResetsAt": 1777151400, "isUsingOverage": false}, "uuid": "95aad7f4-4534-4f22-991a-3992ca11b02f", "session_id": "f70c242d-1480-412f-b459-c6d0
+
+--- first 5 stream_event events (partial messages) ---
+{"type": "stream_event", "event": {"type": "message_start", "message": {"model": "claude-opus-4-7", "id": "msg_01R9gDz5Cj3RVgEeTkVevfdW", "type": "message", "role": "assistant", "content": [], "stop_reason": null, "stop_sequence": null, "stop_details": null, "usage": {"input_tokens": 6, "cache_creation_input_tokens": 13570, "cache_read_input_tokens": 16202, "cache_creation": {"ephemeral_5m_input_t
+{"type": "stream_event", "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}, "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2", "parent_tool_use_id": null, "uuid": "632be2ea-83ee-42bf-9763-dbabfbb6f465"}
+{"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "C"}}, "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2", "parent_tool_use_id": null, "uuid": "6a22785d-6339-410c-91f2-be73cbae16cb"}
+{"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "old slice from the box\ngrease congealed in"}}, "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2", "parent_tool_use_id": null, "uuid": "ecf1d856-b997-4dad-bca2-74ce63c850fc"}
+{"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " amber pools\nbreakfast of champions\n\nCrust g"}}, "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2", "parent_tool_use_id": null, "uuid": "7f77e842-a1d1-4e42-a95a-2838a624befa"}
+
+--- result event ---
+{"type": "result", "subtype": "success", "is_error": false, "api_error_status": null, "duration_ms": 4191, "duration_api_ms": 5035, "num_turns": 1, "result": "Cold slice from the box\ngrease congealed in amber pools\nbreakfast of champions\n\nCrust gone slightly stiff\nyet the cheese still yields a bite\nmidnight's quiet gift\n\nTomorrow's regret\npepperoni curled like coins\nworth every cold cent", "stop_reason": "end_turn", "session_id": "f70c242d-1480-412f-b459-c6d05aec37a2", "total_cost_usd": 0.0957575, "usage": {"input_tokens": 6, "cache_creation_input_tokens": 13570, "cache_read_input_to
+
+artifact saved: /Users/jojo/Desktop/operator/debug/permission_mcp_spike/probe8_stream.jsonl

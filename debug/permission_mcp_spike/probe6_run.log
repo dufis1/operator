@@ -1,0 +1,26 @@
+{
+  "spawn_elapsed": 0.0015464590396732092,
+  "teardown_elapsed": 0.34443308401387185,
+  "turns": [
+    {
+      "elapsed": 11.031950209056959,
+      "text": "4",
+      "api_key_source": "none",
+      "events": 4
+    },
+    {
+      "elapsed": 1.4281506669940427,
+      "text": "12",
+      "api_key_source": "none",
+      "events": 3
+    },
+    {
+      "elapsed": 1.1718454159563407,
+      "text": "11",
+      "api_key_source": "none",
+      "events": 3
+    }
+  ],
+  "fatal_error": null,
+  "exit_code": 0
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "strategy": 1,
+    "final_text": "11",
+    "final_subtype": "success",
+    "final_elapsed": 1.3623927088920027,
+    "total_elapsed": 8.350422458024696,
+    "error": null,
+    "ok": true
+  },
+  {
+    "strategy": 2,
+    "final_text": "11",
+    "final_subtype": "success",
+    "final_elapsed": 4.702367500052787,
+    "total_elapsed": 4.702367500052787,
+    "error": null,
+    "ok": true
+  }
+]
