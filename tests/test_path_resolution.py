@@ -74,10 +74,11 @@ def test_config_paths_absolute_under_home_brainchild():
         _sandbox(tmp)
         mod = _load_config_with_home(tmp)
         expected = {
-            "BROWSER_PROFILE_DIR": str(tmp / ".brainchild" / "browser_profile"),
-            "AUTH_STATE_FILE":     str(tmp / ".brainchild" / "auth_state.json"),
-            "ENV_FILE":            str(tmp / ".brainchild" / ".env"),
-            "DEBUG_DIR":           str(tmp / ".brainchild" / "debug"),
+            "BROWSER_PROFILE_DIR":  str(tmp / ".brainchild" / "browser_profile"),
+            "AUTH_STATE_FILE":      str(tmp / ".brainchild" / "auth_state.json"),
+            "GOOGLE_ACCOUNT_FILE":  str(tmp / ".brainchild" / "google_account.json"),
+            "ENV_FILE":             str(tmp / ".brainchild" / ".env"),
+            "DEBUG_DIR":            str(tmp / ".brainchild" / "debug"),
         }
         for name, want in expected.items():
             got = getattr(mod, name)
@@ -110,6 +111,7 @@ def test_all_config_paths_rooted_under_home_or_tmp():
         expected_path_attrs = {
             "BROWSER_PROFILE_DIR",
             "AUTH_STATE_FILE",
+            "GOOGLE_ACCOUNT_FILE",
             "ENV_FILE",
             "DEBUG_DIR",
             "SKILLS_SHARED_LIBRARY",
@@ -241,6 +243,49 @@ def test_env_file_canonical_across_modules():
                 f"setup={setup_mod._ENV_FILE!r} main={resolved!r}"
 
             print("PASS  test_env_file_canonical_across_modules")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    finally:
+        shutil.rmtree(tmp)
+
+
+def test_google_signin_paths_canonical_across_modules():
+    """Wizard sign-in step inlines its path constants (BROWSER_PROFILE_DIR,
+    AUTH_STATE_FILE, GOOGLE_ACCOUNT_FILE) because brainchild.config asserts
+    BRAINCHILD_BOT at import time and the wizard runs before any bot is
+    chosen. Same compromise the wizard's _ENV_FILE makes — and same
+    divergence risk: a future edit to config.py could miss
+    google_signin.py. This test asserts byte-exact agreement."""
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        _sandbox(tmp)
+        saved = {k: os.environ.get(k) for k in ("HOME", "BRAINCHILD_BOT")}
+        try:
+            os.environ["HOME"] = str(tmp)
+            os.environ["BRAINCHILD_BOT"] = "testbot"
+            for m in list(sys.modules):
+                if m.startswith("brainchild"):
+                    del sys.modules[m]
+
+            from brainchild import config
+            from brainchild.pipeline import google_signin as gs
+
+            pairs = (
+                ("BROWSER_PROFILE_DIR", gs._BROWSER_PROFILE_DIR),
+                ("AUTH_STATE_FILE",     gs._AUTH_STATE_FILE),
+                ("GOOGLE_ACCOUNT_FILE", gs._GOOGLE_ACCOUNT_FILE),
+            )
+            for cfg_name, gs_val in pairs:
+                cfg_val = getattr(config, cfg_name)
+                assert str(gs_val) == cfg_val, \
+                    f"google_signin._{cfg_name} drift: " \
+                    f"{gs_val!r} (wizard) != {cfg_val!r} (config)"
+
+            print("PASS  test_google_signin_paths_canonical_across_modules")
         finally:
             for k, v in saved.items():
                 if v is None:
@@ -491,6 +536,7 @@ if __name__ == "__main__":
     test_all_config_paths_rooted_under_home_or_tmp()
     test_macos_adapter_uses_config_path_directly()
     test_env_file_canonical_across_modules()
+    test_google_signin_paths_canonical_across_modules()
     test_debug_dir_canonical_across_modules()
     test_migration_moves_legacy_artifacts()
     test_migration_preserves_existing_target()

@@ -54,6 +54,7 @@ from rich.text import Text
 
 from brainchild.pipeline import build_card, face
 from brainchild.pipeline.auth import run_auth
+from brainchild.pipeline.google_signin import run_signin_step
 from brainchild.pipeline.claude_code_import import (
     append_env_placeholders,
     claude_code_installed_and_logged_in,
@@ -356,7 +357,14 @@ def _auto_import_claude_setup(state: WizardState) -> None:
     """
     servers = state.bot_cfg.setdefault("mcp_servers", {})
 
-    mcps, wrapped = discover_all_mcps()
+    with console.status(
+        "[dim]wiring in your Claude Code skills, MCPs, and CLAUDE.md[/dim]",
+        spinner="simpleDots",
+    ):
+        mcps, wrapped = discover_all_mcps()
+        discovered = _discover_skill_candidates(state)
+        claude_md = read_user_claude_md()
+
     added_mcps: list[str] = []
     enabled_existing: list[str] = []
     for m in mcps:
@@ -375,14 +383,12 @@ def _auto_import_claude_setup(state: WizardState) -> None:
     # (~/.claude/skills/). Shared-library skills stay unchecked by default —
     # the claude agent's identity is "your Claude Code setup", so bundled
     # Brainchild skills shouldn't slip in silently.
-    discovered = _discover_skill_candidates(state)
     from_external = [
         name for name, _desc, src in discovered if src != "shared library"
     ]
     if from_external:
         state.enabled_skill_names = from_external
 
-    claude_md = read_user_claude_md()
     # Stash on state via a plain attribute — WizardState is a dataclass
     # but Python still permits ad-hoc attrs. Step 4 reads it.
     state._claude_md_content = claude_md  # type: ignore[attr-defined]
@@ -1018,7 +1024,7 @@ def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
     console.print("[bold]Brainchild setup wizard[/bold]")
-    console.print("[dim]Six steps. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
+    console.print("[dim]Six steps + sign-in. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
 
@@ -1036,11 +1042,16 @@ def run(argv: list[str]) -> int:
         envs = _collect_env_refs(state)
         _step6_api_keys(envs)
 
+        console.clear()
+        _step7_write(state)
+
+        console.clear()
+        run_signin_step()
+
         console.print()
         console.input("  [bold]Press Enter to reveal your agent ✨🎁[/bold] ")
 
         console.clear()
-        _step7_write(state)
         _reveal(state)
     except (KeyboardInterrupt, PickerCancelled, WizardCancel):
         console.print("\nCancelled.")

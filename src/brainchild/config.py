@@ -137,6 +137,7 @@ TOOL_HEARTBEAT_SECONDS     = 8     # initial interval for "still working..." dur
 TOOL_HEARTBEAT_MAX_SECONDS = 60    # exponential backoff cap for heartbeat interval
 BROWSER_PROFILE_DIR        = str(Path.home() / ".brainchild" / "browser_profile")   # persistent Chrome profile (cookies, Google login)
 AUTH_STATE_FILE            = str(Path.home() / ".brainchild" / "auth_state.json")    # Playwright storageState JSON for quick re-auth
+GOOGLE_ACCOUNT_FILE        = str(Path.home() / ".brainchild" / "google_account.json") # cached {"email": "..."} for the wizard's "✓ signed in as X" detect screen
 ENV_FILE                   = str(Path.home() / ".brainchild" / ".env")               # shared .env for API keys; wizard writes here, config + MCPs read here
 DEBUG_DIR                  = str(Path.home() / ".brainchild" / "debug")              # screenshots + HTML dumps from save_debug() and adapter failure paths
 
