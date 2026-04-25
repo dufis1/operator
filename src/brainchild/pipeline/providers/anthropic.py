@@ -257,6 +257,8 @@ class AnthropicProvider(LLMProvider):
             kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
 
         t_start = time.monotonic()
+        t_first_token = None
+        t_first_flush = None
         # 429s in the streaming path occur at request initiation (input-token
         # check happens before any text is produced), so retrying here cannot
         # cause partial paragraphs to post twice — buffer is reset per attempt.
@@ -267,8 +269,12 @@ class AnthropicProvider(LLMProvider):
                     for text in stream.text_stream:
                         if not text:
                             continue
+                        if t_first_token is None:
+                            t_first_token = time.monotonic()
                         buffer += text
                         if "\n\n" in buffer:
+                            if t_first_flush is None:
+                                t_first_flush = time.monotonic()
                             buffer = flush_paragraphs(buffer, on_paragraph)
                     final = stream.get_final_message()
                 break
@@ -289,6 +295,8 @@ class AnthropicProvider(LLMProvider):
             flush_paragraphs(buffer, on_paragraph, force_final=True)
 
         elapsed = time.monotonic() - t_start
+        ttft = (t_first_token - t_start) if t_first_token else None
+        first_flush = (t_first_flush - t_start) if t_first_flush else None
         usage = getattr(final, "usage", None)
         if usage is not None:
             cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -297,8 +305,10 @@ class AnthropicProvider(LLMProvider):
             out_tok = getattr(usage, "output_tokens", 0) or 0
             total_in = inp + cache_read + cache_create
             cache_pct = (cache_read * 100 // total_in) if total_in else 0
+            ttft_str = f"{ttft:.1f}s" if ttft is not None else "n/a"
+            flush_str = f"{first_flush:.1f}s" if first_flush is not None else "n/a"
             log.info(
-                f"TIMING llm_call={elapsed:.1f}s streamed=1 "
+                f"TIMING llm_call={elapsed:.1f}s ttft={ttft_str} first_flush={flush_str} streamed=1 "
                 f"TOKENS in={inp} cache_read={cache_read} cache_create={cache_create} "
                 f"out={out_tok} cache_hit={cache_pct}%"
             )

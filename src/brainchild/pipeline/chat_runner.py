@@ -514,7 +514,12 @@ class ChatRunner:
             # Pass the user's feedback back to the LLM so it can re-propose
             # with adjusted parameters.
             self._pending_tool_call = None
-            reason = f"User wants to adjust this call and said: \"{text}\" — re-propose the corrected tool call."
+            reason = (
+                f"[TOOL NOT EXECUTED — user did not approve the call.] "
+                f"The user replied: \"{text}\" instead of confirming. "
+                f"The tool was NOT run; no output exists. "
+                f"Either re-propose a corrected tool call, or ask the user a clarifying question."
+            )
             try:
                 tools = self._tools_for_llm()
                 result = self._llm.send_tool_result(
