@@ -1,0 +1,20 @@
+[parent] spawning subagent probe...
+[parent] [8.70s] hook FIRED for Agent: {"description": "Write two test files", "prompt": "Create two files. First, use Write to create /var/folders/pk/4zh_x4cd
+Traceback (most recent call last):
+  File "/Users/jojo/Desktop/operator/debug/permission_mcp_spike/cli_probe_02_subagent.py", line 165, in <module>
+    main()
+    ~~~~^^
+  File "/Users/jojo/Desktop/operator/debug/permission_mcp_spike/cli_probe_02_subagent.py", line 106, in main
+    stdout, stderr = proc.communicate(timeout=180)
+                     ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1220, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 2153, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 1267, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['claude', '-p', "Use the Task tool to dispatch a general-purpose sub-agent with this instruction: 'Create two files. First, use Write to create /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-yqlq_a1x/alpha.txt with contents `from-subagent-A`. Then use Write to create /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-yqlq_a1x/beta.txt with contents `from-subagent-B`. That is the entire task. Report success.' Do NOT do the writes yourself in the parent agent — only dispatch the sub-agent and report what it returns.", '--settings', '/var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-yqlq_a1x/settings.json', '--output-format', 'stream-json', '--verbose', '--include-hook-events', '--permission-mode', 'default']' timed out after 180 seconds

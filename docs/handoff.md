@@ -1,27 +1,61 @@
-# Session 164 handoff (2026-04-25, late) — STRATEGIC PIVOT
+# Session 165 handoff (2026-04-26) — Phase 14.12.1 spike COMPLETE → ship 14.12.2
 
-**Two-track architecture decided. Launch on hold. Next session is the Phase 14.12.1 Permission MCP spike.**
+**Track A is technically buildable. CLI path validated under subscription auth. PreToolUse policy layering locked. Next session starts Phase 14.12.2 implementation.**
 
-This session was bisected. The first half stacked six commits hardening Test 1.2's UX (confirmation-decline fix, stream-json side-log + tailer, drop verb heartbeats, stuck-LLM watchdog, watchdog newline fix, ID-based own-message dedup). The second half — driven by a $5-credits-gone-by-morning Anthropic console review — diagnosed an API-key leak in the claude-code MCP subprocess (inner `claude -p` was inheriting `ANTHROPIC_API_KEY` from brainchild's env via `pipeline/mcp_client.py:593` `env={**os.environ, ...}` and re-authing away from the user's Claude Max subscription onto API billing). Definitive proof was in `~/.brainchild/debug/claude-stream.jsonl` showing `apiKeySource: ANTHROPIC_API_KEY` + `model: claude-sonnet-4-6` — exactly matching the unaccounted $2.77 Sonnet 4.6 line on the user's $6.50 Apr 25 console bill. **The user explicitly rejected the surgical env-strip patch** in favor of a full architectural pivot.
+## What shipped this session
 
-**The pivot — two-track architecture, captured in detail in `docs/roadmap.md` Phase 14.12 and `docs/agent-context.md` Current Status block:**
+Phase 14.12.1 — Permission MCP spike, complete. Three probes ran end-to-end against `claude -p` under the user's Claude Max subscription (no `ANTHROPIC_API_KEY`):
 
-- **Track A — `brainchild run claude` is plug-and-play.** Zero setup, zero API key. Inner LLM is the user's Claude Code (`claude -p` subprocess, subscription-billed). Permission MCP routes inner-claude tool confirmations through Meet chat. Personality + ground_rules pass through as system-prompt augmentation. **The "claude" name is reserved for track A only — the wizard no longer offers it.** Bundled brainchild MCPs drop from claude (user's claude.ai-connected MCPs cover the same surface). Bundled skills migrate to `~/.claude/skills/<name>/SKILL.md` so inner-claude picks them up natively.
+- **Probe 1 (happy path):** PreToolUse hook fires synchronously, parent reads tool-use details via named-pipe IPC, parent's "allow" decision is honored, file is written. Round-trip latency negligible (<1s for IPC). Stream-json's system-init event confirmed `apiKeySource: "none"` end-to-end — actual subscription billing.
+- **Probe 2b (sub-agent visibility):** definitively confirmed sub-agent (Task tool) inner tool calls do NOT fire our hook. Top-level `Agent` dispatch DOES fire (we see the full sub-agent prompt and can gate it). Sub-agent's internal Writes appear in stream-json with `parent_tool_use_id` set — visible for chat progress reporting but not gateable inline.
+- **Probe 3 (deny path):** clean semantics. Hook returns deny → claude exits 0 with `subtype: "success"`, `permission_denials` populated, our deny reason text appears verbatim in claude's final result. No retries, no loops, no error.
 
-- **Track B — `brainchild build` is the custom-agent framework.** Existing brainchild orchestration stays. Wizard pivots to "build a custom bot" only — name yourself, pick provider (Anthropic API / OpenAI / local), wire MCPs, set personality. Power-user path with bring-your-own-keys billing.
+Findings + 1-page architecture write-up at `docs/permission-mcp-spike.md`. Probe scripts at `debug/permission_mcp_spike/cli_probe_*.py` + `perm_bridge.sh`. Stream-json artifacts at `debug/permission_mcp_spike/probe*_stream.jsonl` for forensic re-inspection.
 
-The architectural sub-decision (D1 vs D2) landed on **D1**: let inner-claude run its own loop, with brainchild as a thin Meet-front-end. D2 was the conservative engineering choice (preserve brainchild's existing orchestration); D1 is the strategically clean choice (matches the README hero "Claude Code in your Google Meet" pitch literally; inherits Anthropic's Claude Code improvements for free; doesn't re-implement 60% of Claude Code inside brainchild). The other three bots (pm, engineer, designer) keep brainchild's full orchestration under track B.
+Two corrections to the research that should be folded into anyone reading the spike report: (a) `--permission-prompt-tool` does NOT exist on the actual CLI (early research agents got this wrong; PreToolUse hook is the real CLI mechanism); (b) `--settings <file-or-json>` DOES exist despite docs claiming otherwise — that's the per-invocation registration path. SDK pathway was researched but not probed (definitively API-key-only per [GitHub #559](https://github.com/anthropics/claude-agent-sdk-python/issues/559) — would burn API credits to generate paper-only data on a path that's structurally incompatible with track A's "no API key" promise).
 
-**Exact next step: Phase 14.12.1 — Permission MCP spike (~1 day).** Probe whether `claude -p` exposes a host-resolvable permission callback for non-TTY callers. Two outcomes drive the rest of the design: (a) confirmed → track A as designed; (b) not available → fallback plan, probably `bypassPermissions` mode in a per-session sandboxed worktree scoped narrowly. Output: working probe that demonstrates a chat-confirmable inner tool call, plus a 1-page write-up of the API shape we have to work with. Anthropic built Permission MCP specifically for hosts like brainchild — the chance it's available is high, but we shouldn't commit to the full track A design until confirmed. After spike: 14.12.2 (track A implementation, ~2–3d), 14.12.3 (track B repositioning, ~1d), 14.12.4 (skills migration, ~1h), 14.12.5 (README + landing rewrite, absorbed by Phase 16). **Total: ~4–5 days of engineering before launch is unblocked.**
+## PreToolUse policy decisions (locked this session)
 
-**Open product questions captured in roadmap + agent-context — to resolve during 14.12 implementation.**
-1. Bundled "default voice" for track A's bot (personality + ground_rules string baked into the package).
-2. Customization door from track A — does `brainchild voice` exist as a thin tweak path without forcing a full track-B build?
-3. Migration UX for existing `~/.brainchild/agents/claude/config.yaml` — back up to `.bak`, replace with track-A minimal config, log one-liner. Wipe wizard-flipped MCP toggles or keep them?
-4. Captions in track A — wired to inner-claude's prompt via the existing meeting record JSONL.
-5. pm/engineer/designer presets — keep as wizard-suggested starter templates or retire in favor of Phase 15.5.2 gallery?
-6. Subprocess-spawn-per-LLM-call latency (~1–2s extra). Acceptable for meeting cadence; post-MVP optimization is a warm pool of pre-spawned `claude` processes.
+Three layers of policy, each in its natural home — no overlap, no double-prompts:
 
-**Carry-over follow-ups not affected by the pivot.** (a) Stuck-LLM retry semantics still deferred — three 45s+ TTFT spikes in two days suggest this is increasingly worth the chat-reader/dispatcher concurrency refactor. (b) `chat_runner._send` doesn't surface dead-browser state. (c) Linux adapter parity for ID-based dedup. (d) GitHub `operator → brainchild` repo rename still deferred. (e) Anthropic 30k-tokens/min ceiling on the claude bot's 95-tool prompt — *partially mitigated* by track A since inner-claude's prompt is structurally different and lazy-loads its own tools, so this concern may dissolve. (f) Session-160 Chrome-runtime preflight is dead weight — fold into the 14.12.2 cleanup pass rather than a separate commit.
+1. **brainchild's PreToolUse hook itself — internal plumbing, NOT user-tunable.** It's how brainchild stays in the loop. Disabling it forces yolo mode or stalled-on-no-TTY. Treat it like the chat-polling loop — load-bearing, not a knob.
+2. **Native Claude Code `permissions.allow` / `ask` / `deny` rules in `~/.claude/settings.json` — already user-tunable, brainchild composes with them automatically.** Settings hierarchy (user → project → local → CLI override) means our `--settings <our-tempfile>` merges, doesn't replace. The user's solo-CLI rules pre-evaluate before our hook fires.
+3. **brainchild's "what to bother the user about in chat" knob — the meeting-specific layer, exposed in track A's config.**
 
-**Carry-over follow-ups now subsumed by the pivot.** Phase 15.10.5 (`brainchild worktrees` CLI) — was a hardening item for the existing claude-code MCP delegate path; under track A the inner CLI handles its own worktree lifecycle, so this becomes a track-B-specific concern only. Probably still worth shipping for track B's `engineer` bot. Phase 14.11 (wizard MCP "context, not just tools" copy tweak) — wizard is being rewritten in 14.12.3 anyway; fold the copy tweak into that rewrite.
+Track A bundled config will ship something like:
+
+```yaml
+# ~/.brainchild/agents/claude/config.yaml after the pivot
+permissions:
+  auto_approve:        # silent in chat
+    - Read
+    - Grep
+    - Glob
+    - LS
+  always_ask:          # always confirm in chat
+    - Bash
+    - Write
+    - Edit
+    - MultiEdit
+    - WebFetch
+```
+
+Everything not in either list defaults to "ask in chat." Power users tighten/loosen via `brainchild edit claude`. Wizard does NOT expose this surface (track A's pitch is zero setup; YAML edit is the explicit power-user path). Custom hook layering is NOT supported in track A — users wanting full hook customization belong in track B.
+
+## Architectural recommendation for 14.12.2 (from spike report)
+
+1. New `pipeline/providers/claude_cli.py` implementing `LLMProvider` — one `claude -p` subprocess per LLM turn (or per meeting; spike both, default to whichever is simpler), with `--settings <tempfile>` containing a PreToolUse hook pointing to a shipped `pipeline/permission_bridge.py`.
+2. Named-pipe IPC between bridge and brainchild parent: bridge writes tool details to request pipe, blocks on response pipe; chat_runner reads request, posts confirmation via the existing `_request_confirmation` flow, awaits user reply, writes decision back.
+3. Worktree sandboxing as second line of defense — every track-A run gets `.claude/worktrees/<name>/` (already supported via `--worktree`). Sub-agent opacity contained because writes go into the sandbox.
+4. **Subscription-auth assertion at startup** — read system-init event's `apiKeySource` from stream-json, fail loud if not `"none"`. Catches any future env-var leak (the same class of bug that ate the $5 last session) before it bills.
+5. Defer the `defer` permissionDecision pattern — synchronous IPC works today; revisit if hook-spawn-per-tool latency becomes a problem.
+
+Spike findings reduce 14.12.2's estimate from 2–3d to **~1.5–2d**. Open questions for that phase (not blockers): subprocess-per-turn vs subprocess-per-meeting, prompt-curation policy (do we still tail meeting record JSONL into the prompt or trust inner-claude's own context loop), and which `--system-prompt*` flag carries our `personality` + `ground_rules` augmentation cleanly.
+
+## Exact next step
+
+**Phase 14.12.2 — track A implementation.** First atomic step: write `pipeline/providers/claude_cli.py` with the `complete()` and `complete_streaming()` methods, mirroring the `anthropic.py` shape. Get it answering a trivial `"hello"` query under subscription auth before wiring permissions. The IPC bridge + chat-runner integration come after that's green. Estimated session 1 of 14.12.2 = ~4–6 hours.
+
+## Open carry-overs (unchanged from prior handoff)
+
+(a) Stuck-LLM retry semantics still deferred. (b) `chat_runner._send` doesn't surface dead-browser state. (c) Linux adapter parity for ID-based dedup. (d) GitHub `operator → brainchild` repo rename still deferred. (e) Anthropic 30k-tokens/min ceiling on the claude bot's 95-tool prompt — likely dissolves under track A since inner-claude lazy-loads its own tools. (f) Session-160 Chrome-runtime preflight is dead weight — fold into 14.12.2 cleanup pass. Phase 15.10.5 (`brainchild worktrees` CLI) remains relevant for track B's engineer bot post-MVP.

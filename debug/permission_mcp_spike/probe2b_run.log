@@ -1,0 +1,19 @@
+[parent] [8.21s] hook FIRED: Agent
+
+============================================================
+PROBE 2B RESULTS — sub-agent under bypassPermissions
+============================================================
+exit code:           0
+elapsed:             137.92s
+hook fires (total):  1
+alpha.txt landed:    True
+beta.txt landed:     True
+
+  [  8.21s] Agent
+
+stream-json sub-agent Write count:  2
+hook Write count:                    0
+
+✓ CONFIRMED: sub-agent's Write calls bypass our PreToolUse hook entirely.
+  Files were written, but our hook never fired for them.
+  Top-level Agent (Task) dispatch DID fire (visible in decisions list).

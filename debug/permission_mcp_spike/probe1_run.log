@@ -1,0 +1,22 @@
+[parent] pipes ready at /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-2kj06zd5
+[parent] settings.json written: /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-2kj06zd5/settings.json
+[parent] spawning: claude -p Use the Write tool to create the file /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-2kj06zd5/hello.txt with the contents 'permission_spike_ok'. Do not read or edit anything else. --settings /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-2kj06zd5/settings.json --output-format stream-json --verbose --include-hook-events --permission-mode default
+[parent] [7.25s] tool_use request: Write input={"file_path": "/var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-2kj06zd5/hello.txt", "content": "permi
+[parent] [7.25s] responded: allow
+
+============================================================
+PROBE 1 RESULTS
+============================================================
+claude exit code:        0
+total elapsed:           9.19s
+hook calls fielded:      1
+file landed:             True
+target path:             /var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-2kj06zd5/hello.txt
+file contents:           'permission_spike_ok'
+stream-json event types: ['assistant', 'rate_limit_event', 'result', 'system', 'user']
+
+stream-json tool_use events: 1
+  Write: {"file_path": "/var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spik
+stream-json hook events: 0
+
+artifacts saved: /Users/jojo/Desktop/operator/debug/permission_mcp_spike/probe1_stream.jsonl, /Users/jojo/Desktop/operator/debug/permission_mcp_spike/probe1_stderr.txt

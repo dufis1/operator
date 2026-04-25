@@ -1,0 +1,21 @@
+[parent] spawning deny probe — first hook call denies, subsequent allow
+[parent] [6.12s] Write → DENY
+
+============================================================
+PROBE 3 RESULTS — deny semantics
+============================================================
+claude exit code:  0
+total elapsed:     8.37s
+hook calls:        1
+target landed:     False  (expected: False)
+
+  [  6.12s] Write           → deny
+
+final result subtype:    success
+is_error:                False
+stop_reason:             end_turn
+terminal_reason:         completed
+permission_denials:      [{'tool_name': 'Write', 'tool_use_id': 'toolu_01Y8i6BEg2Jkb5zbEXwihGw5', 'tool_input': {'file_path': '/var/folders/pk/4zh_x4cd37s4pn7kmn8py4yh0000gn/T/claude-perm-spike-_077k2h4/should_not_exist.txt', 'content': 'should_be_blocked'}}]
+
+final result text (first 400 chars):
+Write blocked by PreToolUse hook: "probe3: simulated user rejection — please don't write that file". Not retrying.
