@@ -5,10 +5,12 @@ Usage:
     runner = ChatRunner(connector, llm)
     runner.run(meeting_url)   # blocks until stop() is called
 """
+import json
 import logging
 import re
 import threading
 import time
+from pathlib import Path
 
 from brainchild import config
 from brainchild.pipeline import ui
@@ -22,7 +24,59 @@ PARTICIPANT_CHECK_INTERVAL = 3  # seconds between participant count checks
 ONE_ON_ONE_THRESHOLD = 2  # participant count at or below = 1-on-1 mode (skip trigger phrase)
 
 LOAD_SKILL_TOOL = "load_skill"  # synthetic local tool — not routed to MCP
+CLAUDE_CODE_DELEGATE_TOOL = "claude-code__delegate_to_claude_code"
 _SLASH_RE = re.compile(r"^/([A-Za-z0-9_\-]+)\s*")
+
+
+def _format_inner_tool_use(block: dict) -> str | None:
+    """Render an inner-claude `tool_use` block as a one-line chat message.
+
+    Returns None for tool calls we deliberately suppress (TodoWrite is the
+    inner agent's planning scratchpad — too noisy to surface).
+    """
+    name = block.get("name", "")
+    inp = block.get("input") or {}
+    if name == "Read":
+        return f"Reading {Path(inp.get('file_path', '?')).name}..."
+    if name in ("Edit", "MultiEdit"):
+        return f"Editing {Path(inp.get('file_path', '?')).name}..."
+    if name == "Write":
+        return f"Writing {Path(inp.get('file_path', '?')).name}..."
+    if name == "Bash":
+        cmd_str = (inp.get("command") or "").strip()
+        first = cmd_str.splitlines()[0] if cmd_str else ""
+        short = (first[:60] + "...") if len(first) > 60 else first
+        return f"Running: {short}" if short else "Running command..."
+    if name in ("Glob", "Grep"):
+        pat = inp.get("pattern", "") or ""
+        return f"Searching: {pat[:50]}" if pat else "Searching..."
+    if name == "Task":
+        desc = (inp.get("description") or "")[:50]
+        return f"Spawning sub-agent: {desc}..." if desc else "Spawning sub-agent..."
+    if name == "WebFetch":
+        return f"Fetching {(inp.get('url') or '?')[:60]}..."
+    if name == "WebSearch":
+        return f"Web search: {(inp.get('query') or '?')[:50]}..."
+    if name == "TodoWrite":
+        return None
+    return f"Calling {name}..."
+
+
+def _stream_event_to_chat_msg(event: dict) -> str | None:
+    """Translate one stream-json event from the inner claude CLI into a
+    chat-friendly progress line. Only `assistant` events containing a
+    `tool_use` content block surface — text deltas, system init,
+    user/tool_result, and the final result event are suppressed (the
+    final return path renders the answer; in-flight text deltas are
+    redundant noise here).
+    """
+    if event.get("type") != "assistant":
+        return None
+    content = (event.get("message") or {}).get("content") or []
+    for block in content:
+        if block.get("type") == "tool_use":
+            return _format_inner_tool_use(block)
+    return None
 
 # Confirmation message rendering — keep the prompt readable in Meet chat
 # while still showing both ends of long values (so the user can spot a
@@ -609,9 +663,20 @@ class ChatRunner:
 
         threading.Thread(target=_run_tool, daemon=True).start()
 
+        # Live progress for claude-code: tail its stream-json side log and
+        # post real inner-tool_use events ("Reading X.py...", "Editing
+        # Y.py...") instead of placeholder verb heartbeats. Other tools
+        # keep the verb tick — it's deliberately removed in a follow-up.
+        is_claude_code = tc["name"] == CLAUDE_CODE_DELEGATE_TOOL
+        if is_claude_code:
+            threading.Thread(
+                target=self._tail_claude_stream, args=(done_event,), daemon=True,
+            ).start()
+
         interval = config.TOOL_HEARTBEAT_SECONDS
         while not done_event.wait(timeout=interval):
-            self._send(f"{pick_heartbeat_verb()}...")
+            if not is_claude_code:
+                self._send(f"{pick_heartbeat_verb()}...")
 
         if error_holder[0]:
             e = error_holder[0]
@@ -647,6 +712,38 @@ class ChatRunner:
             return
 
         self._dispatch_result(result)
+
+    def _tail_claude_stream(self, done_event: threading.Event):
+        """Stream live progress to chat while a claude-code delegate runs.
+
+        Tails the inner claude CLI's stream-json side log (written by the
+        claude-code MCP server during delegation) and posts a chat message
+        per inner tool_use. Reads via seek-and-resume so we don't re-emit
+        events on each pass. Exits when `done_event` fires.
+        """
+        from brainchild.agents.engineer.claude_code import STREAM_LOG_PATH
+        pos = 0
+        while True:
+            if STREAM_LOG_PATH.exists():
+                try:
+                    with STREAM_LOG_PATH.open("r") as f:
+                        f.seek(pos)
+                        for line in f:
+                            line = line.rstrip("\n")
+                            if not line:
+                                continue
+                            try:
+                                event = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            msg = _stream_event_to_chat_msg(event)
+                            if msg:
+                                self._send(msg)
+                        pos = f.tell()
+                except OSError as e:
+                    log.debug(f"ChatRunner: claude-stream tail read error: {e}")
+            if done_event.wait(timeout=1.0):
+                return
 
     def _handle_tool_failure(self, tc, error_signpost: str, fallback: str):
         """Let the LLM author the user-facing failure message.

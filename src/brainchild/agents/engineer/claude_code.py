@@ -24,12 +24,21 @@ import os
 import shutil
 import re
 import subprocess
+from pathlib import Path
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 import mcp.types as types
 
 server = Server("claude_code")
+
+# Single rolling side-log of the inner claude CLI's stream-json output. The
+# brainchild ChatRunner tails this file during a delegate call to surface
+# inner tool_use events ("Reading X.py...", "Editing Y.py...") in meeting
+# chat. Truncated at the start of every delegate so the tailer only sees
+# the current run. Path is fixed (not session-keyed) because Anthropic tool
+# use is serialized — only one delegate runs at a time.
+STREAM_LOG_PATH = Path.home() / ".brainchild" / "debug" / "claude-stream.jsonl"
 
 # repo_path (canonical) -> {"session_id": str, "worktree_path": str, "base_sha": str}
 _SESSIONS: dict[str, dict] = {}
@@ -225,7 +234,7 @@ async def _delegate(arguments: dict):
             claude_path, "-p", task,
             "--resume", session["session_id"],
             "--permission-mode", permission_mode,
-            "--output-format", "json",
+            "--output-format", "stream-json", "--verbose",
         ]
         resume_attempted = True
         worktrees_before = None
@@ -235,7 +244,7 @@ async def _delegate(arguments: dict):
             claude_path, "-p", task,
             "--worktree",
             "--permission-mode", permission_mode,
-            "--output-format", "json",
+            "--output-format", "stream-json", "--verbose",
         ]
         worktrees_before = _list_worktrees(repo_path)
 
@@ -250,7 +259,7 @@ async def _delegate(arguments: dict):
             claude_path, "-p", task,
             "--worktree",
             "--permission-mode", permission_mode,
-            "--output-format", "json",
+            "--output-format", "stream-json", "--verbose",
         ]
         worktrees_before = _list_worktrees(repo_path)
         data, err = await _run_claude(cmd, cwd)
@@ -293,7 +302,19 @@ async def _delegate(arguments: dict):
 
 
 async def _run_claude(cmd: list[str], cwd: str):
-    """Return (parsed_json_or_None, error_text_or_None)."""
+    """Return (parsed_result_event_or_None, error_text_or_None).
+
+    Spawns claude in stream-json mode and reads stdout line-by-line. Every
+    line is appended to STREAM_LOG_PATH (truncated at the start of this
+    call) so the brainchild ChatRunner can tail it for live progress. The
+    final `{"type":"result", ...}` event is extracted and returned with the
+    same shape the old `--output-format json` path produced (top-level
+    keys: `session_id`, `result`, `is_error`).
+    """
+    STREAM_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Truncate so the tailer only sees this call's events.
+    STREAM_LOG_PATH.write_text("")
+
     try:
         # Explicitly close stdin: otherwise the inner `claude` CLI inherits the
         # MCP server's stdin (the JSON-RPC stream from brainchild's parent), its
@@ -307,25 +328,49 @@ async def _run_claude(cmd: list[str], cwd: str):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
     except OSError as exc:
         return None, f"Error launching claude CLI: {exc}"
 
-    raw_out = stdout.decode(errors="replace").strip()
-    raw_err = stderr.decode(errors="replace").strip()
+    final_event = None
+    non_json_lines: list[str] = []
+
+    async def _drain_stdout():
+        nonlocal final_event
+        with STREAM_LOG_PATH.open("a") as side_log:
+            async for raw_line in proc.stdout:
+                line = raw_line.decode(errors="replace").rstrip("\n")
+                if not line:
+                    continue
+                side_log.write(line + "\n")
+                side_log.flush()  # tailer reads this file as it grows
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    # `claude --resume <bad-id>` and similar paths print plain
+                    # text on stdout instead of JSON. Capture for the error path.
+                    non_json_lines.append(line)
+                    continue
+                if event.get("type") == "result":
+                    final_event = event
+
+    drain_task = asyncio.create_task(_drain_stdout())
+    stderr_bytes = await proc.stderr.read()
+    await proc.wait()
+    await drain_task
+
+    raw_err = stderr_bytes.decode(errors="replace").strip()
 
     if proc.returncode != 0:
-        combined = raw_err or raw_out
+        combined = raw_err or "\n".join(non_json_lines) or "(no error output)"
         return None, f"Claude Code exited with code {proc.returncode}.\n{combined}"
 
-    # `claude --resume <bad-id>` exits 0 and prints the error on stdout as
-    # plain text (not JSON). Treat non-JSON stdout as an error.
-    try:
-        data = json.loads(raw_out)
-    except json.JSONDecodeError:
-        return None, raw_out[:2000] or "Claude Code returned empty output."
+    if final_event is None:
+        # No result event arrived but the process exited 0 — fall back to any
+        # plain-text stdout (e.g. resume-id-not-found message) or stderr.
+        fallback = "\n".join(non_json_lines) or raw_err
+        return None, fallback[:2000] or "Claude Code returned no result event."
 
-    return data, None
+    return final_event, None
 
 
 async def _land(arguments: dict):
