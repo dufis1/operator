@@ -137,7 +137,6 @@ def test_happy_path_parses_fields():
     assert mod.MCP_SERVERS == {}                    # no servers configured
     # Internal tuning constants are always present
     assert mod.TOOL_TIMEOUT_SECONDS == 60
-    assert mod.TOOL_HEARTBEAT_SECONDS == 30
     print("PASS  test_happy_path_parses_fields")
 
 

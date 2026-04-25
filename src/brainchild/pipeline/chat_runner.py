@@ -14,7 +14,6 @@ from pathlib import Path
 
 from brainchild import config
 from brainchild.pipeline import ui
-from brainchild.pipeline.heartbeat_verbs import pick as pick_heartbeat_verb
 from brainchild.pipeline.meeting_record import MeetingRecord, slug_from_url
 
 log = logging.getLogger(__name__)
@@ -637,15 +636,14 @@ class ChatRunner:
         self._dispatch_result(result)
 
     def _execute_and_respond(self, tc):
-        """Execute a tool call in a background thread with fixed-cadence
-        heartbeats, then feed result to LLM.
+        """Execute a tool call in a background thread, then feed result to LLM.
 
         The MCP layer owns the actual timeout (per-server override → ship
-        default → global fallback). This loop's only job is to keep chat
-        informed while the tool runs. Heartbeats fire every
-        TOOL_HEARTBEAT_SECONDS — a steady cadence reads as alive, where
-        exponential backoff stretched the gap until users assumed the bot
-        had hung.
+        default → global fallback). For claude-code delegations, a tailer
+        thread reads the inner CLI's stream-json side log and posts real
+        progress events ("Reading X.py...", "Editing Y.py...") to chat.
+        Other tools run silently — they're short-lived enough that placeholder
+        heartbeats added more noise than signal.
         """
         log.info(f"ChatRunner: auto-executing {tc['name']}")
         t_exec_start = time.monotonic()
@@ -663,20 +661,12 @@ class ChatRunner:
 
         threading.Thread(target=_run_tool, daemon=True).start()
 
-        # Live progress for claude-code: tail its stream-json side log and
-        # post real inner-tool_use events ("Reading X.py...", "Editing
-        # Y.py...") instead of placeholder verb heartbeats. Other tools
-        # keep the verb tick — it's deliberately removed in a follow-up.
-        is_claude_code = tc["name"] == CLAUDE_CODE_DELEGATE_TOOL
-        if is_claude_code:
+        if tc["name"] == CLAUDE_CODE_DELEGATE_TOOL:
             threading.Thread(
                 target=self._tail_claude_stream, args=(done_event,), daemon=True,
             ).start()
 
-        interval = config.TOOL_HEARTBEAT_SECONDS
-        while not done_event.wait(timeout=interval):
-            if not is_claude_code:
-                self._send(f"{pick_heartbeat_verb()}...")
+        done_event.wait()
 
         if error_holder[0]:
             e = error_holder[0]
