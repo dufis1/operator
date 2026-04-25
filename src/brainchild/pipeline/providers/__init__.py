@@ -38,8 +38,12 @@ def build_provider():
         # system prompt via --append-system-prompt at spawn time.
         # permission_handler is wired in step 5c — for now claude follows
         # its native ~/.claude/settings.json permission rules.
+        # cwd mirrors `claude` itself: spawn in the user's invocation dir
+        # so "this codebase" resolves without an `ls $HOME` round-trip.
+        import os
         return ClaudeCLIProvider(
             append_system_prompt=config.SYSTEM_PROMPT or None,
+            cwd=os.getcwd(),
         )
     raise ValueError(
         f"unknown llm.provider: {name!r} (expected 'openai', 'anthropic', or 'claude_cli')"

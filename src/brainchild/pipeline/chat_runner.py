@@ -131,6 +131,17 @@ class ChatRunner:
         self._intro_text = ""
         self._intro_posted = not config.INTRO_ON_JOIN
         self._pre_intro_buffer: list[dict] = []
+        # Progress narrator state (track A only). _last_send_time is
+        # updated by _send so the narrator can stay quiet during fast
+        # turns. Buffer accumulates tool_use events between flushes;
+        # the throttle gate decides when to flatten it into one chat
+        # line. Lock guards both since the callback runs on the
+        # provider's pump thread, not the main loop.
+        self._last_send_time = 0.0
+        self._last_narration_time = 0.0
+        self._narration_buffer: list[tuple[str, dict]] = []
+        self._narration_lock = threading.Lock()
+        self._narration_auto_approve: set[str] = set()
 
     def _wire_track_a_permissions(self):
         """If the LLM provider is ClaudeCLIProvider, plug in the chat handler.
@@ -158,6 +169,44 @@ class ChatRunner:
             f"(auto_approve={sorted(handler._auto_approve)}, "
             f"always_ask={sorted(handler._always_ask)})"
         )
+        if config.PROGRESS_NARRATION_ENABLED:
+            self._narration_auto_approve = set(config.PERMISSIONS_AUTO_APPROVE)
+            provider.set_progress_callback(self._on_tool_use)
+            log.info(
+                f"ChatRunner: progress narrator wired "
+                f"(min_silence={config.PROGRESS_NARRATION_MIN_SILENCE_S}s, "
+                f"throttle={config.PROGRESS_NARRATION_THROTTLE_S}s)"
+            )
+
+    def _on_tool_use(self, tool_name, tool_input):
+        """Progress callback fired by ClaudeCLIProvider on every tool_use.
+
+        Runs on the provider pump thread. Only narrates auto-approved
+        tools — confirmation-gated tools post their own prompt, which is
+        already feedback enough. Throttled by `min_silence_seconds`
+        (skip if a user-facing send happened recently) and
+        `throttle_seconds` (gap between narrator messages).
+        """
+        if tool_name not in self._narration_auto_approve:
+            return
+        from brainchild.pipeline.permission_chat_handler import _format_terse
+        with self._narration_lock:
+            self._narration_buffer.append((tool_name, tool_input or {}))
+            now = time.time()
+            silence = now - self._last_send_time
+            since_narration = now - self._last_narration_time
+            if silence < config.PROGRESS_NARRATION_MIN_SILENCE_S:
+                return
+            if since_narration < config.PROGRESS_NARRATION_THROTTLE_S:
+                return
+            buffered = self._narration_buffer
+            self._narration_buffer = []
+            self._last_narration_time = now
+        summaries = [_format_terse(name, args) for name, args in buffered]
+        if not summaries:
+            return
+        line = "Working: " + "; ".join(summaries)
+        self._send(line)
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
@@ -171,6 +220,14 @@ class ChatRunner:
                 meta={"meet_url": meeting_url},
             )
             self._llm.set_record(self._record)
+        # Kick off intro LLM call in parallel with browser join — the
+        # intro doesn't depend on browser state, only on a live LLM, so
+        # we can save the full intro-turn latency by overlapping it with
+        # the ~5–10s browser launch + join wait. The main loop's intro
+        # gate still waits for `_intro_ready` AND `saw_others`, so we
+        # never post into an empty room.
+        if config.INTRO_ON_JOIN:
+            threading.Thread(target=self._generate_intro, daemon=True).start()
         # Skip join if connector was already started (e.g. for parallel MCP init)
         if not self._connector.join_status:
             self._connector.join(meeting_url)
@@ -202,8 +259,6 @@ class ChatRunner:
         log.info("ChatRunner: joined")
         ui.ok("Joined meeting — listening for chat.")
         self._post_mcp_failure_banner()
-        if config.INTRO_ON_JOIN:
-            threading.Thread(target=self._generate_intro, daemon=True).start()
         log.info("ChatRunner: starting chat loop")
         self._loop()
 
@@ -282,9 +337,21 @@ class ChatRunner:
 
     def _loop(self):
         """Main polling loop."""
+        # Seed participant count immediately so the intro gate doesn't
+        # wait on the first read_chat + count cycle (~2s on slow joins).
+        # Best-effort: any failure falls through to the regular polling
+        # path on the first iteration.
         last_participant_check = 0
         participant_count = 0
         saw_others = False
+        try:
+            participant_count = self._connector.get_participant_count()
+            last_participant_check = time.time()
+            if participant_count > 1:
+                saw_others = True
+                log.info(f"ChatRunner: seed participant_count={participant_count} (saw_others=True)")
+        except Exception as e:
+            log.warning(f"ChatRunner: seed get_participant_count failed: {e}")
         alone_since = None
         while not self._stop_event.is_set():
             # Detect unexpected browser session death (crash, page loss, etc.)
@@ -837,6 +904,10 @@ class ChatRunner:
             return
         if msg_id:
             self._seen_ids.add(msg_id)
+        # Bookkeeping for the progress narrator: any user-facing send
+        # resets the silence timer so the narrator only speaks during
+        # actually quiet stretches.
+        self._last_send_time = time.time()
 
     def _record_mcp_outcome(
         self,

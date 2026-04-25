@@ -131,6 +131,39 @@ _permissions = _config.get("permissions") or {}
 PERMISSIONS_AUTO_APPROVE = list(_permissions.get("auto_approve") or [])
 PERMISSIONS_ALWAYS_ASK   = list(_permissions.get("always_ask") or [])
 
+# How much to include in the chat confirmation prompt for a tool call.
+#   "terse"   — one-line summary that hides bulk content fields (Write
+#               body, MultiEdit edits, WebFetch prompt) but keeps
+#               imperative fields (Bash command, file paths). Default —
+#               keeps chat clean.
+#   "verbose" — full parameter dump with head…tail truncation. Useful
+#               when the user wants to safety-check every byte.
+# Lives at the agent-block level (sibling of trigger_phrase) since it's
+# user-facing UX, not a permission rule. Old configs without the key
+# default to terse.
+_agent_block = _config.get("agent") or {}
+PERMISSION_VERBOSITY = (_agent_block.get("permission_verbosity") or "terse").lower()
+if PERMISSION_VERBOSITY not in ("terse", "verbose"):
+    import logging as _pv_log
+    _pv_log.getLogger("config").warning(
+        f"agent.permission_verbosity={PERMISSION_VERBOSITY!r} not recognized "
+        f"(expected 'terse' or 'verbose') — defaulting to 'terse'"
+    )
+    PERMISSION_VERBOSITY = "terse"
+
+# Progress narration: when the bot calls auto-approved tools (Read,
+# Grep, etc.) the user otherwise sees nothing until the final reply.
+# When enabled, the chat runner emits a one-line "📖 reading X" status
+# per tool call, throttled so multi-tool turns don't flood chat.
+#   enabled            — master switch (default on for claude_cli bots).
+#   min_silence_seconds — only narrate after this many seconds of
+#                          chat silence; faster turns stay quiet.
+#   throttle_seconds    — minimum gap between narrator messages.
+_narration = _agent_block.get("progress_narration") or {}
+PROGRESS_NARRATION_ENABLED        = bool(_narration.get("enabled", True))
+PROGRESS_NARRATION_MIN_SILENCE_S  = float(_narration.get("min_silence_seconds", 4))
+PROGRESS_NARRATION_THROTTLE_S     = float(_narration.get("throttle_seconds", 5))
+
 # ── INTERNAL TUNING ───────────────────────────────────────────────────────
 # These used to live in each bot's config.yaml; they're tuned-once internals
 # that shipped identical across bots. Edit here to change runtime behavior

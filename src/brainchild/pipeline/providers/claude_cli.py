@@ -97,8 +97,11 @@ class ClaudeCLIProvider(LLMProvider):
         Args:
           append_system_prompt: text passed via --append-system-prompt at spawn.
             None or empty leaves the default Claude Code system prompt alone.
-          cwd: working directory for the subprocess. Defaults to $HOME so
-            relative paths in chat resolve to a stable, predictable location.
+          cwd: working directory for the subprocess. Defaults to $HOME for
+            stable, predictable resolution of relative paths. The app-level
+            builder (build_provider) overrides this with the user's
+            invocation cwd so "this codebase" resolves naturally — same
+            model as the bare `claude` CLI.
           permission_handler: optional callable
               (tool_name: str, tool_input: dict) -> dict
             Called from a pump thread on every PreToolUse event. Must return
@@ -111,6 +114,12 @@ class ClaudeCLIProvider(LLMProvider):
         self._append_system_prompt = append_system_prompt or None
         self._cwd = cwd or os.path.expanduser("~")
         self._permission_handler = permission_handler
+        # Optional progress narrator: callable (tool_name, tool_input) ->
+        # None, fired on every tool_use content block as the model emits
+        # them. Lets the chat runner post a "📖 reading X" line so the
+        # user isn't left in the dark during silent (auto-approved)
+        # tool runs. None disables narration.
+        self._progress_callback = None
 
         self._proc = None
         self._out_q = None
@@ -471,6 +480,16 @@ class ClaudeCLIProvider(LLMProvider):
             )
         self._permission_handler = handler
 
+    def set_progress_callback(self, callback):
+        """Late-bind the progress narrator.
+
+        Called once per tool_use block during streaming, on the pump
+        thread. Signature: (tool_name: str, tool_input: dict) -> None.
+        Exceptions raised by the callback are swallowed and logged so a
+        misbehaving narrator can't kill the turn.
+        """
+        self._progress_callback = callback
+
     def stop(self):
         """Cleanly shut down the subprocess + permission bridge. Idempotent.
 
@@ -756,8 +775,20 @@ class ClaudeCLIProvider(LLMProvider):
                 content = (payload.get("message") or {}).get("content") or []
                 parts = []
                 for block in content:
-                    if block.get("type") == "text":
+                    btype = block.get("type")
+                    if btype == "text":
                         parts.append(block.get("text", ""))
+                    elif btype == "tool_use" and self._progress_callback:
+                        try:
+                            self._progress_callback(
+                                block.get("name", ""),
+                                block.get("input") or {},
+                            )
+                        except Exception as exc:
+                            log.warning(
+                                f"ClaudeCLI: progress_callback raised on tool_use "
+                                f"{block.get('name', '')!r}: {exc}"
+                            )
                 if parts:
                     canonical_messages.append("".join(parts))
                 # An `assistant` event finalizes one sub-message of the turn.
