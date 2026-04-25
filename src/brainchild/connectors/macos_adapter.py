@@ -511,9 +511,8 @@ class MacOSAdapter(MeetingConnector):
             with sync_playwright() as p:
                 browser = p.chromium.launch_persistent_context(
                     user_data_dir=BROWSER_PROFILE,
-                    headless=False,
-                    executable_path="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                    args=["--use-fake-ui-for-media-stream", "--headless=new", "--mute-audio"],
+                    headless=True,
+                    args=["--use-fake-ui-for-media-stream", "--mute-audio"],
                 )
                 t_browser = time.monotonic()
                 log.info(f"TIMING browser_launch={t_browser - t_start:.1f}s")
@@ -620,6 +619,26 @@ class MacOSAdapter(MeetingConnector):
                         pass
 
                     # --- Pre-join screen actions ---
+
+                    # Dismiss the device-permission modal if it's covering
+                    # the pre-join controls. Variants: "Continue without
+                    # microphone and camera" link (has-text), or a camera-only
+                    # "Do you want people to see you" dialog with no decline
+                    # link (close via aria-label="Close"). Try the link first,
+                    # fall back to Escape, which dismisses any open dialog
+                    # without affecting the empty pre-join state.
+                    try:
+                        decline = page.get_by_text("Continue without microphone and camera")
+                        if decline.count() > 0 and decline.first.is_visible():
+                            decline.first.click()
+                            log.info("MacOSAdapter: dismissed device modal via decline link")
+                            page.wait_for_timeout(500)
+                        else:
+                            page.keyboard.press("Escape")
+                            log.debug("MacOSAdapter: sent Escape to dismiss any pre-join modal")
+                            page.wait_for_timeout(500)
+                    except Exception as e:
+                        log.debug(f"MacOSAdapter: pre-join modal dismiss skipped: {e}")
 
                     # Turn off camera and confirm before joining
                     t_prejoin = time.monotonic()
