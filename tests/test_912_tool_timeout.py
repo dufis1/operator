@@ -75,14 +75,15 @@ def _slow_tool_raising(delay, exc):
 # ---------------------------------------------------------------------------
 
 def test_fast_tool_no_heartbeat():
-    """Tool finishes well before the first heartbeat — no 'Still working' sent."""
+    """Tool finishes well before the first heartbeat — no verb ping sent."""
     runner, sent, llm, mcp = make_runner(heartbeat=1)
     mcp.execute_tool.side_effect = _slow_tool_returning(0.1)
     runner._pending_tool_call = {"id": "c1", "name": "fast__tool", "arguments": {}}
 
     runner._handle_confirmation("yes")
 
-    heartbeats = [m for m in sent if "Still working" in m]
+    # Heartbeats are present-participle verbs ending in "..." (Strutting…, Loping…, etc.)
+    heartbeats = [m for m in sent if m.endswith("...")]
     assert len(heartbeats) == 0, f"Expected no heartbeats, got: {sent}"
     llm.send_tool_result.assert_called_once()
     assert "Done." in sent, f"Expected 'Done.' in sent, got: {sent}"
@@ -101,7 +102,7 @@ def test_slow_tool_sends_heartbeat():
 
     runner._handle_confirmation("yes")
 
-    heartbeats = [m for m in sent if "Still working" in m]
+    heartbeats = [m for m in sent if m.endswith("...")]
     timeout_msgs = [m for m in sent if "timed out" in m.lower()]
 
     assert len(heartbeats) >= 1, f"Expected at least one heartbeat, got: {sent}"
@@ -113,11 +114,15 @@ def test_slow_tool_sends_heartbeat():
 
 
 # ---------------------------------------------------------------------------
-# Test 3: exponential backoff — interval doubles up to the cap
+# Test 3: fixed cadence — interval stays constant, does NOT back off
 # ---------------------------------------------------------------------------
 
-def test_heartbeat_interval_backs_off():
-    """First heartbeat at ~1s, second at ~1+2=3s — spacing should roughly double."""
+def test_heartbeat_interval_is_fixed_cadence():
+    """Two heartbeats at ~1s each — spacing should stay constant, not double.
+
+    Session 163 swapped exponential backoff for a fixed cadence: stretching
+    gaps read as 'the bot hung' to users; steady pings read as 'still alive'.
+    """
     runner, sent, llm, mcp = make_runner(heartbeat=1, heartbeat_max=8)
 
     stamps = []
@@ -127,20 +132,21 @@ def test_heartbeat_interval_backs_off():
         original_send(text)
     runner._send = _send_with_ts
 
-    mcp.execute_tool.side_effect = _slow_tool_returning(3.6)
+    mcp.execute_tool.side_effect = _slow_tool_returning(2.6)
     runner._pending_tool_call = {"id": "c3", "name": "slow__tool", "arguments": {}}
 
     t0 = time.monotonic()
     runner._handle_confirmation("yes")
-    heartbeats = [t for t, m in stamps if "Still working" in m]
+    # Heartbeat messages are present-participle verbs ending in "..." — not "Still working".
+    heartbeats = [t for t, m in stamps if m.endswith("...")]
 
-    assert len(heartbeats) >= 2, f"Expected at least 2 heartbeats in 3.6s, got {len(heartbeats)}: {stamps}"
+    assert len(heartbeats) >= 2, f"Expected at least 2 heartbeats in 2.6s, got {len(heartbeats)}: {stamps}"
     first_gap = heartbeats[0] - t0
     second_gap = heartbeats[1] - heartbeats[0]
-    # Backoff: first ~1s, second ~2s. Allow generous jitter for scheduler noise.
+    # Fixed cadence: both gaps ~1s. Allow generous jitter for scheduler noise.
     assert 0.8 <= first_gap <= 1.6, f"First heartbeat gap {first_gap:.2f}s outside [0.8, 1.6]"
-    assert 1.6 <= second_gap <= 2.8, f"Second heartbeat gap {second_gap:.2f}s outside [1.6, 2.8]"
-    print(f"PASS  test_heartbeat_interval_backs_off  first={first_gap:.2f}s second={second_gap:.2f}s")
+    assert 0.8 <= second_gap <= 1.6, f"Second heartbeat gap {second_gap:.2f}s outside [0.8, 1.6] (cadence should be fixed, not doubling)"
+    print(f"PASS  test_heartbeat_interval_is_fixed_cadence  first={first_gap:.2f}s second={second_gap:.2f}s")
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +195,7 @@ if __name__ == "__main__":
     tests = [
         test_fast_tool_no_heartbeat,
         test_slow_tool_sends_heartbeat,
-        test_heartbeat_interval_backs_off,
+        test_heartbeat_interval_is_fixed_cadence,
         test_mcp_timeout_is_signposted_to_llm,
         test_mcp_timeout_fallback_when_llm_fails,
     ]

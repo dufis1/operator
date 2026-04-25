@@ -578,15 +578,15 @@ class ChatRunner:
         self._dispatch_result(result)
 
     def _execute_and_respond(self, tc):
-        """Execute a tool call in a background thread with exponential-backoff
+        """Execute a tool call in a background thread with fixed-cadence
         heartbeats, then feed result to LLM.
 
         The MCP layer owns the actual timeout (per-server override → ship
         default → global fallback). This loop's only job is to keep chat
-        informed while the tool runs. Heartbeats start at
-        TOOL_HEARTBEAT_SECONDS and double up to TOOL_HEARTBEAT_MAX_SECONDS,
-        so short tasks get a quick reassurance and long tasks (e.g. a 10-min
-        Claude Code delegation) don't spam the chat.
+        informed while the tool runs. Heartbeats fire every
+        TOOL_HEARTBEAT_SECONDS — a steady cadence reads as alive, where
+        exponential backoff stretched the gap until users assumed the bot
+        had hung.
         """
         log.info(f"ChatRunner: auto-executing {tc['name']}")
         t_exec_start = time.monotonic()
@@ -605,10 +605,8 @@ class ChatRunner:
         threading.Thread(target=_run_tool, daemon=True).start()
 
         interval = config.TOOL_HEARTBEAT_SECONDS
-        max_interval = config.TOOL_HEARTBEAT_MAX_SECONDS
         while not done_event.wait(timeout=interval):
             self._send(f"{pick_heartbeat_verb()}...")
-            interval = min(interval * 2, max_interval)
 
         if error_holder[0]:
             e = error_holder[0]
