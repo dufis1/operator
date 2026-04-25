@@ -273,8 +273,12 @@ class AnthropicProvider(LLMProvider):
             if t_first_token is None:
                 watchdog_fired[0] = True
                 try:
+                    # Trailing newlines get stripped by Meet's DOM on read-back,
+                    # which broke own-message text-match detection — the watchdog
+                    # post got reprocessed as a user message and triggered a
+                    # cascade. Plain text avoids the mismatch.
                     on_paragraph(
-                        "Anthropic is taking longer than usual to respond — hang tight.\n\n"
+                        "Anthropic is taking longer than usual to respond — hang tight."
                     )
                 except Exception as e:  # never let watchdog errors bring down the call
                     log.warning(f"stuck-LLM watchdog post failed: {e}")
