@@ -273,7 +273,7 @@ def run_signin_step(
             )
         except Exception as e:
             console.print(f"  [yellow]⚠ re-auth failed: {e}[/yellow]")
-            console.print("  [dim]Keeping the previous session. You can re-run setup to retry.[/dim]")
+            console.print("  [dim]Keeping the previous session. You can re-run build to retry.[/dim]")
             return
         if email:
             console.print(f"  ✓ signed in as [bold]{email}[/bold]")
@@ -302,7 +302,7 @@ def run_signin_step(
     except Exception as e:
         console.print(f"  [yellow]⚠ sign-in failed: {e}[/yellow]")
         console.print(
-            "  [dim]Your bot config is saved. Re-run [bold]brainchild setup[/bold] "
+            "  [dim]Your bot config is saved. Re-run [bold]brainchild build[/bold] "
             "to retry sign-in, or sign in via the browser on first run.[/dim]"
         )
         return

@@ -12,6 +12,7 @@ import time
 
 from brainchild import config
 from brainchild.pipeline import ui
+from brainchild.pipeline.heartbeat_verbs import pick as pick_heartbeat_verb
 from brainchild.pipeline.meeting_record import MeetingRecord, slug_from_url
 
 log = logging.getLogger(__name__)
@@ -29,6 +30,12 @@ _SLASH_RE = re.compile(r"^/([A-Za-z0-9_\-]+)\s*")
 CONFIRM_ARG_MAX = 160   # threshold above which an arg is head…tail-truncated
 CONFIRM_ARG_HEAD = 70   # chars of head shown
 CONFIRM_ARG_TAIL = 50   # chars of tail shown
+
+# Min wall-clock spacing between streamed paragraph posts. Two reasons:
+# (a) Meet's chat panel rate-limits rapid sends and may swallow back-to-back
+# messages, (b) staggered posts give the user's eye a chance to register
+# each paragraph as a distinct message rather than a burst.
+STREAM_PARAGRAPH_MIN_INTERVAL = 0.25
 
 
 class ChatRunner:
@@ -401,7 +408,10 @@ class ChatRunner:
 
         try:
             tools = self._tools_for_llm()
-            result = self._llm.ask(text, tools=tools, extra_system=extra_system)
+            result = self._llm.ask(
+                text, tools=tools, extra_system=extra_system,
+                on_paragraph=self._streaming_callback(),
+            )
         except Exception as e:
             log.error(f"ChatRunner: LLM call failed: {e}")
             return
@@ -455,28 +465,33 @@ class ChatRunner:
         display_server = parts[0] if len(parts) == 2 else ""
         display_tool = parts[1] if len(parts) == 2 else name
 
-        # Render every argument. Truncate any single rendered arg past
-        # CONFIRM_ARG_MAX with head…tail so the confirmation stays readable
-        # in Meet chat but the user can still see both ends of the value.
+        # Render every argument on its own line so the confirmation is
+        # scannable. Strings show unquoted (less repr noise); other types
+        # use repr so dicts/lists/numbers stay unambiguous. Long values are
+        # head…tail-truncated; full payload is logged for cross-reference.
         truncated_any = False
         rendered = []
         for k, v in args.items():
-            r = repr(v)
+            r = v if isinstance(v, str) else repr(v)
             if len(r) > CONFIRM_ARG_MAX:
                 head = r[:CONFIRM_ARG_HEAD]
                 tail = r[-CONFIRM_ARG_TAIL:]
                 r = f"{head}…{tail}"
                 truncated_any = True
-            rendered.append(f"{k}={r}")
-        arg_summary = ", ".join(rendered) if rendered else "(no arguments)"
+            rendered.append(f"  • {k}: {r}")
 
-        msg = f"I'd like to run {display_tool}"
+        header = f"Run {display_tool}"
         if display_server:
-            msg += f" via {display_server}"
-        msg += f" with: {arg_summary}."
+            header += f" ({display_server})"
+        header += "?"
+
+        if rendered:
+            msg = header + "\n" + "\n".join(rendered)
+        else:
+            msg = header + "\n  (no arguments)"
         if truncated_any:
-            msg += " (Full values in /tmp/brainchild.log.)"
-        msg += " OK?"
+            msg += "\nFull values in /tmp/brainchild.log."
+        msg += "\nOK?"
         log.info(f"ChatRunner: requesting confirmation for {name} args={args!r}")
         self._send(msg, kind="confirmation")
 
@@ -503,7 +518,9 @@ class ChatRunner:
             try:
                 tools = self._tools_for_llm()
                 result = self._llm.send_tool_result(
-                    tc["id"], tc["name"], reason, tools=tools)
+                    tc["id"], tc["name"], reason, tools=tools,
+                    on_paragraph=self._streaming_callback(),
+                )
             except Exception as e:
                 log.warning(f"ChatRunner: correction result call failed: {e}")
                 return
@@ -520,7 +537,9 @@ class ChatRunner:
         if isinstance(result, str):
             self._send(result)
         elif result["type"] == "text":
-            self._send(result["content"])
+            # Streaming path already posted each paragraph via on_paragraph.
+            if not result.get("streamed"):
+                self._send(result["content"])
         elif result["type"] == "tool_call":
             if result["name"] == LOAD_SKILL_TOOL:
                 self._handle_load_skill(result)
@@ -548,7 +567,10 @@ class ChatRunner:
             )
         try:
             tools = self._tools_for_llm()
-            result = self._llm.send_tool_result(tc["id"], tc["name"], result_content, tools=tools)
+            result = self._llm.send_tool_result(
+                tc["id"], tc["name"], result_content, tools=tools,
+                on_paragraph=self._streaming_callback(),
+            )
         except Exception as e:
             log.error(f"ChatRunner: load_skill follow-up failed: {e}")
             self._send("Couldn't load that skill — check the logs.")
@@ -585,7 +607,7 @@ class ChatRunner:
         interval = config.TOOL_HEARTBEAT_SECONDS
         max_interval = config.TOOL_HEARTBEAT_MAX_SECONDS
         while not done_event.wait(timeout=interval):
-            self._send("Still working on that...")
+            self._send(f"{pick_heartbeat_verb()}...")
             interval = min(interval * 2, max_interval)
 
         if error_holder[0]:
@@ -612,7 +634,10 @@ class ChatRunner:
         # Feed result back to LLM — it may summarize or request another tool
         try:
             tools = self._tools_for_llm()
-            result = self._llm.send_tool_result(tc["id"], tc["name"], tool_result, tools=tools)
+            result = self._llm.send_tool_result(
+                tc["id"], tc["name"], tool_result, tools=tools,
+                on_paragraph=self._streaming_callback(),
+            )
         except Exception as e:
             log.error(f"ChatRunner: LLM summary failed: {e}")
             self._send("Tool succeeded but I couldn't summarize the result.")
@@ -632,12 +657,30 @@ class ChatRunner:
             tools = self._tools_for_llm()
             result = self._llm.send_tool_result(
                 tc["id"], tc["name"], error_signpost, tools=tools,
+                on_paragraph=self._streaming_callback(),
             )
         except Exception as llm_err:
             log.error(f"ChatRunner: LLM error-summary call failed: {llm_err}")
             self._send(fallback)
             return
         self._dispatch_result(result)
+
+    def _streaming_callback(self):
+        """Build an on_paragraph closure for the current LLM call.
+
+        Each invocation posts the paragraph via _send() (so it lands in chat
+        AND the meeting record). Enforces STREAM_PARAGRAPH_MIN_INTERVAL between
+        posts so Meet's chat panel doesn't swallow back-to-back messages and
+        so the user perceives each paragraph as a distinct chat bubble.
+        """
+        last = [0.0]
+        def on_paragraph(text: str):
+            elapsed = time.monotonic() - last[0]
+            if elapsed < STREAM_PARAGRAPH_MIN_INTERVAL:
+                time.sleep(STREAM_PARAGRAPH_MIN_INTERVAL - elapsed)
+            self._send(text)
+            last[0] = time.monotonic()
+        return on_paragraph
 
     def _send(self, text, kind: str = "chat"):
         """Send a chat message, append it to the meeting record, and track it as our own.

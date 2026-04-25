@@ -6,7 +6,7 @@ Usage:
     brainchild run <name> <url> Run named agent in a specific Meet
     brainchild run <name>       Auto-open a new Meet, join as that bot
     brainchild try <name>       Terminal test-drive (no Meet)
-    brainchild setup            Create a new agent (wizard)
+    brainchild build            Create a new agent (wizard)
     brainchild edit <target>    Open an agent config (or .env) in $EDITOR
     brainchild where <target>   Print the absolute path of a config file
     brainchild                  Print usage + agent list
@@ -345,7 +345,7 @@ def _print_usage():
     print("Usage:")
     print("  brainchild run <name> [url] Run an agent in a Meet (auto-opens one if no url)")
     print("  brainchild try <name>       Terminal test-drive (no Meet)")
-    print("  brainchild setup            Create a new agent (wizard)")
+    print("  brainchild build            Create a new agent (wizard)")
     print("  brainchild auth <mcp>       Authorize an OAuth MCP (Linear, etc.)")
     print("  brainchild edit <target>    Open an agent config (or .env) in $EDITOR")
     print("  brainchild where <target>   Print the absolute path of a config file")
@@ -437,9 +437,11 @@ def main():
 
     first = argv[0]
 
-    if first == "setup":
+    if first in ("build", "setup"):
+        # `setup` kept as undocumented alias for muscle memory after the
+        # build rename — not advertised in --help; safe to drop later.
         if len(argv) > 1:
-            print(f"Unexpected argument after 'setup': {argv[1]!r}\n")
+            print(f"Unexpected argument after 'build': {argv[1]!r}\n")
             _print_usage()
             return 2
         return _run_setup()

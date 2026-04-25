@@ -22,6 +22,7 @@ import asyncio
 import json
 import os
 import shutil
+import re
 import subprocess
 
 from mcp.server import Server
@@ -32,6 +33,15 @@ server = Server("claude_code")
 
 # repo_path (canonical) -> {"session_id": str, "worktree_path": str, "base_sha": str}
 _SESSIONS: dict[str, dict] = {}
+
+
+# Matches the inner `claude` CLI's auto-appended "[workdir: `...`]\n[repo: `...`]"
+# trailer (backticks around values; sometimes two-space markdown line breaks
+# before the newline). Anchored to end-of-string with optional trailing whitespace
+# so we never strip something that looks like the trailer mid-document.
+_CLAUDE_WORKTREE_TRAILER_RE = re.compile(
+    r"\n+\[workdir:\s*`[^`]+`\][ \t]*\n\[repo:\s*`[^`]+`\][ \t]*\Z"
+)
 
 
 def _canon(path: str) -> str:
@@ -272,23 +282,28 @@ async def _delegate(arguments: dict):
         session["session_id"] = new_session_id
 
     result = data.get("result", "")
-    duration_s = round(data.get("duration_ms", 0) / 1000, 1)
-    cost = data.get("total_cost_usd", 0)
-    workdir = _SESSIONS.get(repo_path, {}).get("worktree_path", "(unknown)")
-
-    footer = f"\n\n[workdir: {_rel_home(workdir)}]\n[repo: {_rel_home(repo_path)}]"
-    if duration_s or cost:
-        footer += f"\n[Completed in {duration_s}s, cost ${cost:.4f}]"
-
-    return [types.TextContent(type="text", text=result + footer)]
+    # The inner `claude` CLI appends its own "[workdir: `/tmp/...`]\n[repo:
+    # `name`]" trailer (with backticks, sometimes trailing two-space markdown
+    # line breaks) when run with --worktree. Strip it — same reasoning as the
+    # wrapper-side footer we removed: the LLM doesn't need it (worktree routing
+    # lives in _SESSIONS keyed by repo_path), and the streaming paragraph-flush
+    # would leak it as its own noise message in chat.
+    result = _CLAUDE_WORKTREE_TRAILER_RE.sub("", result).rstrip()
+    return [types.TextContent(type="text", text=result)]
 
 
 async def _run_claude(cmd: list[str], cwd: str):
     """Return (parsed_json_or_None, error_text_or_None)."""
     try:
+        # Explicitly close stdin: otherwise the inner `claude` CLI inherits the
+        # MCP server's stdin (the JSON-RPC stream from brainchild's parent), its
+        # startup stdin-probe sees that traffic, waits 3s, then bails with code 1
+        # ("no stdin data received in 3s, proceeding without it"). DEVNULL gives
+        # the probe an immediate EOF so it skips that path entirely.
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=cwd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

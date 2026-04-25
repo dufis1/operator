@@ -143,7 +143,7 @@ def _classify_startup_failure(exc: Exception, srv_config: dict) -> dict:
             "kind": "missing_creds",
             "vars": missing_vars,
             "fix": (
-                f"set {', '.join(missing_vars)} in .env and re-run setup — "
+                f"set {', '.join(missing_vars)} in .env and re-run build — "
                 f"server '{cmd}' is almost certainly crashing because of the empty credential"
             ),
             "raw": raw,
@@ -344,7 +344,7 @@ class MCPClient:
                 raise MCPToolError(
                     f"Tool '{tool_name}' unavailable — the '{disabled}' MCP server is "
                     f"disabled in this agent's config. Tell the user to enable it via "
-                    f"`brainchild setup` or by setting `enabled: true` under "
+                    f"`brainchild build` or by setting `enabled: true` under "
                     f"mcp_servers.{disabled} in ~/.brainchild/agents/<name>/config.yaml."
                 )
             raise MCPToolError(f"Unknown tool: {tool_name}")

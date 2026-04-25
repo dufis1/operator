@@ -1,4 +1,4 @@
-"""Tests for `brainchild setup` wizard (pipeline/setup.py).
+"""Tests for `brainchild build` wizard (pipeline/setup.py).
 
 Covers the individual helpers rather than end-to-end prompting — the rich
 prompts are easy to wire interactively but noisy to mock at scale, and the
@@ -43,7 +43,9 @@ def _make_skill_folder(root: Path, name: str, desc: str = "test skill") -> Path:
 def test_name_validation_reserved_and_collision():
     """_validate_name rejects reserved CLI verbs, bad chars, and existing bots."""
     # reserved
-    ok, reason = wizard._validate_name("setup")
+    ok, reason = wizard._validate_name("build")
+    assert not ok and "reserved" in reason.lower(), reason
+    ok, reason = wizard._validate_name("setup")  # legacy alias still reserved
     assert not ok and "reserved" in reason.lower(), reason
     ok, reason = wizard._validate_name("list")
     assert not ok and "reserved" in reason.lower(), reason

@@ -16,7 +16,40 @@ Neutral history message shape (what LLMClient stores and passes in):
 The system prompt is passed as its own `system` argument to complete(),
 not as a message with role="system".
 """
+import re
 from dataclasses import dataclass, field
+
+
+# Two-or-more consecutive newlines = paragraph boundary. Tightened to
+# require at least one is followed by a non-whitespace char on the next
+# break, but the simple `\n{2,}` split is what models actually emit.
+_PARAGRAPH_BOUNDARY_RE = re.compile(r"\n{2,}")
+# Lines made entirely of separator glyphs (`---`, `***`, `===`, `___`,
+# `~~~`, mixed) are visual decoration the model uses between paragraphs.
+# We drop them so they don't post as their own chat message.
+_DECORATION_RE = re.compile(r"^[\s\-=*_~]+$")
+
+
+def flush_paragraphs(buffer: str, on_paragraph, *, force_final: bool = False) -> str:
+    """Flush complete paragraphs from buffer; return the unflushed remainder.
+
+    Used by streaming providers. Splits on `\\n{2,}`, drops empty and
+    decoration-only fragments, calls on_paragraph(stripped_text) for the
+    rest. If force_final is True, the trailing partial paragraph is
+    flushed too (call once at end-of-stream).
+    """
+    parts = _PARAGRAPH_BOUNDARY_RE.split(buffer)
+    if force_final:
+        to_flush, remainder = parts, ""
+    else:
+        # Trailing partial may still be growing — keep buffered.
+        to_flush, remainder = parts[:-1], parts[-1]
+    for piece in to_flush:
+        stripped = piece.strip()
+        if not stripped or _DECORATION_RE.match(stripped):
+            continue
+        on_paragraph(stripped)
+    return remainder
 
 
 class ContextOverflowError(Exception):
@@ -84,6 +117,22 @@ class LLMProvider:
         Tool-call streaming is not part of this interface.
         """
         raise NotImplementedError
+
+    def complete_streaming(
+        self, system, messages, model, max_tokens, tools=None, on_paragraph=None,
+    ):
+        """Same contract as complete(), but flushes paragraphs as they arrive.
+
+        on_paragraph(text: str) is invoked for each completed paragraph (split
+        on `\\n{2,}` boundaries, decoration-only fragments dropped) — including
+        the trailing partial at end-of-stream. Returns a ProviderResponse with
+        the FULL accumulated text in `text` so the caller can record it; tool
+        calls and stop_reason follow the same shape as complete().
+
+        If on_paragraph is None, providers may fall back to non-streaming
+        behaviour. Default implementation does exactly that.
+        """
+        return self.complete(system, messages, model, max_tokens, tools=tools)
 
     def warmup(self, model):
         """Fire a 1-token request to warm the TCP/TLS connection pool."""

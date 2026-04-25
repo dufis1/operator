@@ -8,6 +8,7 @@ long" BadRequestError into the provider-agnostic ContextOverflowError.
 """
 import logging
 import time
+from datetime import datetime, timezone
 
 import anthropic
 
@@ -18,7 +19,65 @@ from brainchild.pipeline.providers.base import (
     ContextOverflowError,
     ToolCall,
     ProviderResponse,
+    flush_paragraphs,
 )
+
+
+# Rate-limit retry policy. The common 429 case is "your tier's per-minute
+# input-token bucket hasn't replenished yet" — a sliding window. The headers
+# tell us when the bucket resets, so we sleep exactly that long and retry.
+# Capped at MAX_SLEEP_SECONDS so we never block the meeting on a permanently
+# undersized tier — after that, we surface the error to the user.
+RATE_LIMIT_MAX_RETRIES = 2
+RATE_LIMIT_MAX_SLEEP_SECONDS = 60
+RATE_LIMIT_FALLBACK_SLEEP_SECONDS = 30
+
+
+def _compute_retry_sleep(err) -> float:
+    """Read Anthropic's rate-limit headers and compute how long to sleep before retrying.
+
+    Falls back to RATE_LIMIT_FALLBACK_SLEEP_SECONDS if the headers are absent
+    or unparseable. Never sleeps more than RATE_LIMIT_MAX_SLEEP_SECONDS so a
+    misconfigured retry header can't stall the meeting indefinitely.
+    """
+    headers = getattr(getattr(err, "response", None), "headers", {}) or {}
+    retry_after = headers.get("retry-after")
+    if retry_after:
+        try:
+            return min(max(float(retry_after), 1.0), RATE_LIMIT_MAX_SLEEP_SECONDS)
+        except (TypeError, ValueError):
+            pass
+    reset = headers.get("anthropic-ratelimit-input-tokens-reset")
+    if reset:
+        try:
+            reset_dt = datetime.fromisoformat(reset.replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            delta = (reset_dt - now).total_seconds() + 1.0  # +1s safety margin
+            return max(1.0, min(delta, RATE_LIMIT_MAX_SLEEP_SECONDS))
+        except (TypeError, ValueError):
+            pass
+    return RATE_LIMIT_FALLBACK_SLEEP_SECONDS
+
+
+def _log_rate_limit(err, *, attempt: int, retrying: bool, sleep_s: float = 0.0):
+    """One canonical log line for 429s — diagnostic detail + what we're doing about it."""
+    headers = getattr(getattr(err, "response", None), "headers", {}) or {}
+    itpm = headers.get("anthropic-ratelimit-input-tokens-limit", "?")
+    reset = headers.get("anthropic-ratelimit-input-tokens-reset", "?")
+    if retrying:
+        log.warning(
+            "Anthropic rate limit hit (HTTP 429, attempt %d/%d). Tier caps input tokens "
+            "at %s/min; resets at %s. Sleeping %.0fs and retrying.",
+            attempt, RATE_LIMIT_MAX_RETRIES + 1, itpm, reset, sleep_s,
+        )
+    else:
+        log.error(
+            "Anthropic rate limit hit (HTTP 429, exhausted %d retries). Tier caps input "
+            "tokens at %s/min; resets at %s. Raise your tier at console.anthropic.com "
+            "→ Plans & Billing, or reduce the MCP tool count in config.yaml (each tool "
+            "schema costs input tokens on every call).",
+            RATE_LIMIT_MAX_RETRIES, itpm, reset,
+        )
 
 
 def _neutral_to_anthropic_messages(messages):
@@ -142,24 +201,22 @@ class AnthropicProvider(LLMProvider):
             # Mirror OpenAI's parallel_tool_calls=False. Revisit post-MVP.
             kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
         t_start = time.monotonic()
-        try:
-            response = self._client.messages.create(**kwargs)
-        except anthropic.BadRequestError as e:
-            if _is_context_overflow(e):
-                raise ContextOverflowError() from e
-            raise
-        except anthropic.RateLimitError as e:
-            headers = getattr(getattr(e, "response", None), "headers", {}) or {}
-            itpm = headers.get("anthropic-ratelimit-input-tokens-limit", "?")
-            reset = headers.get("anthropic-ratelimit-input-tokens-reset", "?")
-            log.error(
-                "Anthropic rate limit hit (HTTP 429). Your tier caps input tokens "
-                "at %s/min; resets at %s. Raise your tier at console.anthropic.com "
-                "→ Plans & Billing, or reduce the MCP tool count in config.yaml "
-                "(each tool schema costs input tokens on every call).",
-                itpm, reset,
-            )
-            raise
+        for attempt in range(1, RATE_LIMIT_MAX_RETRIES + 2):
+            try:
+                response = self._client.messages.create(**kwargs)
+                break
+            except anthropic.BadRequestError as e:
+                if _is_context_overflow(e):
+                    raise ContextOverflowError() from e
+                raise
+            except anthropic.RateLimitError as e:
+                if attempt <= RATE_LIMIT_MAX_RETRIES:
+                    sleep_s = _compute_retry_sleep(e)
+                    _log_rate_limit(e, attempt=attempt, retrying=True, sleep_s=sleep_s)
+                    time.sleep(sleep_s)
+                    continue
+                _log_rate_limit(e, attempt=attempt, retrying=False)
+                raise
 
         elapsed = time.monotonic() - t_start
         usage = getattr(response, "usage", None)
@@ -177,6 +234,76 @@ class AnthropicProvider(LLMProvider):
             )
 
         return _anthropic_response_to_neutral(response)
+
+    def complete_streaming(
+        self, system, messages, model, max_tokens, tools=None, on_paragraph=None,
+    ):
+        if on_paragraph is None:
+            return self.complete(system, messages, model, max_tokens, tools=tools)
+
+        kwargs = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": _neutral_to_anthropic_messages(messages),
+        }
+        if system:
+            kwargs["system"] = [{
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }]
+        if tools:
+            kwargs["tools"] = _openai_tools_to_anthropic(tools)
+            kwargs["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
+
+        t_start = time.monotonic()
+        # 429s in the streaming path occur at request initiation (input-token
+        # check happens before any text is produced), so retrying here cannot
+        # cause partial paragraphs to post twice — buffer is reset per attempt.
+        for attempt in range(1, RATE_LIMIT_MAX_RETRIES + 2):
+            buffer = ""
+            try:
+                with self._client.messages.stream(**kwargs) as stream:
+                    for text in stream.text_stream:
+                        if not text:
+                            continue
+                        buffer += text
+                        if "\n\n" in buffer:
+                            buffer = flush_paragraphs(buffer, on_paragraph)
+                    final = stream.get_final_message()
+                break
+            except anthropic.BadRequestError as e:
+                if _is_context_overflow(e):
+                    raise ContextOverflowError() from e
+                raise
+            except anthropic.RateLimitError as e:
+                if attempt <= RATE_LIMIT_MAX_RETRIES:
+                    sleep_s = _compute_retry_sleep(e)
+                    _log_rate_limit(e, attempt=attempt, retrying=True, sleep_s=sleep_s)
+                    time.sleep(sleep_s)
+                    continue
+                _log_rate_limit(e, attempt=attempt, retrying=False)
+                raise
+
+        if buffer.strip():
+            flush_paragraphs(buffer, on_paragraph, force_final=True)
+
+        elapsed = time.monotonic() - t_start
+        usage = getattr(final, "usage", None)
+        if usage is not None:
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+            cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+            inp = getattr(usage, "input_tokens", 0) or 0
+            out_tok = getattr(usage, "output_tokens", 0) or 0
+            total_in = inp + cache_read + cache_create
+            cache_pct = (cache_read * 100 // total_in) if total_in else 0
+            log.info(
+                f"TIMING llm_call={elapsed:.1f}s streamed=1 "
+                f"TOKENS in={inp} cache_read={cache_read} cache_create={cache_create} "
+                f"out={out_tok} cache_hit={cache_pct}%"
+            )
+
+        return _anthropic_response_to_neutral(final)
 
     def complete_stream(self, system, messages, model, max_tokens):
         kwargs = {

@@ -25,7 +25,7 @@ SKILL.md frontmatter:
     outside SUPPORTED_ALLOWED_TOOLS logs a WARN but still loads.
   - `mcp-required` (alias `mcp_required`) — optional list/csv of MCP
     server names this skill fundamentally relies on. Consumed by the
-    setup wizard to lock matching MCP toggles on. Missing = no declared
+    build wizard to lock matching MCP toggles on. Missing = no declared
     deps (honest default). User-authored skills that omit this field
     load unconditionally; the runtime safety net in
     mcp_client.disabled_server_for_tool raises an actionable
@@ -68,7 +68,7 @@ class Skill:
     body: str
     allowed_tools: list[str] = field(default_factory=list)
     # MCP servers whose tools this skill fundamentally relies on. Consumed by
-    # the setup wizard to preseed enabled=true on the MCP step and to grey out
+    # the build wizard to preseed enabled=true on the MCP step and to grey out
     # toggles the user can't safely disable. Missing field → empty list → no
     # declared deps (honest default; runtime falls back on the granular
     # "disabled server" error in mcp_client.disabled_server_for_tool).

@@ -242,7 +242,7 @@ class LLMClient:
             messages.append({"role": "user", "content": extra_user_msg})
         return messages
 
-    def ask(self, message, record=True, tools=None, extra_system: str = ""):
+    def ask(self, message, record=True, tools=None, extra_system: str = "", on_paragraph=None):
         """Send a message to the LLM and return the reply.
 
         ChatRunner is expected to have appended this message to the meeting
@@ -254,6 +254,11 @@ class LLMClient:
         When tools is provided (chat + MCP): returns a dict with either:
           {"type": "text", "content": "..."}
           {"type": "tool_call", "id": "...", "name": "...", "arguments": {...}}
+
+        If `on_paragraph` is provided, the provider streams the reply and
+        invokes the callback with each completed paragraph as it arrives.
+        Returned text dicts include {"streamed": True} so the caller knows
+        not to re-post the content.
         """
         # New user turn — drop any stale tool-loop scratch
         self._scratch = []
@@ -266,19 +271,29 @@ class LLMClient:
         log.info(
             f"LLM ask model={config.LLM_MODEL} max_tokens={self._max_tokens} "
             f"messages={len(messages)} prompt_chars={len(message)} "
-            f"tools={len(tools) if tools else 0}"
+            f"tools={len(tools) if tools else 0} streaming={bool(on_paragraph)}"
         )
         log.debug(f"LLM message: {message}")
 
         system_text = self._system_prompt + extra_system if extra_system else self._system_prompt
         try:
-            response = self._provider.complete(
-                system=system_text,
-                messages=messages,
-                model=config.LLM_MODEL,
-                max_tokens=self._max_tokens,
-                tools=tools,
-            )
+            if on_paragraph is not None:
+                response = self._provider.complete_streaming(
+                    system=system_text,
+                    messages=messages,
+                    model=config.LLM_MODEL,
+                    max_tokens=self._max_tokens,
+                    tools=tools,
+                    on_paragraph=on_paragraph,
+                )
+            else:
+                response = self._provider.complete(
+                    system=system_text,
+                    messages=messages,
+                    model=config.LLM_MODEL,
+                    max_tokens=self._max_tokens,
+                    tools=tools,
+                )
         except ContextOverflowError:
             log.warning("LLM context length exceeded — shrinking replay window")
             self._max_messages = max(2, self._max_messages // 2)
@@ -289,15 +304,19 @@ class LLMClient:
 
         if not tools:
             reply = response.text
-            log.info(f"LLM reply=\"{reply[:80]}\"")
+            log.info(f"LLM reply=\"{(reply or '')[:80]}\"")
             return reply
 
         if response.tool_calls:
             tc = response.tool_calls[0]
             log.info(f"LLM tool_call name={tc.name}")
+            # When streamed, any interleaved text is already in the meeting
+            # record via the on_paragraph callback. Setting scratch.content to
+            # None prevents a second copy from re-entering the next prompt
+            # (where tail-from-record + scratch would both carry the same text).
             self._scratch.append({
                 "role": "assistant",
-                "content": response.text,
+                "content": None if on_paragraph is not None else response.text,
                 "tool_calls": response.tool_calls,
             })
             return {
@@ -307,7 +326,9 @@ class LLMClient:
                 "arguments": tc.args,
             }
         reply = response.text
-        log.info(f"LLM reply=\"{reply[:80]}\"")
+        log.info(f"LLM reply=\"{(reply or '')[:80]}\"")
+        if on_paragraph is not None:
+            return {"type": "text", "content": reply, "streamed": True}
         return {"type": "text", "content": reply}
 
     def ask_stream(self, message):
@@ -342,15 +363,27 @@ class LLMClient:
         full visibility into what it can actually do this session.
         """
         prompt = (
-            "Introduce yourself to the meeting in chat. Constraints:\n"
+            f"Introduce yourself to the meeting in chat. Your name is "
+            f"\"{config.AGENT_NAME}\" — use that exact name; do not invent "
+            f"a different one.\n"
+            "Constraints:\n"
+            "- Open with a brief greeting word ('Hey', 'Hi', 'Greetings', "
+            "'Howdy', 'Hello' — pick one that matches your personality), "
+            f"then \"I'm\" or \"I am\", then your name (\"{config.AGENT_NAME}\"), "
+            "then a dash or sentence break, then the substance. The shape is "
+            f"\"<greeting>, I'm {config.AGENT_NAME} — <substance>.\" "
+            f"NEVER write \"<greeting>, {config.AGENT_NAME}\" alone — that reads "
+            f"like you're greeting someone named {config.AGENT_NAME} instead of "
+            f"introducing yourself. No 'everyone!', no extra filler.\n"
             "- Keep it tight: two mid-size sentences, or up to three short "
             "ones. Aim for ~30 words total; never exceed 45.\n"
-            "- Cover two things only: who you are (one line), and 1–2 brief "
-            "use cases framed as 'I can …'. No third use case, no elaboration.\n"
+            "- After the greeting, cover two things only: who you are "
+            "(one line), and 1–2 brief use cases framed as 'I can …'. "
+            "No third use case, no elaboration.\n"
             "- Focus on outcomes, not mechanisms. Never name specific tools, "
             "MCP servers, or skill names.\n"
-            "- No greeting filler ('Hi everyone!'), no offers to help, no "
-            "questions back. Lead with substance.\n"
+            "- No offers to help, no questions back. Lead with substance "
+            "after the greeting.\n"
             "- Plain text. No markdown, no bullet block, no headings."
         )
         response = self._provider.complete(
@@ -364,11 +397,16 @@ class LLMClient:
         log.info(f"LLM intro generated ({len(text)} chars): \"{text[:80]}\"")
         return text
 
-    def send_tool_result(self, tool_call_id: str, tool_name: str, result_content: str, tools=None):
+    def send_tool_result(
+        self, tool_call_id: str, tool_name: str, result_content: str, tools=None,
+        on_paragraph=None,
+    ):
         """Feed a tool result back to the model and get the next response.
 
         Returns a plain string when tools is None, or a dict like ask() when
-        tools is provided.
+        tools is provided. If `on_paragraph` is provided, the model's reply is
+        streamed and each completed paragraph fires the callback; the returned
+        text dict carries {"streamed": True}.
         """
         if len(result_content) > config.TOOL_RESULT_MAX_CHARS:
             shown = config.TOOL_RESULT_MAX_CHARS
@@ -394,13 +432,23 @@ class LLMClient:
 
         messages = self._build_messages()
         try:
-            response = self._provider.complete(
-                system=self._system_prompt,
-                messages=messages,
-                model=config.LLM_MODEL,
-                max_tokens=self._max_tokens,
-                tools=tools,
-            )
+            if on_paragraph is not None:
+                response = self._provider.complete_streaming(
+                    system=self._system_prompt,
+                    messages=messages,
+                    model=config.LLM_MODEL,
+                    max_tokens=self._max_tokens,
+                    tools=tools,
+                    on_paragraph=on_paragraph,
+                )
+            else:
+                response = self._provider.complete(
+                    system=self._system_prompt,
+                    messages=messages,
+                    model=config.LLM_MODEL,
+                    max_tokens=self._max_tokens,
+                    tools=tools,
+                )
         except ContextOverflowError:
             log.warning("LLM context length exceeded in tool result — shrinking replay window")
             self._max_messages = max(2, self._max_messages // 2)
@@ -415,7 +463,7 @@ class LLMClient:
             log.info(f"LLM follow-up tool_call name={tc.name}")
             self._scratch.append({
                 "role": "assistant",
-                "content": response.text,
+                "content": None if on_paragraph is not None else response.text,
                 "tool_calls": response.tool_calls,
             })
             return {
@@ -426,10 +474,13 @@ class LLMClient:
             }
 
         reply = response.text
-        log.info(f"LLM tool summary=\"{reply[:80]}\"")
+        log.info(f"LLM tool summary=\"{(reply or '')[:80]}\"")
         # Final text closes the tool loop — drop protocol scratch; the summary
-        # lands in the meeting record via ChatRunner._send().
+        # lands in the meeting record via ChatRunner._send() (or via the
+        # on_paragraph callback if streaming).
         self._scratch = []
         if tools:
+            if on_paragraph is not None:
+                return {"type": "text", "content": reply, "streamed": True}
             return {"type": "text", "content": reply}
         return reply

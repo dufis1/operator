@@ -81,7 +81,7 @@ def test_execute_tool_raises_actionable_error_for_disabled_server():
             msg = str(e)
             assert "linear" in msg, f"error should name the disabled server: {msg!r}"
             assert "disabled" in msg.lower(), f"error should explain state: {msg!r}"
-            assert "brainchild setup" in msg or "enabled: true" in msg, (
+            assert "brainchild build" in msg or "enabled: true" in msg, (
                 f"error should carry remediation: {msg!r}"
             )
         else:

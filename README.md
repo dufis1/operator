@@ -11,7 +11,7 @@ brainchild try pm                                        # terminal test-drive, 
 brainchild                                               # show available agents
 ```
 
-`pm` is a sample bot under `agents/`. Drop in `brainchild setup` to create your own.
+`pm` is a sample bot under `agents/`. Drop in `brainchild build` to create your own.
 
 ## Privacy & logs
 

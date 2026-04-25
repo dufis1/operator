@@ -1,4 +1,4 @@
-"""`brainchild setup` wizard — Phase 15.5.5.
+"""`brainchild build` wizard — Phase 15.5.5.
 
 Builds a new `agents/<name>/` bundle, or rewrites an existing one in place,
 through a seven-step guided TUI:
@@ -78,7 +78,7 @@ _PM_CONFIG = _BUNDLED_AGENTS_DIR / "pm" / "config.yaml"
 
 # Subcommand verbs the CLI reserves — a from-scratch bot can't use them as
 # a name because `brainchild <reserved>` would never dispatch to the bot.
-RESERVED_NAMES = {"setup", "list", "try"}
+RESERVED_NAMES = {"build", "setup", "list", "try"}
 # Lowercase start-with-letter, alphanumeric + dash/underscore, up to 32 chars.
 NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
 
@@ -262,7 +262,7 @@ def _step1_fighter_select() -> WizardState:
             console.print(f"  [red]✗ claude preset requires Claude Code:[/red] {reason}")
             console.print(
                 "  [dim]Install Claude Code (https://claude.ai/code) and run "
-                "`claude login`, then re-run `brainchild setup`.[/dim]\n"
+                "`claude login`, then re-run `brainchild build`.[/dim]\n"
             )
             return _step1_fighter_select()
     return _edit_preset(picked.value)
@@ -358,7 +358,7 @@ def _auto_import_claude_setup(state: WizardState) -> None:
     servers = state.bot_cfg.setdefault("mcp_servers", {})
 
     with console.status(
-        "[dim]wiring in your Claude Code skills, MCPs, and CLAUDE.md[/dim]",
+        "[dim]wiring in your Claude skills, MCPs, and CLAUDE.md[/dim]",
         spinner="simpleDots",
     ):
         mcps, wrapped = discover_all_mcps()
@@ -848,6 +848,9 @@ def _step4_system_prompt(state: WizardState) -> None:
             console.print("  [green]✓[/green] ~/.claude/CLAUDE.md appended to ground rules.")
 
 
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _prompt_with_hint(hint: str, *, dim: bool = True) -> str:
     """Single-line input. Hint is printed one line above — a workable
     stand-in for the in-field placeholder we'd use with prompt_toolkit.
@@ -855,11 +858,18 @@ def _prompt_with_hint(hint: str, *, dim: bool = True) -> str:
     ``dim`` controls whether the hint renders in Rich's dim style (default)
     or at full brightness. Opt out when the hint is a user-facing instruction
     that belongs on the same visual tier as the prompt question above it.
+
+    Control characters (ESC/Ctrl-X/etc.) are stripped from the result. Rich's
+    Prompt.ask captures raw stdin bytes; an accidental Escape press becomes a
+    single-char input ("\\x1b") that's truthy and survives `.strip()` — which
+    has corrupted downstream YAML/env writes (personality field showing up as
+    literal "\\e", etc.).
     """
     style = "[dim]" if dim else ""
     close = "[/dim]" if dim else ""
     console.print(f"  {style}{hint}{close}")
-    return Prompt.ask("  ›", default="", show_default=False)
+    raw = Prompt.ask("  ›", default="", show_default=False)
+    return _CONTROL_CHARS_RE.sub("", raw)
 
 
 # ── Step 5 — API keys ─────────────────────────────────────────────────────
@@ -995,7 +1005,7 @@ def _write_readme(path: Path, name: str, bot_cfg: dict) -> None:
         "Skills and MCPs are independent in this bundle — enabling a skill\n"
         "that references an MCP tool doesn't auto-enable the MCP, and vice\n"
         "versa. If a skill asks for a tool that isn't wired, the model will\n"
-        "either ask for it or degrade gracefully. Re-run `brainchild setup`\n"
+        "either ask for it or degrade gracefully. Re-run `brainchild build`\n"
         "and pick this agent as a preset to adjust either list.\n"
     )
     path.write_text(body, encoding="utf-8")
@@ -1026,7 +1036,7 @@ def _reveal(state: WizardState) -> None:
 def run(argv: list[str]) -> int:
     """CLI entry. argv is ignored today; kept for future flags like --dry-run."""
     console.print()
-    console.print("[bold]Brainchild setup wizard[/bold]")
+    console.print("[bold]Brainchild build wizard[/bold]")
     console.print("[dim]Six steps + sign-in. Ctrl+C / q at any picker cancels without writing.[/dim]\n")
     try:
         state = _step1_fighter_select()
@@ -1060,7 +1070,7 @@ def run(argv: list[str]) -> int:
         console.print("\nCancelled.")
         return 1
     except Exception as e:
-        console.print(f"\n✗ setup failed: {e}")
+        console.print(f"\n✗ build failed: {e}")
         raise
 
     console.print()

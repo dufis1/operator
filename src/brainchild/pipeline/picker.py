@@ -1,4 +1,4 @@
-"""Arrow-key picker primitives for the `brainchild setup` wizard.
+"""Arrow-key picker primitives for the `brainchild build` wizard.
 
 Two flavors share one rendering core:
 

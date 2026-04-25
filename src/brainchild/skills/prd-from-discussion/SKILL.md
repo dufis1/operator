@@ -31,8 +31,12 @@ section that has nothing to say — do not pad with filler.
 - **Flag missing sections explicitly.** If the discussion never named a user
   or never stated a goal, write `Goal — not stated in discussion` rather than
   inventing one. The missing pieces are part of the signal.
-- **Keep it to one message.** Chat panel, not a doc. If it's too long for
-  one reply, emit the top sections and say "continuing…" then send the rest.
+- **Keep it to one turn, one section per paragraph.** Separate each PRD
+  section with a blank line so the harness flushes them as distinct
+  Meet messages — readable without overwhelming the chat panel. Don't
+  say "continuing…" or split across turns; deliver the whole PRD
+  (Problem → User → Goal → Scope → Non-goals → Open questions →
+  Owner / next step) in one go.
 - **Do not file a Linear ticket as a side effect.** This skill only drafts.
   If the user wants it filed, they'll ask — use `save_issue` then.
 - **Cite owners by name only if the discussion named them.** Do not assign

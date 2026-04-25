@@ -56,7 +56,7 @@ matches — a failure gets a 🔄 and a note of what actually happened.
 
 ### Phase 15.7.4 — wizard readiness status screen + inline OAuth (session 149)
 
-- **Setup:** Run `brainchild setup`. Pick a preset (or "custom"), then at
+- **Setup:** Run `brainchild build`. Pick a preset (or "custom"), then at
   step 2 (Tools) toggle a mix: enable `claude-code` + `linear` + one
   env-auth MCP whose token is missing from `.env` (e.g. notion with
   `NOTION_API_KEY` unset).
@@ -146,7 +146,7 @@ test matrix — one run per MCP to confirm tools appear in
 - **calendar (`@cocal/google-calendar-mcp`):**
   - Setup: download `credentials.json` from Google Cloud Console; set
     `GOOGLE_OAUTH_CREDENTIALS=/abs/path/to/credentials.json` in `.env`;
-    enable on PM via `brainchild setup`.
+    enable on PM via `brainchild build`.
   - Verify: first run pops OAuth consent page in browser; `list-calendars`
     returns at least the user's primary calendar; `list-events` with a
     1-week window returns real events.
@@ -207,7 +207,7 @@ test matrix — one run per MCP to confirm tools appear in
 ### Phase 15.9 — `claude` bundled agent (session 151)
 
 - **Wizard preset live pick:**
-  - Run `brainchild setup`, pick `claude` from the fighter-select gallery
+  - Run `brainchild build`, pick `claude` from the fighter-select gallery
     on a machine where Claude Code is installed + logged in.
   - Verify: step 1 shows the agent, selection proceeds (not blocked),
     step 2 shows auto-imported MCPs pre-ticked in the picker (expect

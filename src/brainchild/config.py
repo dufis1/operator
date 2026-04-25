@@ -70,7 +70,7 @@ SYSTEM_PROMPT = "\n\n".join(b for b in (PERSONALITY, GROUND_RULES) if b)
 # Legacy `skills.paths: [...]` shape (pre-15.11) is still accepted — we
 # translate it in-memory: external_paths = the legacy list, enabled =
 # every skill name discovered by scanning those paths. A one-line INFO
-# nudges the user to re-run `brainchild setup` to update the file.
+# nudges the user to re-run `brainchild build` to update the file.
 _skills = _config.get("skills") or {}
 SKILLS_SHARED_LIBRARY         = Path.home() / ".brainchild" / "skills"
 SKILLS_PROGRESSIVE_DISCLOSURE = _skills.get("progressive_disclosure", True)
@@ -105,7 +105,7 @@ elif _legacy_paths:
     _skills_logging.getLogger("config").info(
         f"SKILLS: legacy 'paths' config shape detected — translating in-memory "
         f"to enabled={SKILLS_ENABLED} + external_paths={SKILLS_EXTERNAL_PATHS}. "
-        f"Re-run `brainchild setup` to update the file."
+        f"Re-run `brainchild build` to update the file."
     )
 else:
     SKILLS_ENABLED        = []
@@ -130,7 +130,7 @@ CAPTIONS_ENABLED        = _transcript.get("captions_enabled", False)
 ALONE_EXIT_GRACE_SECONDS   = 60    # once we've seen a peer and they leave, exit after this many seconds
 LOBBY_WAIT_SECONDS         = 600   # max wait in Meet waiting room for host to admit us
 CAPTION_SILENCE_SECONDS    = 0.7   # dead-air gap before a buffered caption chunk commits to history
-MAX_TOKENS                 = 1000  # runaway guard on LLM output; "be brief" system-prompt does the real shaping
+MAX_TOKENS                 = 2000  # runaway guard on LLM output; "be brief" system-prompt does the real shaping. Bumped from 1000 in session 159 — multi-paragraph skill outputs (codebase-walkthrough, migration-plan) need ~1200–1800 tokens to deliver entry-point through closing-question without truncation.
 TOOL_RESULT_MAX_CHARS      = 50000 # truncate a single tool result above this length before feeding to the LLM
 TOOL_TIMEOUT_SECONDS       = 60    # global per-tool-call ceiling; per-server default/override beats this
 TOOL_HEARTBEAT_SECONDS     = 8     # initial interval for "still working..." during a long tool call
@@ -242,7 +242,7 @@ MCP_SERVERS = {}
 DISABLED_MCP_SERVERS = {}
 for _name, _srv in _config.get("mcp_servers", {}).items():
     # Blocks with `enabled: false` are declared but dormant — kept in config so
-    # the setup wizard can toggle them on without re-authoring env/hints/tools.
+    # the build wizard can toggle them on without re-authoring env/hints/tools.
     # Default is enabled when the field is absent (backward-compat).
     if not _srv.get("enabled", True):
         DISABLED_MCP_SERVERS[_name] = {}

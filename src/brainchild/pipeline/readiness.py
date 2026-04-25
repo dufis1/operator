@@ -29,16 +29,19 @@ import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 from brainchild.pipeline.oauth_cache import oauth_cache_exists
 
-# Ensure repo-root .env is in os.environ before we inspect it. Idempotent
-# and override=False, so runtime pre-flight (where config.py already
-# called this) is a no-op, and wizard calls (which import readiness
-# before any config import) see the same secrets the runtime would.
-load_dotenv(override=False)
+# Ensure ~/.brainchild/.env is in os.environ before we inspect it.
+# Idempotent and override=False, so runtime pre-flight (where config.py
+# already called this) is a no-op, and wizard calls (which import
+# readiness before any config import) see the same secrets the runtime
+# would. Path must match config.ENV_FILE — duplicated here to avoid
+# importing config (which requires BRAINCHILD_BOT to be set).
+load_dotenv(Path.home() / ".brainchild" / ".env", override=False)
 
 _ENV_REF_RE = re.compile(r"\$\{([A-Z_][A-Z0-9_]*)\}")
 

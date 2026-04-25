@@ -183,7 +183,7 @@ re-authoring env/tools/hints.
 | Field | Type | Default | What it does |
 |---|---|---|---|
 | `enabled` | bool | `true` | Master switch. `false` = skip this server at load time. |
-| `description` | string | `""` | One-line description of what this server does, shown in the `brainchild setup` wizard's power-ups picker. Wizard-only; runtime ignores it. |
+| `description` | string | `""` | One-line description of what this server does, shown in the `brainchild build` wizard's power-ups picker. Wizard-only; runtime ignores it. |
 | `command` | string | required | Executable to run (e.g. `npx`, `./github-mcp-server`). |
 | `args` | list of strings | `[]` | Args passed to `command`. |
 | `env` | map | `{}` | Env vars for the server process. `${VAR}` is substituted from your repo-root `.env`; an empty/missing value logs a warning at startup. |

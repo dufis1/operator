@@ -7,8 +7,9 @@ Covers `__main__.py`:
     - _bot_tagline: yaml agent.tagline preferred; README fallback; neither → ""
   main() dispatch
     - no args / -h → usage, returns 0
-    - `setup` → _run_setup()
-    - `setup` with extra args → returns 2
+    - `build` → _run_setup()
+    - `setup` (legacy alias) → _run_setup()
+    - `build` with extra args → returns 2
     - `try <name>` → _run_try(name)
     - `try` with no name → returns 2
     - unknown flag → returns 2
@@ -193,8 +194,20 @@ def test_main_help_flag_prints_usage_and_returns_zero():
     print("PASS  test_main_help_flag_prints_usage_and_returns_zero")
 
 
-def test_main_setup_dispatches_with_no_args():
-    """setup subcommand invokes _run_setup with no arguments."""
+def test_main_build_dispatches_with_no_args():
+    """build subcommand invokes _run_setup with no arguments."""
+    spy = MagicMock(return_value=0)
+    with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
+        with patched_argv(["build"]), patched_dispatch(_run_setup=spy):
+            rc = entry.main()
+    assert rc == 0
+    assert spy.call_count == 1
+    assert spy.call_args.args == ()
+    print("PASS  test_main_build_dispatches_with_no_args")
+
+
+def test_main_setup_alias_dispatches_with_no_args():
+    """Legacy `setup` alias still routes to _run_setup (muscle-memory shim)."""
     spy = MagicMock(return_value=0)
     with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
         with patched_argv(["setup"]), patched_dispatch(_run_setup=spy):
@@ -202,21 +215,23 @@ def test_main_setup_dispatches_with_no_args():
     assert rc == 0
     assert spy.call_count == 1
     assert spy.call_args.args == ()
-    print("PASS  test_main_setup_dispatches_with_no_args")
+    print("PASS  test_main_setup_alias_dispatches_with_no_args")
 
 
-def test_main_setup_rejects_extra_args():
-    """Extra positional/flag args after `setup` return 2 with usage."""
+def test_main_build_rejects_extra_args():
+    """Extra positional/flag args after `build` return 2 with usage."""
     spy = MagicMock(return_value=0)
     with tmp_agents_dir({"pm": {"yaml": "agent: {name: pm}"}}):
-        with patched_argv(["setup", "--from", "pm"]), patched_dispatch(_run_setup=spy):
+        with patched_argv(["build", "--from", "pm"]), patched_dispatch(_run_setup=spy):
             buf = io.StringIO()
             with redirect_stdout(buf):
                 rc = entry.main()
     assert rc == 2
     assert spy.call_count == 0
-    assert "Unexpected argument" in buf.getvalue()
-    print("PASS  test_main_setup_rejects_extra_args")
+    out = buf.getvalue()
+    assert "Unexpected argument" in out
+    assert "after 'build'" in out
+    print("PASS  test_main_build_rejects_extra_args")
 
 
 def test_main_try_dispatches_with_name():
@@ -534,8 +549,9 @@ if __name__ == "__main__":
         test_bot_tagline_empty_when_neither,
         test_main_no_args_prints_usage_and_returns_zero,
         test_main_help_flag_prints_usage_and_returns_zero,
-        test_main_setup_dispatches_with_no_args,
-        test_main_setup_rejects_extra_args,
+        test_main_build_dispatches_with_no_args,
+        test_main_setup_alias_dispatches_with_no_args,
+        test_main_build_rejects_extra_args,
         test_main_try_dispatches_with_name,
         test_main_try_without_name_returns_2,
         test_main_auth_dispatches_with_name,
