@@ -755,7 +755,10 @@ def _render_skill_picker(
 
     def right_pane(_cursor, checked):
         enabled_now = [names[i] for i, on in enumerate(checked or []) if on]
-        return state.card(skills=enabled_now)
+        # Skills step runs before the MCP step — the build card on this
+        # screen should reflect skills only, not MCPs that auto-import
+        # may have flipped on in bot_cfg.
+        return state.card(mcps=[], skills=enabled_now)
 
     final = select_many(
         "",
