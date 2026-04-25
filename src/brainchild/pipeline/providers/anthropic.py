@@ -7,6 +7,7 @@ Anthropic's Messages API format, and maps Anthropic's "prompt is too
 long" BadRequestError into the provider-agnostic ContextOverflowError.
 """
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 
@@ -14,6 +15,7 @@ import anthropic
 
 log = logging.getLogger(__name__)
 
+from brainchild import config
 from brainchild.pipeline.providers.base import (
     LLMProvider,
     ContextOverflowError,
@@ -259,37 +261,66 @@ class AnthropicProvider(LLMProvider):
         t_start = time.monotonic()
         t_first_token = None
         t_first_flush = None
+
+        # Stuck-LLM watchdog: a one-shot informational ping if no token has
+        # arrived by LLM_STUCK_THRESHOLD_SECONDS. Healthy streaming calls
+        # produce their first token within a few seconds; this only fires
+        # when Anthropic is genuinely sitting on the request. Posts via
+        # `on_paragraph` so it appears in chat just like a streamed paragraph.
+        watchdog_fired = [False]
+
+        def _stuck_watchdog():
+            if t_first_token is None:
+                watchdog_fired[0] = True
+                try:
+                    on_paragraph(
+                        "Anthropic is taking longer than usual to respond — hang tight.\n\n"
+                    )
+                except Exception as e:  # never let watchdog errors bring down the call
+                    log.warning(f"stuck-LLM watchdog post failed: {e}")
+
+        watchdog = threading.Timer(
+            config.LLM_STUCK_THRESHOLD_SECONDS, _stuck_watchdog,
+        )
+        watchdog.daemon = True
+        watchdog.start()
+
         # 429s in the streaming path occur at request initiation (input-token
         # check happens before any text is produced), so retrying here cannot
         # cause partial paragraphs to post twice — buffer is reset per attempt.
-        for attempt in range(1, RATE_LIMIT_MAX_RETRIES + 2):
-            buffer = ""
-            try:
-                with self._client.messages.stream(**kwargs) as stream:
-                    for text in stream.text_stream:
-                        if not text:
-                            continue
-                        if t_first_token is None:
-                            t_first_token = time.monotonic()
-                        buffer += text
-                        if "\n\n" in buffer:
-                            if t_first_flush is None:
-                                t_first_flush = time.monotonic()
-                            buffer = flush_paragraphs(buffer, on_paragraph)
-                    final = stream.get_final_message()
-                break
-            except anthropic.BadRequestError as e:
-                if _is_context_overflow(e):
-                    raise ContextOverflowError() from e
-                raise
-            except anthropic.RateLimitError as e:
-                if attempt <= RATE_LIMIT_MAX_RETRIES:
-                    sleep_s = _compute_retry_sleep(e)
-                    _log_rate_limit(e, attempt=attempt, retrying=True, sleep_s=sleep_s)
-                    time.sleep(sleep_s)
-                    continue
-                _log_rate_limit(e, attempt=attempt, retrying=False)
-                raise
+        try:
+            for attempt in range(1, RATE_LIMIT_MAX_RETRIES + 2):
+                buffer = ""
+                try:
+                    with self._client.messages.stream(**kwargs) as stream:
+                        for text in stream.text_stream:
+                            if not text:
+                                continue
+                            if t_first_token is None:
+                                t_first_token = time.monotonic()
+                            buffer += text
+                            if "\n\n" in buffer:
+                                if t_first_flush is None:
+                                    t_first_flush = time.monotonic()
+                                buffer = flush_paragraphs(buffer, on_paragraph)
+                        final = stream.get_final_message()
+                    break
+                except anthropic.BadRequestError as e:
+                    if _is_context_overflow(e):
+                        raise ContextOverflowError() from e
+                    raise
+                except anthropic.RateLimitError as e:
+                    if attempt <= RATE_LIMIT_MAX_RETRIES:
+                        sleep_s = _compute_retry_sleep(e)
+                        _log_rate_limit(e, attempt=attempt, retrying=True, sleep_s=sleep_s)
+                        time.sleep(sleep_s)
+                        continue
+                    _log_rate_limit(e, attempt=attempt, retrying=False)
+                    raise
+        finally:
+            # Cancel even on exception paths so a failed call doesn't leave
+            # the watchdog ticking and fire a stale "still working" message.
+            watchdog.cancel()
 
         if buffer.strip():
             flush_paragraphs(buffer, on_paragraph, force_final=True)

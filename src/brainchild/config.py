@@ -133,6 +133,7 @@ CAPTION_SILENCE_SECONDS    = 0.7   # dead-air gap before a buffered caption chun
 MAX_TOKENS                 = 2000  # runaway guard on LLM output; "be brief" system-prompt does the real shaping. Bumped from 1000 in session 159 — multi-paragraph skill outputs (codebase-walkthrough, migration-plan) need ~1200–1800 tokens to deliver entry-point through closing-question without truncation.
 TOOL_RESULT_MAX_CHARS      = 50000 # truncate a single tool result above this length before feeding to the LLM
 TOOL_TIMEOUT_SECONDS       = 60    # global per-tool-call ceiling; per-server default/override beats this
+LLM_STUCK_THRESHOLD_SECONDS = 45   # streaming-LLM watchdog: if no token has arrived by this point, post a one-shot "Anthropic is taking longer than usual" notice in chat. Threshold is high enough that healthy calls (TTFT 1–3s, total 3–15s) never trigger; only fires on real server-side spikes (we observed a 49.8s stall once).
 BROWSER_PROFILE_DIR        = str(Path.home() / ".brainchild" / "browser_profile")   # persistent Chrome profile (cookies, Google login)
 AUTH_STATE_FILE            = str(Path.home() / ".brainchild" / "auth_state.json")    # Playwright storageState JSON for quick re-auth
 GOOGLE_ACCOUNT_FILE        = str(Path.home() / ".brainchild" / "google_account.json") # cached {"email": "..."} for the wizard's "✓ signed in as X" detect screen
