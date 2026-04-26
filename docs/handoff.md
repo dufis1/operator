@@ -1,38 +1,57 @@
-# Session 166 handoff (2026-04-26) — Phase 14.12.2 COMPLETE in code → live-meeting validation in 167
+# Session 168 handoff (2026-04-25) — Phase 14.12.2 live-meeting Sessions 1+2 COMPLETE (8/8 PASS) + 4 UX fixes shipped + PR #5 open
 
-**Track A claude_cli provider shipped end-to-end with 16 passing tests. Next session runs `docs/live-skill-tests.md` against a real Meet.**
+**Sessions 1 (engineer flow) and 2 (PM/sprint flow) of `docs/live-skill-tests.md` both passed end-to-end (8/8). Four UX fixes shipped during the live run (cwd, intro pre-warm, terse prompts, progress narrator) — all in commit `0c1bcc9` on branch `session-168-track-a-ux-polish`, opened as PR #5. Next session runs Session 3 (live ops / Sentry triage, ~25m incl. ~15m Sentry setup).**
 
-## What shipped this session (commit `28153b9`)
+## What shipped this session
 
-- **`pipeline/providers/claude_cli.py`** — per-meeting `claude -p` subprocess as `LLMProvider`. Lazy spawn, subscription-auth assertion (`apiKeySource == "none"`), paragraph streaming via `--include-partial-messages`, PreToolUse hook + named-pipe IPC, restart-on-death with synthesized opener (probe 7 strategy 2). Set up via `set_permission_handler()` from chat_runner.
-- **`pipeline/permission_bridge.py`** — Python rewrite of `perm_bridge.sh`. Stdlib-only imports so it can be invoked by absolute path from claude's hook (avoids the PYTHONPATH dance — brainchild isn't `pip install -e .`'d in dev).
-- **`pipeline/permission_chat_handler.py`** — round-trips PreToolUse decisions through meeting chat. `auto_approve` list runs silently; everything else posts a chat prompt and blocks. Reads chat directly + claims consumed IDs in `runner._seen_ids` so the main poll loop doesn't re-feed user replies to the LLM.
-- **`build_provider()`** routes `llm.provider: "claude_cli"`. **`config.py`** parses `permissions.{auto_approve, always_ask}` and treats MCP blocks as toggle-only under track A. **`chat_runner._wire_track_a_permissions()`** plugs the handler into the provider before `_loop()`.
-- **`agents/claude/config.yaml`** rewritten 398→95 lines for track-A schema. User-level `~/.brainchild/agents/claude/config.yaml` was deleted at end-of-session per user request — first `brainchild run claude` reseeds from the new bundle.
-- **Tests:** 8 claude_cli provider smoke tests (real `claude` CLI, subscription auth) + 8 PermissionChatHandler unit tests (fake connector). All 16 pass.
-- **`docs/live-skill-tests.md`** rewritten for track A. Every prior use case preserved but reshaped to exercise claude's native tools + inherited MCPs instead of the brainchild skill bundles + `delegate_to_claude_code`. New Session 0 (track-A safety, 6 gates) added.
+Single commit `0c1bcc9`, 5 files, +233/-11 lines on branch `session-168-track-a-ux-polish` (PR #5 open at github.com/dufis1/operator/pull/5).
 
-## Mid-session redesign worth remembering
+1. **`pipeline/providers/__init__.py:41-46` + `claude_cli.py:100-104`** — `build_provider()` passes `cwd=os.getcwd()` to `ClaudeCLIProvider`. Before: cwd defaulted to `$HOME`, so when the user said "walk us through this codebase," the bot's first action was `Bash: ls /Users/jojo` to find a repo. After: bot sees the user's invocation dir, mirroring `claude` CLI behavior.
+2. **`chat_runner.py:174-181` + `285-298`** — intro pre-warm + participant-count seed. Moved `_generate_intro` thread to BEFORE `_connector.join()` (LLM call doesn't need browser state, parallelizes with the 5–10s join). Added a synchronous `get_participant_count()` at the top of `_loop()` so `saw_others=True` is set immediately if the room is non-empty, instead of waiting up to 3s for the next `PARTICIPANT_CHECK_INTERVAL` poll. Combined: join → intro-posted dropped from ~8s to ~1–2s.
+3. **`permission_chat_handler.py:39-160`** — terse confirmation prompts. New `_format_terse(tool_name, args)` collapses bulk content fields per tool: `Write /tmp/foo.py (1.2 KB)`, `MultiEdit src/x.py (3 hunks)`, `WebFetch <url> — <prompt>`. Bash stays verbatim (user's safety check needs the literal command). New config knob `agent.permission_verbosity: terse | verbose` (default terse). Verbose mode regression-tested live.
+4. **`claude_cli.py:115-121,491-499,775-792` + `chat_runner.py:139-144,180-211,294,890`** — progress narrator. `ClaudeCLIProvider.set_progress_callback(callback)` late-binds; streaming pump scans `assistant` event content for `tool_use` blocks and fires the callback. `ChatRunner._on_tool_use` only narrates auto-approved tools, throttled by `min_silence_seconds=4` AND `throttle_seconds=5`. Posts as `"Working: Read /tmp/foo.py; Grep 'def main' in src/"`. Config block `agent.progress_narration: { enabled, min_silence_seconds, throttle_seconds }`.
 
-Worktree isolation was originally point #3 in the spike report's recommendation list. Re-derived from track-A's threat model and dropped: chat-confirmation hook is the safety net, sub-agent opacity handled by denying the `Task` tool in `always_ask`. Track-A claude operates directly on whatever absolute paths the user names — multi-repo workflows in one meeting work naturally. If a future user wants sandbox isolation specifically for experimental refactors, that's an opt-in `permissions.worktree: true` knob to add later, not a default.
+## Live test results
 
-## Two hard-won lessons (full entries in agent-context.md)
+| Session | Tests | Result |
+|---|---|---|
+| 1 (engineer) | 1.1 walkthrough, 1.2 migration plan, 1.3 test gen, 1.4 live `--version` edit | 4/4 PASS |
+| 2 (PM/sprint) | 2.1 Linear scope (fixture ENG-167), 2.2 PRD from caption, 2.3 release notes via gh, 2.4 PR review | 4/4 PASS |
 
-1. claude in `--input-format stream-json` emits `system/init` only after the first user envelope, not at startup. Don't wait for it at spawn.
-2. Bridge scripts invoked by claude must be absolute-path-invoked + stdlib-only — `python -m brainchild.pipeline.<x>` fails because brainchild isn't pip-installed in the dev venv.
+Cumulative session-168: **8/8 PASS**.
+
+## Side-features installed / created
+
+- **`gh` CLI installed via brew + `gh auth login`** as `dufis1`. Test 2.4 first run used WebFetch (function-level cites only); after install, re-run got line-level `file:line` cites via `gh pr diff 5`. **Add `gh` as an explicit prereq in the 14.12.5 README rewrite.**
+- **Linear ticket ENG-167** created via Linear MCP as the Test 2.1 fixture: "Add `brainchild list-skills` subcommand to print enabled skills for the current bot," in the Engineering team.
+
+## Three new Hard-Won Knowledge entries (full text in `docs/agent-context.md`)
+
+1. When wrapping a CLI that uses `cwd`, mirror it — don't pin to `$HOME` for "predictability" (you invisibly strip context the inner tool needs).
+2. Intro latency was ordering, not the LLM call — parallelize independent slow paths and pre-seed gates from prior knowledge before the polling loop starts.
+3. Confirmation prompts that dump bulk content invert the safety check (users skim past the wall and approve). Hide the *payload*, keep the *imperative* — Bash commands stay verbatim.
 
 ## Exact next step
 
-**Session 167: live-meeting validation per `docs/live-skill-tests.md`.** Pre-flight:
-- `claude auth status --json` shows authenticated.
-- `brainchild build` so the bundled track-A claude config seeds into `~/.brainchild/agents/claude/config.yaml`.
-- `claude mcp list` shows the MCPs we'll lean on (Linear, GitHub, Sentry).
-- `/tmp/brainchild.log` is wired.
+**Session 169: Session 3 of `docs/live-skill-tests.md`** (live ops / Sentry bug triage, ~25m total).
 
-Then run **Session 0** (track-A safety) before anything else — if those 6 gates fail, none of the use-case tests can succeed. Only after Session 0 passes, proceed to Sessions 1 (engineer flow), 2 (PM/sprint), 3 (live-bug triage).
+- ~15m setup: Sentry account at sentry.io with `shapirojojo@gmail.com` → create Python project `brainchild-track-a-test` → copy DSN → `mkdir /tmp/sentry_demo && cd /tmp/sentry_demo && python -m venv venv && source venv/bin/activate && pip install sentry-sdk` → drop in the `trigger_error.py` fixture from `docs/live-skill-tests.md` Test 3.0 → `export SENTRY_DSN=...` → `python trigger_error.py` → wait 30s → copy issue URL from `https://<your-org>.sentry.io/issues/`.
+- Verify Sentry MCP is in claude's setup: `claude mcp list | grep -i sentry`. If missing, add via Claude Code's mcp commands or the claude.ai connectors UI.
+- Then run Test 3.1: post `prod is broken — what's going on with this Sentry issue: <sentry-issue-url>` in Meet chat. Pass signal: 5 separate phase messages (symptom → location with `file:line` → cause → fix → "want me to write the patch?").
 
-After live validation lands, **14.12.3** (track-B repositioning — wizard becomes "build a custom bot," "claude" reserved name), **14.12.4** (skills migration to `~/.claude/skills/`), and **14.12.5** (README rewrite) remain before MVP can ship.
+After Session 3 lands, **14.12.3** (track-B repositioning), **14.12.4** (skills migration to `~/.claude/skills/`), and **14.12.5** (README rewrite — adds `gh` as a prereq) remain before MVP can ship.
 
-## Open carry-overs (unchanged from prior handoff)
+## Open carry-overs (running list, latest at top)
 
-(a) Stuck-LLM retry semantics still deferred. (b) `chat_runner._send` doesn't surface dead-browser state. (c) Linux adapter parity for ID-based dedup. (d) GitHub `operator → brainchild` repo rename still deferred. (e) Anthropic 30k-tokens/min ceiling — likely dissolves under track A since inner-claude lazy-loads its own tools. (f) Session-160 Chrome-runtime preflight is dead weight — fold into 14.12 cleanup pass when 14.12 ships. (g) `debug/model-log.md` not updated this session — track-A added new log lines (`ClaudeCLI subprocess ready`, `PermissionChatHandler: ...`, `TIMING claude_cli_turn`) but live grep against `/tmp/brainchild.log` is deferred to session 167 once we have a real meeting log to compare against.
+- **(NEW)** `permission_chat_handler.py:122` operator-precedence — `return f"{tool_name}: " + ", ".join(parts) if parts else tool_name` parses as `(...) if parts else tool_name`. Empty-args branch correctly returns just `tool_name` without colon, but it's "correct by accident." Wrap the truthy branch in parens. Surfaced by Claude's own structured PR review of #5.
+- **(NEW)** No tests for any session-168 code (`_format_terse`, `_format_confirmation` verbosity switch, `ChatRunner._on_tool_use` throttle/silence gating). Verified `grep _format_terse|set_progress_callback|_on_tool_use|PROGRESS_NARRATION|PERMISSION_VERBOSITY tests/` returns 0 hits.
+- **(NEW)** `_on_tool_use` calls `self._send` outside the narration lock from the provider pump thread — Playwright `send_chat` is now called from main loop + intro thread + pump thread. Verify thread-safety or serialize.
+- **(NEW)** `_narration_auto_approve` captured at wire time (`chat_runner.py:173`) — won't pick up live config reloads. Intentional? Confirm before 14.12.5 ships.
+- **(NEW)** Magic numbers `min_silence=4s` / `throttle=5s` are guesses, not empirically tuned. Worth a note in the config docstring or a session of A/B tuning.
+- **(NEW)** `Task` (sub-agent) calls aren't currently narrated — could run for minutes silently when in auto-approve mode.
+- **(NEW)** PR #5 contains 41 commits / 109 files / +10.5k lines (sessions 152–168) because local `main` is 40 commits ahead of `origin/main`. When ready to land: either push local main first (`git push origin main`) so future PRs diff cleanly, or split by phase. Bot's own review caught and recommended both options.
+- **(NEW)** New log lines (`ChatRunner: progress narrator wired`, `ChatRunner: seed participant_count=...`) need to flow into `debug/model-log.md` whenever that file gets created during 14.12 finalization.
+- **(carried)** Synthesized opener still doesn't replay tool calls or tool results — only `(user_text, assistant_text)` pairs in `_turn_history`. Acceptable for honest prior text; would inherit corruption if any. Real fix is recording `tool_use` + `tool_result` events on the wire and replaying them in the opener — invasive, worth its own phase.
+- **(carried)** Session-160 Chrome-runtime preflight is dead weight under the bundled-Chromium pivot — fold into 14.12 cleanup pass.
+- **(carried)** GitHub `operator → brainchild` repo rename still deferred (current remote: `dufis1/operator`).
+- **(carried)** Stuck-LLM retry semantics, `chat_runner._send` dead-browser detection, Linux adapter ID-based dedup parity.
