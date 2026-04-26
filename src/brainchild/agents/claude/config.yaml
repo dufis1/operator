@@ -12,6 +12,13 @@ agent:
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "Claude Code, in your meeting — your full setup, gated by chat confirmation"
   intro_on_join: true
+  # Confirmation prompts have two render modes:
+  #   terse   — one-line summary that hides bulk content but keeps imperative
+  #             fields (Bash command, file paths). e.g. "Write /tmp/x.py (1.2 KB)".
+  #             Bash commands are NEVER summarized — full command always shown.
+  #   verbose — full parameter dump with head…tail truncation for long values.
+  #             Useful when you want to safety-check every byte before approving.
+  permission_verbosity: terse
 
 llm:
   # Track A: claude is the LLM. No model / history_messages — claude picks
