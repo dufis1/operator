@@ -49,14 +49,81 @@ def _is_yes(text):
     return any(p.search(lower) for p in _AFFIRM_PATTERNS)
 
 
-def _format_confirmation(tool_name, tool_input):
-    """Render the tool call as a chat-friendly confirmation prompt.
+def _human_size(n):
+    """Compact byte-size: '845 B', '12.3 KB', '4.2 MB'."""
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    return f"{n / (1024 * 1024):.1f} MB"
 
-    Mirrors chat_runner._request_confirmation's shape so the user gets a
-    consistent visual across both track-B MCP confirmations and track-A
-    PreToolUse confirmations.
+
+def _format_terse(tool_name, args):
+    """One-line summary that hides bulk content but keeps imperative fields.
+
+    Bash commands are NEVER summarized — the user's safety check depends
+    on seeing the literal command. Other tools collapse content/blob
+    fields into size hints.
     """
-    args = tool_input or {}
+    if tool_name == "Bash":
+        cmd = args.get("command", "")
+        if len(cmd) > 300:
+            cmd = cmd[:290] + "…"
+        return f"Bash: {cmd}"
+    # Read-only / discovery tools (auto-approved by default — these
+    # surface mostly via the progress narrator). Keep names short and
+    # lead with what the user cares about: which file/pattern.
+    if tool_name == "Read":
+        return f"Read {args.get('file_path', '?')}"
+    if tool_name == "Grep":
+        pat = args.get("pattern", "?")
+        path = args.get("path", "")
+        return f"Grep {pat!r}" + (f" in {path}" if path else "")
+    if tool_name == "Glob":
+        return f"Glob {args.get('pattern', '?')}"
+    if tool_name == "LS":
+        return f"LS {args.get('path', '?')}"
+    if tool_name == "WebSearch":
+        return f"WebSearch {args.get('query', '?')}"
+    if tool_name == "Write":
+        path = args.get("file_path", "?")
+        size = _human_size(len(args.get("content") or ""))
+        return f"Write {path} ({size})"
+    if tool_name == "Edit":
+        path = args.get("file_path", "?")
+        return f"Edit {path}"
+    if tool_name == "MultiEdit":
+        path = args.get("file_path", "?")
+        n = len(args.get("edits") or [])
+        return f"MultiEdit {path} ({n} hunks)"
+    if tool_name == "NotebookEdit":
+        path = args.get("notebook_path", "?")
+        return f"NotebookEdit {path}"
+    if tool_name == "WebFetch":
+        url = args.get("url", "?")
+        prompt = (args.get("prompt") or "").strip()
+        if len(prompt) > 80:
+            prompt = prompt[:77] + "…"
+        return f"WebFetch {url} — {prompt}" if prompt else f"WebFetch {url}"
+    if tool_name == "Task":
+        desc = args.get("description") or args.get("prompt") or ""
+        if len(desc) > 120:
+            desc = desc[:117] + "…"
+        return f"Task: {desc}" if desc else "Task (no description)"
+    # Unknown tool — compact fallback: render small fields verbatim, sizes
+    # for big ones. Same shape as the per-tool branches above.
+    parts = []
+    for k, v in args.items():
+        r = v if isinstance(v, str) else repr(v)
+        if len(r) > 80:
+            parts.append(f"{k}=({_human_size(len(r))})")
+        else:
+            parts.append(f"{k}={r}")
+    return f"{tool_name}: " + ", ".join(parts) if parts else tool_name
+
+
+def _format_verbose(tool_name, args):
+    """Verbatim parameter dump with head…tail truncation for long values."""
     if not args:
         body = "  (no arguments)"
     else:
@@ -70,6 +137,22 @@ def _format_confirmation(tool_name, tool_input):
             lines.append(f"  • {k}: {r}")
         body = "\n".join(lines)
     return f"Run {tool_name}?\n{body}\nOK?"
+
+
+def _format_confirmation(tool_name, tool_input):
+    """Render the tool call as a chat-friendly confirmation prompt.
+
+    Verbosity is per-bot: `permission_verbosity: terse | verbose` in
+    agents/<name>/config.yaml. Defaults to terse — bulk content fields
+    (Write.content, MultiEdit.edits, etc.) collapse into size hints so
+    chat doesn't get walls of dumped data, but Bash commands remain
+    verbatim because the user's approval decision depends on seeing the
+    literal command.
+    """
+    args = tool_input or {}
+    if getattr(config, "PERMISSION_VERBOSITY", "terse") == "verbose":
+        return _format_verbose(tool_name, args)
+    return f"Run? {_format_terse(tool_name, args)}\nOK?"
 
 
 class PermissionChatHandler:
