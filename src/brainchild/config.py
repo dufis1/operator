@@ -352,6 +352,41 @@ for _name, _srv in _config.get("mcp_servers", {}).items():
         _block["tool_timeout_seconds"] = _srv["tool_timeout_seconds"]
     MCP_SERVERS[_name] = _block
 
+# Legacy mcp_servers.<srv>.read_tools / confirm_tools translation (track-B).
+#
+# Pre-session-169, per-MCP permissions lived under each server block. Now
+# the unified `permissions:` block accepts fnmatch globs (`mcp__sentry__get_*`)
+# and is the single authority for both tracks. Any legacy entries are
+# translated in-memory into namespaced names appended to the right list:
+#
+#   mcp_servers.linear.read_tools: [pull_request_read]
+#     → PERMISSIONS_AUTO_APPROVE += ["mcp__linear__pull_request_read"]
+#
+# Bundled per-server lists are non-authoritative going forward; new bots
+# should write everything in the top-level `permissions:` block. We log a
+# one-line deprecation warning per load if any entries were translated, so
+# users running with old configs see exactly one nudge per session.
+import logging as _perm_log
+_legacy_translated = 0
+for _name, _block in MCP_SERVERS.items():
+    for _tool in sorted(_block.get("read_tools") or []):
+        _entry = f"mcp__{_name}__{_tool}"
+        if _entry not in PERMISSIONS_AUTO_APPROVE:
+            PERMISSIONS_AUTO_APPROVE.append(_entry)
+            _legacy_translated += 1
+    for _tool in sorted(_block.get("confirm_tools") or []):
+        _entry = f"mcp__{_name}__{_tool}"
+        if _entry not in PERMISSIONS_ALWAYS_ASK:
+            PERMISSIONS_ALWAYS_ASK.append(_entry)
+            _legacy_translated += 1
+if _legacy_translated:
+    _perm_log.getLogger("config").warning(
+        f"DEPRECATED: translated {_legacy_translated} per-server "
+        f"read_tools/confirm_tools entries into the unified permissions block. "
+        f"Move them into permissions.auto_approve / always_ask in the bot's "
+        f"config.yaml — the per-server keys will be dropped in a future release."
+    )
+
 # Secrets from .env
 OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
