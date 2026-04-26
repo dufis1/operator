@@ -423,6 +423,7 @@ Audio quality, TTS 3-tier architecture, latency masking, STT accuracy (mlx-whisp
 | Runtime failure monitoring dashboard | 10.9 (original) | Per-server failure rate tracking, threshold alerts, diagnostics surface |
 | Idempotency guards | 10.10 | Detect duplicate tool actions from repeated requests; dedup logic beyond write confirmation |
 | Parallel tool calls | 11.2 | Currently disabled on both providers (`parallel_tool_calls=False` on OpenAI, `disable_parallel_tool_use=True` on Anthropic) so the one-tool-at-a-time loop in `LLMClient.ask()` stays safe. Re-enable for skills that fan out across MCP servers (e.g. "what's on my plate across Linear + GitHub?"). Requires `LLMClient` to execute N tool_calls per turn and feed back N tool_results before the next LLM turn. |
+| Per-meeting voice toggle | session 169 (2026-04-26) | `agent.voice: plain | technical` ships per-bot. Add a chat command (`@bot switch to technical voice`) so a user can flip mid-meeting when they need transparency for a specific exchange without editing the YAML. Requires runtime config mutation hook in chat_runner + a parser for the command. |
 
 ### Multi-Modal & Voice
 | Item | Origin | Description |

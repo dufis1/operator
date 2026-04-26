@@ -131,25 +131,49 @@ _permissions = _config.get("permissions") or {}
 PERMISSIONS_AUTO_APPROVE = list(_permissions.get("auto_approve") or [])
 PERMISSIONS_ALWAYS_ASK   = list(_permissions.get("always_ask") or [])
 
-# How much to include in the chat confirmation prompt for a tool call.
-#   "terse"   — one-line summary that hides bulk content fields (Write
-#               body, MultiEdit edits, WebFetch prompt) but keeps
-#               imperative fields (Bash command, file paths). Default —
-#               keeps chat clean.
-#   "verbose" — full parameter dump with head…tail truncation. Useful
-#               when the user wants to safety-check every byte.
-# Lives at the agent-block level (sibling of trigger_phrase) since it's
-# user-facing UX, not a permission rule. Old configs without the key
-# default to terse.
+# Voice — controls how the bot communicates across three surfaces:
+#   - progress narrator ("Working: …")
+#   - confirmation prompts ("Run? …")
+#   - reply content (steered by ground_rules directive)
+#
+# Two modes:
+#   "plain"     — meeting-friendly. Translates tool names and args into
+#                 plain English ("Checking the code...", "Want me to grab
+#                 the Sentry issue?"). Default for new bots.
+#   "technical" — developer-flavored. Tool names verbatim, args shown
+#                 (with bulk-content collapsed to size hints), full
+#                 file:line / code-style replies.
+#
+# Replaces the deprecated agent.permission_verbosity (terse|verbose)
+# field, which only covered the prompt surface. Old configs translate:
+#   terse   → plain
+#   verbose → technical
+import logging as _voice_log
 _agent_block = _config.get("agent") or {}
-PERMISSION_VERBOSITY = (_agent_block.get("permission_verbosity") or "terse").lower()
-if PERMISSION_VERBOSITY not in ("terse", "verbose"):
-    import logging as _pv_log
-    _pv_log.getLogger("config").warning(
-        f"agent.permission_verbosity={PERMISSION_VERBOSITY!r} not recognized "
-        f"(expected 'terse' or 'verbose') — defaulting to 'terse'"
+VOICE = (_agent_block.get("voice") or "").lower()
+if not VOICE:
+    legacy = (_agent_block.get("permission_verbosity") or "").lower()
+    if legacy:
+        VOICE = "technical" if legacy == "verbose" else "plain"
+        _voice_log.getLogger("config").warning(
+            f"DEPRECATED: agent.permission_verbosity={legacy!r} translated to "
+            f"agent.voice={VOICE!r}. Move the value to agent.voice in the "
+            f"bot's config.yaml — permission_verbosity will be removed in a "
+            f"future release."
+        )
+    else:
+        VOICE = "plain"
+if VOICE not in ("plain", "technical"):
+    _voice_log.getLogger("config").warning(
+        f"agent.voice={VOICE!r} not recognized (expected 'plain' or "
+        f"'technical') — defaulting to 'plain'"
     )
-    PERMISSION_VERBOSITY = "terse"
+    VOICE = "plain"
+
+# Back-compat shim — older code paths read PERMISSION_VERBOSITY directly.
+# Keep the constant alive and keep it in sync with VOICE so callers don't
+# silently break during the deprecation window.
+PERMISSION_VERBOSITY = "verbose" if VOICE == "technical" else "terse"
 
 # Progress narration: when the bot calls auto-approved tools (Read,
 # Grep, etc.) the user otherwise sees nothing until the final reply.

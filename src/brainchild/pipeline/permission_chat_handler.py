@@ -89,6 +89,33 @@ def _human_size(n):
     return f"{n / (1024 * 1024):.1f} MB"
 
 
+# Field names whose values are *imperative* — they describe what's about
+# to happen and the user needs to see them verbatim to make a sensible
+# yes/no decision. Same principle as Bash command staying verbatim.
+# Length-only collapsing rules don't apply to these.
+_IMPERATIVE_FIELD_NAMES = {
+    "url", "path", "file_path", "command",
+    "query", "pattern", "search",
+    "notebook_path",
+}
+_IMPERATIVE_MAX_LEN = 1000  # cap so a pathological case can't blow up chat
+
+
+def _show_imperative(value):
+    """Render an imperative field value verbatim, with a generous cap.
+
+    URLs / paths / commands almost never legitimately exceed 1KB; if
+    they do, head…tail truncate so chat doesn't break, but never
+    collapse to a size hint (the safety check needs the literal value).
+    """
+    s = value if isinstance(value, str) else repr(value)
+    if len(s) > _IMPERATIVE_MAX_LEN:
+        head = s[: _IMPERATIVE_MAX_LEN // 2 - 1]
+        tail = s[-(_IMPERATIVE_MAX_LEN // 2 - 1):]
+        s = f"{head}…{tail}"
+    return s
+
+
 def _format_terse(tool_name, args):
     """One-line summary that hides bulk content but keeps imperative fields.
 
@@ -141,16 +168,151 @@ def _format_terse(tool_name, args):
         if len(desc) > 120:
             desc = desc[:117] + "…"
         return f"Task: {desc}" if desc else "Task (no description)"
-    # Unknown tool — compact fallback: render small fields verbatim, sizes
-    # for big ones. Same shape as the per-tool branches above.
+    # Unknown tool — compact fallback. Imperative fields (url/path/command/
+    # …) are shown verbatim regardless of length: they describe *what* the
+    # tool will do, and hiding them defeats the safety check. Bulky payload
+    # fields collapse to size hints. Anything short renders verbatim.
     parts = []
     for k, v in args.items():
+        if k in _IMPERATIVE_FIELD_NAMES:
+            parts.append(f"{k}={_show_imperative(v)}")
+            continue
         r = v if isinstance(v, str) else repr(v)
         if len(r) > 80:
             parts.append(f"{k}=({_human_size(len(r))})")
         else:
             parts.append(f"{k}={r}")
-    return f"{tool_name}: " + ", ".join(parts) if parts else tool_name
+    body = ", ".join(parts)
+    return f"{tool_name}: {body}" if body else tool_name
+
+
+# Friendly-name lookup for MCP server prefixes — keeps plain-mode prompts
+# out of underscore-noise. Anything not listed renders the raw server
+# slug as a fallback (e.g. "Slack", "Notion" if those aren't here yet).
+_MCP_SERVER_FRIENDLY = {
+    "sentry":               "Sentry",
+    "linear":               "Linear",
+    "github":               "GitHub",
+    "claude_ai_Linear":     "Linear",
+    "claude_ai_Gmail":      "Gmail",
+    "claude_ai_Google_Calendar": "Google Calendar",
+    "claude_ai_Google_Drive":    "Google Drive",
+    "claude-ai-linear":     "Linear",
+    "claude-ai-gmail":      "Gmail",
+    "claude-ai-google-calendar": "Google Calendar",
+    "claude-ai-google-drive":    "Google Drive",
+}
+
+# Verb hints for the `mcp__<server>__<verb>_<subject>` naming convention
+# most servers follow. Lets us turn unfamiliar tool names into plausible
+# English without enumerating every tool.
+_MCP_VERB_FRIENDLY = {
+    "get":     "look up",
+    "list":    "list",
+    "find":    "find",
+    "search":  "search for",
+    "fetch":   "fetch",
+    "save":    "save",
+    "create":  "create",
+    "update":  "update",
+    "delete":  "delete",
+    "remove":  "remove",
+    "send":    "send",
+    "post":    "post",
+    "analyze": "analyze",
+    "extract": "extract",
+}
+
+
+def _friendly_mcp_name(tool_name):
+    """Decompose mcp__<server>__<rest> into (friendly_server, action_phrase).
+
+    Returns (server, phrase) on success, (None, None) if the name doesn't
+    follow the convention. The phrase tries to read like English — "look
+    up the issue" rather than "get_issue".
+    """
+    if not tool_name.startswith("mcp__"):
+        return None, None
+    parts = tool_name.split("__", 2)
+    if len(parts) < 3:
+        return None, None
+    _, server, rest = parts
+    friendly = _MCP_SERVER_FRIENDLY.get(server, server.replace("_", " ").replace("-", " "))
+    # Split verb_subject on first underscore (or hyphen, some servers use it).
+    sep = "_" if "_" in rest else ("-" if "-" in rest else "")
+    if sep:
+        verb_raw, subject = rest.split(sep, 1)
+    else:
+        verb_raw, subject = rest, ""
+    verb = _MCP_VERB_FRIENDLY.get(verb_raw.lower(), verb_raw.replace("_", " ").replace("-", " "))
+    subject = subject.replace("_", " ").replace("-", " ").strip()
+    if subject:
+        phrase = f"{verb} a {subject}" if not subject.startswith(("a ", "an ", "the ")) else f"{verb} {subject}"
+    else:
+        phrase = verb
+    return friendly, phrase
+
+
+def _format_plain(tool_name, args):
+    """Plain-English summary of a tool call, suitable for non-developers.
+
+    Used for both the confirmation prompt ("Want me to … ?") and the
+    progress narrator ("Working: …"). The caller wraps with the right
+    framing — this function returns just the action phrase. Imperative
+    fields (URLs, file paths, commands) are still shown so the user
+    knows *which* file or command, just embedded in conversational
+    language.
+    """
+    if tool_name == "Bash":
+        cmd = args.get("command", "")
+        if len(cmd) > 200:
+            cmd = cmd[:190] + "…"
+        return f"run a shell command: `{cmd}`"
+    if tool_name == "Read":
+        return f"read the file `{args.get('file_path', '?')}`"
+    if tool_name == "Grep":
+        pat = args.get("pattern", "?")
+        return f"search the code for `{pat}`"
+    if tool_name == "Glob":
+        return f"find files matching `{args.get('pattern', '?')}`"
+    if tool_name == "LS":
+        return f"list the contents of `{args.get('path', '?')}`"
+    if tool_name == "WebSearch":
+        return f"search the web for `{args.get('query', '?')}`"
+    if tool_name == "ToolSearch":
+        # Pure metadata lookup; never user-facing in plain mode at the
+        # imperative level, but the narrator may still surface it.
+        return "look up some tool details"
+    if tool_name == "Write":
+        return f"write a new file at `{args.get('file_path', '?')}`"
+    if tool_name == "Edit":
+        return f"edit `{args.get('file_path', '?')}`"
+    if tool_name == "MultiEdit":
+        n = len(args.get("edits") or [])
+        return f"make {n} edit{'s' if n != 1 else ''} to `{args.get('file_path', '?')}`"
+    if tool_name == "NotebookEdit":
+        return f"edit the notebook `{args.get('notebook_path', '?')}`"
+    if tool_name == "WebFetch":
+        return f"fetch `{args.get('url', '?')}`"
+    if tool_name == "Task":
+        desc = args.get("description") or "handle a sub-task"
+        if len(desc) > 80:
+            desc = desc[:77] + "…"
+        return f"spin off a sub-agent to {desc.lower().rstrip('.')}"
+    # MCP tool? Try to translate via the naming convention.
+    server, phrase = _friendly_mcp_name(tool_name)
+    if server and phrase:
+        return f"{phrase} in {server}"
+    # Unknown tool — generic fallback. Honest rather than confidently
+    # wrong. Imperative fields (if any) still surface verbatim so the
+    # user has SOMETHING to evaluate.
+    imperative_bits = [
+        f"{k}={_show_imperative(v)}"
+        for k, v in args.items()
+        if k in _IMPERATIVE_FIELD_NAMES
+    ]
+    detail = f" ({', '.join(imperative_bits)})" if imperative_bits else ""
+    return f"use the {tool_name} tool{detail}"
 
 
 def _format_verbose(tool_name, args):
@@ -173,17 +335,26 @@ def _format_verbose(tool_name, args):
 def _format_confirmation(tool_name, tool_input):
     """Render the tool call as a chat-friendly confirmation prompt.
 
-    Verbosity is per-bot: `permission_verbosity: terse | verbose` in
-    agents/<name>/config.yaml. Defaults to terse — bulk content fields
-    (Write.content, MultiEdit.edits, etc.) collapse into size hints so
-    chat doesn't get walls of dumped data, but Bash commands remain
-    verbatim because the user's approval decision depends on seeing the
-    literal command.
+    Voice is per-bot: `agent.voice: plain | technical` in
+    agents/<name>/config.yaml.
+
+      plain     — meeting-friendly. "Want me to read the file
+                  `/path/x.py`? (yes/no)" — good for non-developers.
+      technical — developer-flavored. Shows tool name + args verbatim
+                  with bulk-content collapsed: "Run? Write /tmp/x.py
+                  (1.2 KB) OK?"
+
+    Bash commands and other imperative fields (URLs, file paths) stay
+    verbatim in BOTH modes — the user's approval decision depends on
+    seeing the literal target.
     """
     args = tool_input or {}
-    if getattr(config, "PERMISSION_VERBOSITY", "terse") == "verbose":
+    voice = getattr(config, "VOICE", "plain")
+    if voice == "technical":
+        # Power-user mode: full param dump with head…tail truncation.
+        # Falls through to _format_verbose for max transparency.
         return _format_verbose(tool_name, args)
-    return f"Run? {_format_terse(tool_name, args)}\nOK?"
+    return f"Want me to {_format_plain(tool_name, args)}? (yes/no)"
 
 
 class PermissionChatHandler:

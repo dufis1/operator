@@ -7,6 +7,10 @@ agent:
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "opens your Figma and pulls no punches"
   intro_on_join: true
+  # See agents/claude/config.yaml for the full voice mode comment.
+  # plain     — meeting-friendly, plain English (default)
+  # technical — developer-flavored, tool names + args verbatim
+  voice: plain
 
 llm:
   provider: "anthropic"
