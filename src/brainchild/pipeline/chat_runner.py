@@ -182,20 +182,30 @@ class ChatRunner:
         """Progress callback fired by ClaudeCLIProvider on every tool_use.
 
         Runs on the provider pump thread. Only narrates auto-approved
-        tools — confirmation-gated tools post their own prompt, which is
-        already feedback enough. Throttled by `min_silence_seconds`
+        tools — confirmation-gated tools post their own prompt, which
+        is already feedback enough. Throttled by `min_silence_seconds`
         (skip if a user-facing send happened recently) and
         `throttle_seconds` (gap between narrator messages).
 
-        Output style follows agent.voice:
-          plain     — "One sec — checking the code..."
-          technical — "Working: Read /path/x.py; Grep 'foo' in src/"
+        Voice gating:
+          technical — emit a deterministic "Working: <tool summary>"
+                      line. Power users want to see exactly what the
+                      bot is doing.
+          plain     — narrator stays silent. The bot self-narrates in
+                      its own persona-faithful voice via the
+                      ground_rules directive ("when using a tool that
+                      takes >2s, briefly say what you're doing").
+                      Keeping a Python-templated narrator alongside
+                      that creates duplicate / clashing voice — better
+                      to let the LLM speak.
         """
         if tool_name not in self._narration_auto_approve:
             return
-        from brainchild.pipeline.permission_chat_handler import (
-            _format_plain, _format_terse,
-        )
+        # Plain voice → claude self-narrates; brainchild stays out of
+        # the way to avoid dual-voice noise.
+        if getattr(config, "VOICE", "plain") != "technical":
+            return
+        from brainchild.pipeline.permission_chat_handler import _format_terse
         with self._narration_lock:
             self._narration_buffer.append((tool_name, tool_input or {}))
             now = time.time()
@@ -210,49 +220,8 @@ class ChatRunner:
             self._last_narration_time = now
         if not buffered:
             return
-        voice = getattr(config, "VOICE", "plain")
-        if voice == "plain":
-            # In plain mode we don't enumerate every tool — that's noise.
-            # One short, conversational status line per narration cycle,
-            # picked from the categories of work in `buffered`. Imperative
-            # paths/URLs stay out of plain narrator (the prompt surface
-            # is where targets get confirmed).
-            line = self._narrator_plain(buffered)
-        else:
-            summaries = [_format_terse(name, args) for name, args in buffered]
-            line = "Working: " + "; ".join(summaries)
-        self._send(line)
-
-    @staticmethod
-    def _narrator_plain(buffered):
-        """Pick a single conversational status line for a batch of tool calls.
-
-        Categorizes the buffered tools and picks the most-specific
-        status that covers the batch — readers see "checking the
-        code..." not "reading 3 files; greppinng twice." Defaults to a
-        generic "thinking..." if nothing matches.
-        """
-        names = {name for name, _ in buffered}
-        # Group by category. Order matters: more specific first.
-        if names & {"WebSearch", "WebFetch"}:
-            return "Looking something up online..."
-        # Any MCP tool? Lean on the friendly server name if available.
-        from brainchild.pipeline.permission_chat_handler import _friendly_mcp_name
-        for n in names:
-            if n.startswith("mcp__"):
-                server, _ = _friendly_mcp_name(n)
-                if server:
-                    return f"Checking {server}..."
-                return "Checking an external service..."
-        if names & {"Read", "Grep", "Glob", "LS"}:
-            return "Reading through the code..."
-        if names & {"ToolSearch"}:
-            return "Checking my tools..."
-        if names & {"Bash"}:
-            # Bash narration usually shouldn't fire (it's always_ask),
-            # but a custom config could auto-approve it.
-            return "Running a quick command..."
-        return "Thinking..."
+        summaries = [_format_terse(name, args) for name, args in buffered]
+        self._send("Working: " + "; ".join(summaries))
 
     def run(self, meeting_url):
         """Join the meeting and start the chat polling loop."""
