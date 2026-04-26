@@ -44,6 +44,11 @@ permissions:
     - Glob
     - LS
     - WebSearch
+    # ToolSearch loads MCP tool schemas on demand — pure metadata, no side
+    # effects. Without auto-approving it the user gets a stray "Run
+    # ToolSearch?" prompt every time the model first reaches for a tool from
+    # any deferred MCP server (Sentry, Linear, etc).
+    - ToolSearch
   always_ask:
     - Bash
     - Write
@@ -52,6 +57,10 @@ permissions:
     - NotebookEdit
     - WebFetch
     - Task
+  # Both lists support fnmatch glob patterns — `mcp__sentry__get_*`
+  # auto-approves every read tool from the Sentry MCP server. always_ask
+  # is checked first, so an explicit deny pattern beats a broad allow.
+  # See README → "MCP permissions" for the full pattern syntax.
 
 # MCP servers — toggle-only under track A. claude already has each server's
 # command/args/env wired from ~/.claude.json; this list controls which ones

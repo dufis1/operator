@@ -2,16 +2,24 @@
 Permission handler that round-trips PreToolUse decisions through meeting chat.
 
 Plugged into ClaudeCLIProvider via set_permission_handler(). Invoked from
-the provider's pump thread on every PreToolUse event. Tools in
-config.PERMISSIONS_AUTO_APPROVE are approved silently; all others post a
-confirmation prompt to chat and block until the user replies (yes/ok/sure
-=> allow, anything else => deny with the user's text as the reason).
+the provider's pump thread on every PreToolUse event. Tools matching an
+entry in config.PERMISSIONS_AUTO_APPROVE are approved silently; tools
+matching config.PERMISSIONS_ALWAYS_ASK — and anything on neither list —
+post a confirmation prompt to chat and block until the user replies
+(yes/ok/sure => allow, anything else => deny with the user's text as the
+reason). always_ask is checked first so an explicit deny pattern beats a
+broad allow pattern.
+
+Entries are fnmatch glob patterns. Literal tool names (`Read`, `Bash`)
+match exactly; entries containing `*`, `?`, or `[` match by glob —
+`mcp__sentry__get_*` covers every read tool from the Sentry MCP server.
 
 Threading: this runs on the provider's pump thread. The handler reads
 chat directly from connector.read_chat() while waiting for a reply and
 claims consumed messages by adding their IDs to runner._seen_ids — so
 the main polling loop doesn't re-feed the user's "ok" to the LLM.
 """
+import fnmatch
 import logging
 import re
 import threading
@@ -20,6 +28,29 @@ import time
 from brainchild import config
 
 log = logging.getLogger(__name__)
+
+
+_GLOB_CHARS = ("*", "?", "[")
+
+
+def _matches_any(tool_name, patterns):
+    """Return True if tool_name matches any entry in patterns.
+
+    Bare names (no glob characters) match exactly — same shape as the
+    pre-pattern set-membership check. Entries with `*`, `?`, or `[` are
+    fnmatch globs. Empty / None patterns is a no-op (False).
+    """
+    if not patterns:
+        return False
+    for pat in patterns:
+        if not pat:
+            continue
+        if any(c in pat for c in _GLOB_CHARS):
+            if fnmatch.fnmatchcase(tool_name, pat):
+                return True
+        elif tool_name == pat:
+            return True
+    return False
 
 
 # Hard upper bound on how long a single permission request can wait for a
@@ -172,18 +203,24 @@ class PermissionChatHandler:
     def __init__(self, connector, runner, auto_approve, always_ask):
         self._connector = connector
         self._runner = runner
-        self._auto_approve = set(auto_approve or [])
-        # `always_ask` is informational for now — every non-auto-approved
-        # tool goes through chat anyway. Stored so a future variant can
-        # treat unspecified tools differently from explicitly-listed ones.
-        self._always_ask = set(always_ask or [])
+        # Preserve list ordering so a wizard / config author can layer
+        # narrower rules on top of broader globs deterministically.
+        self._auto_approve = list(auto_approve or [])
+        self._always_ask = list(always_ask or [])
         # Serialize concurrent requests. Tool calls are sequential per
         # turn, but a misbehaving sub-agent or future parallel-tool-use
         # path could fire two — lock makes round-trips strictly ordered.
         self._lock = threading.Lock()
 
     def __call__(self, tool_name, tool_input):
-        if tool_name in self._auto_approve:
+        # always_ask wins over auto_approve so users can pin a specific
+        # deny (e.g. mcp__sentry__analyze_issue_with_seer) on top of a
+        # broad allow (mcp__sentry__*). Same precedent as the legacy
+        # confirm_tools / read_tools split for track-B bots.
+        if _matches_any(tool_name, self._always_ask):
+            with self._lock:
+                return self._round_trip(tool_name, tool_input)
+        if _matches_any(tool_name, self._auto_approve):
             log.info(f"PermissionChatHandler: auto-approve {tool_name!r}")
             return {
                 "permissionDecision": "allow",
