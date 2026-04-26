@@ -515,22 +515,26 @@ class ChatRunner:
     def _needs_confirmation(self, tool_call):
         """Return True if this tool call requires user confirmation.
 
-        Policy is purely per-server config (no pipeline-level tool-name knowledge):
-          1. If the server lists this tool in `confirm_tools`, always confirm.
-          2. If the server lists this tool in `read_tools`, auto-execute.
-          3. Otherwise, confirm — safe-by-default for tools the bundle didn't declare.
+        Reads the unified permissions block via the same fnmatch-aware
+        matcher as track-A's PermissionChatHandler. Track-B tool names
+        arrive in `server__tool` form; we re-prefix with `mcp__` so a
+        single pattern like `mcp__linear__get_*` covers both the
+        chat_runner path (this call) and any track-A invocation
+        exposing the same MCP server. Legacy per-server `read_tools` /
+        `confirm_tools` entries are translated into the unified lists
+        at config-load time, so configs written before session 169
+        keep working unchanged.
+
+        Default is "ask" — safe-by-default for tools the bundle
+        didn't declare.
         """
+        from brainchild.pipeline.permission_chat_handler import _matches_any
         name = tool_call["name"]
-        parts = name.split("__", 1)
-        server = parts[0] if len(parts) == 2 else None
-        tool = parts[1] if len(parts) == 2 else name
-
-        if server and server in config.MCP_SERVERS:
-            if tool in config.MCP_SERVERS[server]["confirm_tools"]:
-                return True
-            if tool in config.MCP_SERVERS[server]["read_tools"]:
-                return False
-
+        qualified = name if name.startswith("mcp__") else f"mcp__{name}"
+        if _matches_any(qualified, config.PERMISSIONS_ALWAYS_ASK):
+            return True
+        if _matches_any(qualified, config.PERMISSIONS_AUTO_APPROVE):
+            return False
         return True
 
     def _request_confirmation(self, tool_call):

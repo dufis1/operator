@@ -830,19 +830,19 @@ _BUILTIN_TOOLS = [
 
 
 def _step_permissions(state: WizardState) -> None:
-    """Permission policy for claude_cli bots — single-screen tool checklist.
+    """Permission policy — single-screen built-in-tool checklist.
 
-    No-op for non-claude_cli bots (track-B uses per-MCP confirm_tools/read_tools
-    in the mcp_servers block). For claude_cli bots, presents one picker over the
-    built-in Claude Code tools: checked = auto-approve, unchecked = always-ask.
-    Output is written to bot_cfg.permissions.auto_approve and .always_ask as
-    bare tool names. MCP-tool patterns (e.g. mcp__sentry__get_*) are not
-    surfaced here — power users edit the YAML directly per README.
+    Same shape for both tracks. Track-A (claude_cli) tool names — Read,
+    Bash, Write, etc. — match exactly; for track-B (openai/anthropic
+    outer LLM) those names won't fire because track-B doesn't use them,
+    so the entries are inert (no harm). Track-B's MCP tools are still
+    gated by the legacy per-MCP read_tools / confirm_tools blocks until
+    the user moves them into the unified permissions list — config.py
+    translates legacy entries at load time, so existing configs keep
+    working unchanged. MCP-tool patterns (e.g. mcp__sentry__get_*) are
+    not surfaced in the wizard; power users edit the YAML directly per
+    README.
     """
-    provider = ((state.bot_cfg.get("llm") or {}).get("provider") or "").lower()
-    if provider != "claude_cli":
-        return
-
     console.print("[bold]4. Permissions[/bold]")
     console.print(
         "  [dim]Which built-in tools should run silently vs. ask in chat?[/dim]\n"
@@ -1159,13 +1159,14 @@ def run(argv: list[str]) -> int:
         console.clear()
         _step2_mcps(state)
 
-        # Permissions step (claude_cli bots only) sits here so users see the
-        # tools-and-trust pair on adjacent screens. _step_permissions returns
-        # immediately for non-claude_cli bots so console.clear() doesn't blank
-        # the screen unnecessarily.
-        if ((state.bot_cfg.get("llm") or {}).get("provider") or "").lower() == "claude_cli":
-            console.clear()
-            _step_permissions(state)
+        # Permissions sit between Tools (MCPs) and System Prompt — the user
+        # just chose which MCPs are on, now they decide how trusting to be
+        # with the tools surface. Same shape for both tracks: the wizard
+        # writes permissions.auto_approve / always_ask. Track-B configs may
+        # also still carry legacy per-MCP read_tools / confirm_tools blocks;
+        # config.py translates those into the unified lists at load time.
+        console.clear()
+        _step_permissions(state)
 
         console.clear()
         _step4_system_prompt(state)
