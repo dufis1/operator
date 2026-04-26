@@ -804,6 +804,117 @@ def _prompt_add_external_path(state: WizardState) -> bool:
     return True
 
 
+# ── Step 3.5 — Permissions (claude_cli bots only) ─────────────────────────
+
+
+# Built-in tools the claude_cli provider exposes. (name, default_auto_approve,
+# note). The wizard renders this as a single picker; checked = auto-approve,
+# unchecked = ask in chat. Unknown tools (anything the LLM picks up from MCP
+# servers that aren't in this list) ask by default — power users can edit the
+# YAML to add `mcp__server__get_*` patterns to auto_approve.
+_BUILTIN_TOOLS = [
+    ("Read",         True,  "read a file"),
+    ("Grep",         True,  "search files"),
+    ("Glob",         True,  "list files by pattern"),
+    ("LS",           True,  "list a directory"),
+    ("WebSearch",    True,  "search the web"),
+    ("ToolSearch",   True,  "load MCP tool schemas (safe — metadata only)"),
+    ("Bash",         False, "run a shell command"),
+    ("Write",        False, "create / overwrite a file"),
+    ("Edit",         False, "modify a file"),
+    ("MultiEdit",    False, "modify a file in multiple hunks"),
+    ("NotebookEdit", False, "modify a Jupyter notebook"),
+    ("WebFetch",     False, "fetch a URL"),
+    ("Task",         False, "spawn a sub-agent (opaque)"),
+]
+
+
+def _step_permissions(state: WizardState) -> None:
+    """Permission policy for claude_cli bots — single-screen tool checklist.
+
+    No-op for non-claude_cli bots (track-B uses per-MCP confirm_tools/read_tools
+    in the mcp_servers block). For claude_cli bots, presents one picker over the
+    built-in Claude Code tools: checked = auto-approve, unchecked = always-ask.
+    Output is written to bot_cfg.permissions.auto_approve and .always_ask as
+    bare tool names. MCP-tool patterns (e.g. mcp__sentry__get_*) are not
+    surfaced here — power users edit the YAML directly per README.
+    """
+    provider = ((state.bot_cfg.get("llm") or {}).get("provider") or "").lower()
+    if provider != "claude_cli":
+        return
+
+    console.print("[bold]4. Permissions[/bold]")
+    console.print(
+        "  [dim]Which built-in tools should run silently vs. ask in chat?[/dim]\n"
+    )
+
+    state.bot_cfg.setdefault("permissions", {})
+    existing_auto = set(state.bot_cfg["permissions"].get("auto_approve") or [])
+    existing_ask  = set(state.bot_cfg["permissions"].get("always_ask")   or [])
+
+    # Edit-in-place: preseed from the current config. New bot: preseed from
+    # _BUILTIN_TOOLS defaults. Either way, an unrecognized literal already in
+    # auto_approve / always_ask is preserved when we write back.
+    if existing_auto or existing_ask:
+        initial_checked = [name in existing_auto for name, _, _ in _BUILTIN_TOOLS]
+    else:
+        initial_checked = [default for _, default, _ in _BUILTIN_TOOLS]
+
+    choices = [
+        Choice(label=name, sublabel=note)
+        for name, _default, note in _BUILTIN_TOOLS
+    ]
+
+    def right_pane(_cursor, checked):
+        on  = [_BUILTIN_TOOLS[i][0] for i, c in enumerate(checked) if c]
+        off = [_BUILTIN_TOOLS[i][0] for i, c in enumerate(checked) if not c]
+        lines = [
+            Text("Auto-approve (silent)", style="bold"),
+            Text("  " + (", ".join(on) if on else "(none)")),
+            Text(""),
+            Text("Always ask in chat", style="bold"),
+            Text("  " + (", ".join(off) if off else "(none)")),
+        ]
+        return Group(*lines)
+
+    checked = select_many(
+        title="Permissions — space to toggle, enter to confirm",
+        choices=choices,
+        initial_checked=initial_checked,
+        right_pane=right_pane,
+        console=console,
+    )
+
+    auto_approve = [name for (name, _, _), c in zip(_BUILTIN_TOOLS, checked) if c]
+    always_ask   = [name for (name, _, _), c in zip(_BUILTIN_TOOLS, checked) if not c]
+
+    # Preserve any extra entries the user added by hand (MCP patterns, custom
+    # tool names) — append them after the wizard-managed entries so the bare
+    # names stay near the top of the YAML for readability.
+    extras_auto = [n for n in (state.bot_cfg["permissions"].get("auto_approve") or [])
+                   if n not in {t[0] for t in _BUILTIN_TOOLS}]
+    extras_ask  = [n for n in (state.bot_cfg["permissions"].get("always_ask")   or [])
+                   if n not in {t[0] for t in _BUILTIN_TOOLS}]
+
+    state.bot_cfg["permissions"]["auto_approve"] = auto_approve + extras_auto
+    state.bot_cfg["permissions"]["always_ask"]   = always_ask   + extras_ask
+
+    console.print(
+        f"  ✓ {len(auto_approve)} auto-approve, {len(always_ask)} always-ask"
+    )
+    if extras_auto or extras_ask:
+        console.print(
+            f"  [dim]preserved {len(extras_auto) + len(extras_ask)} extra entr"
+            f"{'y' if (len(extras_auto) + len(extras_ask)) == 1 else 'ies'} "
+            "(MCP patterns / custom tools)[/dim]"
+        )
+    console.print(
+        "  [dim]MCP tools ask by default. To auto-approve specific ones, edit "
+        "agents/<bot>/config.yaml — patterns like mcp__sentry__get_* are "
+        "supported. See README → MCP permissions.[/dim]"
+    )
+
+
 # ── Step 4 — System Prompt (personality + ground rules) ───────────────────
 
 
@@ -1047,6 +1158,14 @@ def run(argv: list[str]) -> int:
 
         console.clear()
         _step2_mcps(state)
+
+        # Permissions step (claude_cli bots only) sits here so users see the
+        # tools-and-trust pair on adjacent screens. _step_permissions returns
+        # immediately for non-claude_cli bots so console.clear() doesn't blank
+        # the screen unnecessarily.
+        if ((state.bot_cfg.get("llm") or {}).get("provider") or "").lower() == "claude_cli":
+            console.clear()
+            _step_permissions(state)
 
         console.clear()
         _step4_system_prompt(state)

@@ -46,6 +46,53 @@ All of the above are ignored by `.gitignore`. If you see one show up in
 `git status` untracked, something has gone wrong — don't `git add .` blindly.
 See `docs/security.md` for the full threat model.
 
+## MCP permissions
+
+For the `claude` agent (track A), built-in tools (Read, Bash, Write, …) are
+gated by the `permissions` block in `agents/<bot>/config.yaml`. The `brainchild
+build` wizard walks you through the built-in tools as a checklist; tools listed
+under `auto_approve` run silently, anything under `always_ask` (and anything
+not on either list) pauses the bot for a chat confirmation.
+
+**MCP tools** (Sentry, Linear, GitHub, etc.) ask by default — every Sentry
+issue lookup, every Linear ticket fetch, every GitHub PR read. To skip the
+prompt for routine reads, edit the YAML and add fnmatch patterns:
+
+```yaml
+permissions:
+  auto_approve:
+    - Read
+    - Grep
+    - Glob
+    - LS
+    - WebSearch
+    - ToolSearch
+    # Per-server read auto-approval. Patterns are fnmatch globs.
+    - "mcp__sentry__get_*"
+    - "mcp__sentry__list_*"
+    - "mcp__sentry__search_*"
+    - "mcp__claude_ai_Linear__get_*"
+    - "mcp__claude_ai_Linear__list_*"
+  always_ask:
+    - Bash
+    - Write
+    - Edit
+    - MultiEdit
+    - NotebookEdit
+    - WebFetch
+    - Task
+    # Specific deny on top of a broad allow — always_ask wins on overlap:
+    - "mcp__sentry__analyze_issue_with_seer"
+```
+
+`always_ask` is matched first, so an explicit deny pattern beats a broader
+allow pattern on the same tool.
+
+**Audit your patterns after upgrading an MCP server.** MCP tool names are
+server-controlled. If a server renames `get_resource` → `fetch_resource`, your
+`get_*` glob silently stops covering the renamed tool — which fails safe (the
+bot starts asking again) but is worth a glance after `claude mcp` upgrades.
+
 ## Uninstall
 
 ```bash
