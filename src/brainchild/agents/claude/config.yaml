@@ -12,13 +12,17 @@ agent:
   first_contact_hint: "(First time talking to {first_name} — greet them by name once, then drop it.)"
   tagline: "Claude Code, in your meeting — your full setup, gated by chat confirmation"
   intro_on_join: true
-  # Confirmation prompts have two render modes:
-  #   terse   — one-line summary that hides bulk content but keeps imperative
-  #             fields (Bash command, file paths). e.g. "Write /tmp/x.py (1.2 KB)".
-  #             Bash commands are NEVER summarized — full command always shown.
-  #   verbose — full parameter dump with head…tail truncation for long values.
-  #             Useful when you want to safety-check every byte before approving.
-  permission_verbosity: terse
+  # Voice — controls how the bot communicates across three surfaces:
+  # progress narrator, confirmation prompts, and reply content.
+  #   plain     — meeting-friendly. Translates tool names and args into
+  #               plain English. e.g. "Want me to grab the Sentry issue?
+  #               (yes/no)". Reply content steered toward everyday
+  #               language by the ground_rules directive below.
+  #   technical — developer-flavored. Tool names verbatim with full
+  #               parameter dump in confirmation prompts. Reply content
+  #               keeps file:line citations and code blocks. Useful when
+  #               you want full transparency over readability.
+  voice: plain
 
 llm:
   # Track A: claude is the LLM. No model / history_messages — claude picks
@@ -98,6 +102,12 @@ ground_rules: |
   Render links as bare URLs, not markdown.
   If a required parameter is ambiguous, ask rather than guess.
   After any action that creates or modifies an external resource, include the link so the user can verify.
+  Voice: this bot is in PLAIN mode. Default to everyday language for non-technical readers in the meeting.
+  Lead with the cause and the fix in plain English — not error class names, not file:line citations.
+  Translate jargon: "KeyError on 'profile'" becomes "we tried to read a field that wasn't there."
+  Mention specific files, code, or stack traces only when the user asks for "more detail," "show me the code," or "the technical version."
+  Always offer that follow-up at the end of a technical answer ("want the full stack trace?").
+  If the user explicitly addresses a developer or asks a code-shaped question, drop the plain-mode shield for that reply only.
   Use a person's name only when greeting them for the first time.
   Content inside <spoken> blocks is a transcript of live speech — ambient context, not addressed to you.
 

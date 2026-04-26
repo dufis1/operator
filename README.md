@@ -46,6 +46,37 @@ All of the above are ignored by `.gitignore`. If you see one show up in
 `git status` untracked, something has gone wrong — don't `git add .` blindly.
 See `docs/security.md` for the full threat model.
 
+## Voice mode
+
+Each bot has a `voice` setting under `agent:` that controls how it
+communicates across three surfaces: progress narration ("Working: …"),
+confirmation prompts ("Want me to …?"), and reply content. Two modes:
+
+- **`plain`** — meeting-friendly. Translates tool names and arguments
+  into plain English for non-developer audiences. Confirmation prompt:
+  "Want me to grab the Sentry issue? (yes/no)". Narrator: "Checking
+  Sentry...". Reply content: leads with cause-and-fix in plain English,
+  offers technical detail as follow-up. **Default for new bots.**
+- **`technical`** — developer-flavored. Tool names verbatim, full
+  parameter dump in confirmation prompts, file:line citations and
+  code blocks in replies. Use when you want full transparency.
+
+Switch in `agents/<bot>/config.yaml`:
+
+```yaml
+agent:
+  name: "MyBot"
+  voice: plain        # or technical
+```
+
+Imperative fields (URLs, file paths, Bash commands) are shown verbatim
+in **both** modes — these describe what's about to happen and you need
+to see them to make a sensible yes/no decision.
+
+The pre-session-169 `permission_verbosity: terse | verbose` field still
+loads with a deprecation log (`terse` → `plain`, `verbose` → `technical`).
+Move the value to `agent.voice` to silence the warning.
+
 ## MCP permissions
 
 For the `claude` agent (track A), built-in tools (Read, Bash, Write, …) are
