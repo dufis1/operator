@@ -48,18 +48,22 @@ See `docs/security.md` for the full threat model.
 
 ## Voice mode
 
-Each bot has a `voice` setting under `agent:` that controls how it
-communicates across three surfaces: progress narration ("Working: …"),
-confirmation prompts ("Want me to …?"), and reply content. Two modes:
+Each bot has a `voice` setting under `agent:`. It controls how much
+detail brainchild puts into the *system's* messages (the sterile
+approval challenge for destructive tools, the optional progress
+narrator). The bot's actual conversational voice — friendly,
+technical, in Spanish, or even pirate — lives in the `personality`
+and `ground_rules` blocks of the bot's config.yaml. Brainchild
+doesn't template persona; the bot speaks for itself.
 
-- **`plain`** — meeting-friendly. Translates tool names and arguments
-  into plain English for non-developer audiences. Confirmation prompt:
-  "Want me to grab the Sentry issue? (yes/no)". Narrator: "Checking
-  Sentry...". Reply content: leads with cause-and-fix in plain English,
-  offers technical detail as follow-up. **Default for new bots.**
-- **`technical`** — developer-flavored. Tool names verbatim, full
-  parameter dump in confirmation prompts, file:line citations and
-  code blocks in replies. Use when you want full transparency.
+- **`plain`** — meeting-friendly. The system's approval challenge is
+  a one-line summary that hides bulk content (Write body, MultiEdit
+  edits) but keeps imperative fields (Bash command, file paths, URLs)
+  verbatim. Brainchild's narrator stays silent — the bot self-narrates
+  in chat in its own voice via a `ground_rules` directive. **Default.**
+- **`technical`** — developer-flavored. The approval challenge is a
+  full parameter dump with head…tail truncation. Brainchild's narrator
+  emits deterministic "Working: …" lines for auto-approved tools.
 
 Switch in `agents/<bot>/config.yaml`:
 
@@ -68,6 +72,13 @@ agent:
   name: "MyBot"
   voice: plain        # or technical
 ```
+
+The conversational shape — "Let me check Sentry first, ok?" or "Aye
+matey, time to peek at yer files" — comes from the bot's prompt, not
+from brainchild. So if you set the bot's `personality` to talk like a
+pirate, every chat message it sends in plain mode reads like a pirate.
+The system's approval challenge stays neutral underneath as a
+machine-readable safety gate.
 
 Imperative fields (URLs, file paths, Bash commands) are shown verbatim
 in **both** modes — these describe what's about to happen and you need

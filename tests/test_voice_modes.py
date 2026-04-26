@@ -1,7 +1,18 @@
 """
-Tests for the voice mode redesign — plain vs technical across the
-prompt + narrator surfaces. The third surface (reply content) is
-LLM-prompted via ground_rules and is not unit-testable from here.
+Tests for the voice mode redesign.
+
+Architectural shape: brainchild emits a sterile, neutral confirmation
+prompt regardless of voice. The bot's persona (set via personality +
+ground_rules) is responsible for the conversational preamble that
+appears in chat before the system's prompt. This keeps customization
+(pirate voice, Spanish, etc.) cleanly in prompt territory and out of
+Python templating.
+
+The two voice modes only choose how much detail to show in the
+sterile prompt:
+  plain     — one-line summary that hides bulk content fields, keeps
+              imperative fields verbatim
+  technical — full parameter dump with head…tail truncation
 
 Run: python tests/test_voice_modes.py
 """
@@ -18,11 +29,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src
 
 
 def _load_config(yaml_text):
-    """Boot brainchild.config with a temporary agents/fakebot/config.yaml.
-
-    Override $HOME so config.py reads our scratch dir. Wipe cached config
-    so each call gets a fresh read.
-    """
     tmp = tempfile.mkdtemp()
     bot_dir = Path(tmp) / ".brainchild" / "agents" / "fakebot"
     bot_dir.mkdir(parents=True)
@@ -37,7 +43,6 @@ def _load_config(yaml_text):
 
 
 def _yaml(voice_line=""):
-    """Compose a minimal valid YAML, optionally with a voice line."""
     return f"""
         agent:
           name: "FakeBot"
@@ -84,38 +89,6 @@ def test_legacy_permission_verbosity_translates():
     assert cfg.VOICE == "technical"
 
 
-def test_format_plain_prompts():
-    """Per-tool plain phrases have the right shape and embed imperative fields."""
-    from brainchild.pipeline.permission_chat_handler import _format_plain
-    assert "shell command" in _format_plain("Bash", {"command": "ls"})
-    assert "`ls`"          in _format_plain("Bash", {"command": "ls"})
-    assert "read the file" in _format_plain("Read", {"file_path": "/tmp/x.py"})
-    assert "/tmp/x.py"     in _format_plain("Read", {"file_path": "/tmp/x.py"})
-    assert "write a new file at" in _format_plain("Write", {"file_path": "/tmp/y.py", "content": "hi"})
-    assert "fetch"         in _format_plain("WebFetch", {"url": "https://example.com/x"})
-    assert "https://example.com/x" in _format_plain("WebFetch", {"url": "https://example.com/x"})
-
-
-def test_format_plain_mcp_translation():
-    """MCP tools get translated via the friendly-name + verb convention."""
-    from brainchild.pipeline.permission_chat_handler import _format_plain
-    out = _format_plain("mcp__sentry__get_sentry_resource", {"url": "https://x"})
-    assert "Sentry" in out
-    assert "look up" in out
-
-    out = _format_plain("mcp__claude_ai_Linear__save_issue", {})
-    assert "Linear" in out
-    assert "save" in out
-
-
-def test_format_plain_unknown_tool_falls_back_with_imperative_visible():
-    """Unknown tool with imperative field still surfaces the field value."""
-    from brainchild.pipeline.permission_chat_handler import _format_plain
-    out = _format_plain("SomeBrandNewTool", {"url": "https://important.com/path"})
-    assert "SomeBrandNewTool" in out
-    assert "https://important.com/path" in out
-
-
 def test_url_imperative_field_never_collapsed_in_terse():
     """The Sentry URL bug: terse mode must keep URLs verbatim, not collapse to (89 B)."""
     from brainchild.pipeline.permission_chat_handler import _format_terse
@@ -126,19 +99,24 @@ def test_url_imperative_field_never_collapsed_in_terse():
 
 
 def test_format_confirmation_plain_mode():
-    """End-to-end: voice=plain produces 'Want me to ...?' framing."""
+    """Plain voice produces a sterile single-line 'Run? <terse>\\nOK?' prompt.
+
+    No persona phrasing — the bot's ground_rules directive is what
+    paraphrases destructive actions in conversational chat *before*
+    this sterile prompt arrives.
+    """
     _load_config(_yaml("voice: plain"))
     if "brainchild.pipeline.permission_chat_handler" in sys.modules:
         del sys.modules["brainchild.pipeline.permission_chat_handler"]
     from brainchild.pipeline.permission_chat_handler import _format_confirmation
     out = _format_confirmation("Bash", {"command": "ls /tmp"})
-    assert out.startswith("Want me to")
-    assert "(yes/no)" in out
+    assert out.startswith("Run? Bash:")
     assert "ls /tmp" in out
+    assert out.rstrip().endswith("OK?")
 
 
 def test_format_confirmation_technical_mode():
-    """End-to-end: voice=technical produces 'Run X?\\n  • ...' framing."""
+    """Technical voice produces a multi-line 'Run X?\\n  • ...' parameter dump."""
     _load_config(_yaml("voice: technical"))
     if "brainchild.pipeline.permission_chat_handler" in sys.modules:
         del sys.modules["brainchild.pipeline.permission_chat_handler"]
@@ -149,27 +127,42 @@ def test_format_confirmation_technical_mode():
     assert "OK?" in out
 
 
-def test_narrator_plain_picks_one_status_per_batch():
-    """The plain narrator collapses N tool calls into one conversational line."""
+def test_no_persona_templating_remains():
+    """The brainchild templating layer must NOT carry per-tool English phrases.
+
+    If `_format_plain`, `_friendly_mcp_name`, or `_MCP_SERVER_FRIENDLY`
+    come back, persona customization (pirate, Spanish, etc.) breaks
+    again. They live in the bot's prompt now, not in Python.
+    """
+    import brainchild.pipeline.permission_chat_handler as h
+    for forbidden in ("_format_plain", "_friendly_mcp_name",
+                      "_MCP_SERVER_FRIENDLY", "_MCP_VERB_FRIENDLY"):
+        assert not hasattr(h, forbidden), (
+            f"{forbidden!r} reappeared in permission_chat_handler — "
+            f"persona-flavored phrases belong in ground_rules, not Python"
+        )
+
+
+def test_narrator_silent_in_plain_mode():
+    """Plain voice → brainchild narrator stays silent; bot self-narrates."""
+    _load_config(_yaml("voice: plain"))
+    if "brainchild.pipeline.chat_runner" in sys.modules:
+        del sys.modules["brainchild.pipeline.chat_runner"]
     from brainchild.pipeline.chat_runner import ChatRunner
-    # Three reads + one grep should collapse to "Reading through the code..."
-    line = ChatRunner._narrator_plain([
-        ("Read", {"file_path": "/a"}),
-        ("Read", {"file_path": "/b"}),
-        ("Grep", {"pattern": "foo"}),
-    ])
-    assert "code" in line.lower()
 
-    line = ChatRunner._narrator_plain([("ToolSearch", {"query": "select:foo"})])
-    assert "tools" in line.lower()
+    runner = ChatRunner.__new__(ChatRunner)
+    runner._narration_auto_approve = {"Read"}
+    runner._narration_buffer = []
+    import threading
+    runner._narration_lock = threading.Lock()
+    runner._send = MagicMock()
 
-    line = ChatRunner._narrator_plain([
-        ("mcp__sentry__get_sentry_resource", {"url": "https://x"}),
-    ])
-    assert "Sentry" in line
+    runner._on_tool_use("Read", {"file_path": "/tmp/x"})
 
-    line = ChatRunner._narrator_plain([("WebFetch", {"url": "https://x"})])
-    assert "online" in line.lower() or "web" in line.lower()
+    assert not runner._send.called, (
+        "Plain voice should let the bot self-narrate via prompt — "
+        "brainchild's narrator must stay silent."
+    )
 
 
 if __name__ == "__main__":
